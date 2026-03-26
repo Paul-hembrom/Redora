@@ -70,7 +70,14 @@ export default function App() {
   }, [user, selectedChapterId, logout, chats]);
 
   if (loading) {
-    return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-emerald-500">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center">
+        <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.2)] mb-4">
+          <BookOpen className="w-6 h-6 animate-pulse" />
+        </div>
+        <p className="text-white/40 font-display tracking-widest uppercase text-sm font-medium animate-pulse">Loading Readora</p>
+      </div>
+    );
   }
 
   if (!user) {
@@ -182,24 +189,26 @@ export default function App() {
   const selectedChapter = selectedDoc?.chapters.find(c => c.id === selectedChapterId);
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0a0a] text-neutral-200 font-sans overflow-hidden">
+    <div className="flex flex-col h-screen bg-[#050505] text-white font-sans overflow-hidden">
       {/* Top Navigation Header */}
-      <header className="h-14 border-b border-neutral-800 bg-[#0f0f0f] flex items-center justify-between px-4 shrink-0">
-        <div className="flex items-center gap-2 text-emerald-400">
-          <BookOpen className="w-5 h-5" />
-          <h1 className="font-semibold text-sm tracking-tight text-neutral-100">AI Book Reader</h1>
+      <header className="h-16 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-20">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+            <BookOpen className="w-4 h-4 text-cyan-400" />
+          </div>
+          <h1 className="font-display font-bold text-lg tracking-wide">READORA</h1>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-neutral-400">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 text-sm text-white/50 font-medium">
             <UserIcon className="w-4 h-4" />
             <span>{user.name}</span>
           </div>
           <button 
             onClick={logout}
-            className="text-neutral-500 hover:text-red-400 transition-colors flex items-center gap-1 text-sm"
+            className="text-white/40 hover:text-red-400 transition-colors flex items-center gap-2 text-sm font-medium"
           >
             <LogOut className="w-4 h-4" />
-            Logout
+            Sign Out
           </button>
         </div>
       </header>
@@ -225,12 +234,21 @@ export default function App() {
             error={chatError}
           />
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-neutral-600 p-8 text-center">
-            <BookOpen className="w-16 h-16 mb-4 opacity-20" />
-            <h2 className="text-xl font-semibold text-neutral-400 mb-2">Welcome, {user.name}</h2>
-            <p className="max-w-md text-sm">
-              Upload a document to automatically detect chapters, generate summaries, and interact with the text using a chapter-specific query engine.
-            </p>
+          <div className="flex-1 flex flex-col items-center justify-center text-white/40 p-8 text-center relative overflow-hidden">
+            {/* Abstract Background Glow */}
+            <div className="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
+              <div className="w-[40rem] h-[40rem] bg-cyan-900/10 rounded-full blur-[100px]" />
+            </div>
+            
+            <div className="relative z-10 flex flex-col items-center">
+              <div className="w-20 h-20 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 shadow-2xl">
+                <BookOpen className="w-10 h-10 text-cyan-400/50" />
+              </div>
+              <h2 className="font-display text-3xl font-semibold text-white mb-3">Welcome, {user.name}</h2>
+              <p className="max-w-md text-base font-light text-white/50 leading-relaxed">
+                Upload a document to automatically detect chapters, generate summaries, and interact with the text using a chapter-specific query engine.
+              </p>
+            </div>
           </div>
         )}
       </div>
