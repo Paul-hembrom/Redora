@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { supabaseAdmin } from './lib/supabase'; // adjust the path if needed
+import { supabaseAdmin } from './lib/supabase.js'; // adjust the path if needed
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 

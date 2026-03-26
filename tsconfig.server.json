@@ -7,10 +7,11 @@
     "outDir": "./dist",
     "rootDir": ".",
     "noEmit": false,
-    "allowImportingTsExtensions": false,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true
   },
-  "include": ["server.ts"],
+  "include": ["server.ts", "lib/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
