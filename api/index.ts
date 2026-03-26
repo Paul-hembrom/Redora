@@ -1,3 +1,3 @@
-import { app } from '../server';
-
+// api/index.js
+import app from '../dist/server.js';
 export default app;

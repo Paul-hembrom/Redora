@@ -1,13 +1,8 @@
 {
-  "functions": {
-    "api/**/*.ts": {
-      "includeFiles": "node_modules/better-sqlite3/build/Release/better_sqlite3.node"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.ts"
+      "destination": "/api/index.js"
     },
     {
       "source": "/(.*)",
