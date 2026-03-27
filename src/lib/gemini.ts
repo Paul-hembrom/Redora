@@ -9,7 +9,7 @@ const groq = new OpenAI({
 
 // Use a model that is definitely available on Groq
 // Common reliable models: 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768'
-const MODEL_NAME = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const MODEL_NAME = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 export async function generateChapterMetadata(content: string, chapterNumber: number) {
   const prompt = `
