@@ -18,13 +18,9 @@ export default function App() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   
-  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
-  
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isTyping, setIsTyping] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -47,27 +43,6 @@ export default function App() {
         .catch(err => console.error('Failed to fetch documents', err));
     }
   }, [user, logout]);
-
-  useEffect(() => {
-    if (user && selectedChapterId && !chats[selectedChapterId]) {
-      fetch(`/api/chats/${selectedChapterId}`)
-        .then(res => {
-          if (res.status === 401) {
-            logout();
-            throw new Error('Unauthorized');
-          }
-          return res.json();
-        })
-        .then(data => {
-          if (Array.isArray(data)) {
-            setChats(prev => ({ ...prev, [selectedChapterId]: data }));
-          } else {
-            console.error('Failed to fetch chats:', data);
-          }
-        })
-        .catch(err => console.error('Failed to fetch chats', err));
-    }
-  }, [user, selectedChapterId, logout, chats]);
 
   if (loading) {
     return (
@@ -126,62 +101,20 @@ export default function App() {
   const handleSelectChapter = (docId: string, chapterId: string) => {
     setSelectedDocId(docId);
     setSelectedChapterId(chapterId);
-    setChatError(null);
   };
 
-  const handleSendMessage = async (text: string) => {
-    if (!selectedChapterId || !selectedDocId) return;
-    
-    const doc = documents.find(d => d.id === selectedDocId);
-    const chapter = doc?.chapters.find(c => c.id === selectedChapterId);
-    if (!chapter) return;
-
-    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text };
-    
-    setChats(prev => ({
-      ...prev,
-      [selectedChapterId]: [...(prev[selectedChapterId] || []), userMsg]
-    }));
-
-    // Save user message to DB
-    fetch('/api/chats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...userMsg, chapterId: selectedChapterId })
-    }).catch(console.error);
-
-    setIsTyping(true);
-    setChatError(null);
-
+  const handleDeleteDocument = async (docId: string) => {
     try {
-      const history = chats[selectedChapterId] || [];
-      const aiResult = await generateChatResponse(text, chapter.content, history);
+      const res = await fetch(`/api/documents/${docId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete document');
       
-      const aiMsg: ChatMessage = {
-        id: uuidv4(),
-        role: 'model',
-        text: aiResult.response,
-        relationshipGraph: aiResult.relationshipGraph,
-        followUps: aiResult.followUpQuestions
-      };
-
-      setChats(prev => ({
-        ...prev,
-        [selectedChapterId]: [...(prev[selectedChapterId] || []), aiMsg]
-      }));
-
-      // Save AI message to DB
-      fetch('/api/chats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...aiMsg, chapterId: selectedChapterId })
-      }).catch(console.error);
-
-    } catch (err: any) {
-      console.error(err);
-      setChatError(err.message || 'Failed to generate response.');
-    } finally {
-      setIsTyping(false);
+      setDocuments(prev => prev.filter(d => d.id !== docId));
+      if (selectedDocId === docId) {
+        setSelectedDocId(null);
+        setSelectedChapterId(null);
+      }
+    } catch (err) {
+      console.error('Error deleting document:', err);
     }
   };
 
@@ -220,6 +153,7 @@ export default function App() {
           selectedChapterId={selectedChapterId}
           onSelectChapter={handleSelectChapter}
           onUpload={handleUpload}
+          onDeleteDocument={handleDeleteDocument}
           isUploading={isUploading}
           uploadProgress={uploadProgress}
           uploadError={uploadError}
@@ -228,10 +162,6 @@ export default function App() {
         {selectedChapter ? (
           <ChatArea 
             chapter={selectedChapter}
-            messages={chats[selectedChapter.id] || []}
-            onSendMessage={handleSendMessage}
-            isTyping={isTyping}
-            error={chatError}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-white/40 p-8 text-center relative overflow-hidden">

@@ -7,6 +7,8 @@ import RelationshipGraph from './RelationshipGraph';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
+import { v4 as uuidv4 } from 'uuid';
+import { generateChatResponse } from '../lib/gemini';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -14,15 +16,35 @@ function cn(...inputs: ClassValue[]) {
 
 interface Props {
   chapter: Chapter;
-  messages: ChatMessage[];
-  onSendMessage: (text: string) => void;
-  isTyping: boolean;
-  error: string | null;
 }
 
-export default function ChatArea({ chapter, messages, onSendMessage, isTyping, error }: Props) {
+export default function ChatArea({ chapter }: Props) {
   const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMessages([]);
+    setError(null);
+    setIsTyping(false);
+    
+    fetch(`/api/chats/${chapter.id}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load chat history');
+        return res.json();
+      })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setMessages(data);
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setError('Failed to load chat history.');
+      });
+  }, [chapter.id]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -32,11 +54,53 @@ export default function ChatArea({ chapter, messages, onSendMessage, isTyping, e
     scrollToBottom();
   }, [messages, isTyping]);
 
+  const handleSendMessage = async (text: string) => {
+    if (!text.trim() || isTyping) return;
+    
+    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text };
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setIsTyping(true);
+    setError(null);
+
+    // Save user message to DB
+    fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+    }).catch(console.error);
+
+    try {
+      const aiResult = await generateChatResponse(text, chapter.content, messages);
+      
+      const aiMsg: ChatMessage = {
+        id: uuidv4(),
+        role: 'model',
+        text: aiResult.response,
+        relationshipGraph: aiResult.relationshipGraph,
+        followUps: aiResult.followUpQuestions
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+      // Save AI message to DB
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+      }).catch(console.error);
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to generate response.');
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isTyping) return;
-    onSendMessage(input);
-    setInput('');
+    handleSendMessage(input);
   };
 
   return (

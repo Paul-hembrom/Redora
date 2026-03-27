@@ -21,6 +21,11 @@ export default function RelationshipGraph({ data }: Props) {
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [filterTerm, setFilterTerm] = useState('');
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const selectedNodeRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedNodeRef.current = selectedNode;
+  }, [selectedNode]);
 
   const filteredData = useMemo(() => {
     if (!filterTerm.trim()) return data;
@@ -120,6 +125,7 @@ export default function RelationshipGraph({ data }: Props) {
       .selectAll("text")
       .data(links)
       .join("text")
+      .attr("class", "link-text")
       .attr("font-size", "8px")
       .attr("fill", "#9ca3af")
       .attr("text-anchor", "middle")
@@ -132,6 +138,7 @@ export default function RelationshipGraph({ data }: Props) {
       .selectAll("circle")
       .data(nodes)
       .join("circle")
+      .attr("class", "node-circle")
       .attr("r", 5)
       .attr("fill", "#050505")
       .call(drag(simulation));
@@ -143,6 +150,7 @@ export default function RelationshipGraph({ data }: Props) {
       .selectAll("text")
       .data(nodes)
       .join("text")
+      .attr("class", "node-text")
       .attr("font-size", "10px")
       .attr("fill", "#e5e5e5")
       .attr("dx", 8)
@@ -150,11 +158,13 @@ export default function RelationshipGraph({ data }: Props) {
       .text(d => d.id);
 
     node.on("mouseover", (event, d) => {
+      if (selectedNodeRef.current) return;
       node.attr("opacity", n => n.id === d.id || links.some(l => ((l.source as Node).id === d.id && (l.target as Node).id === n.id) || ((l.target as Node).id === d.id && (l.source as Node).id === n.id)) ? 1 : 0.2);
       link.attr("stroke-opacity", l => (l.source as Node).id === d.id || (l.target as Node).id === d.id ? 1 : 0.1);
       linkText.attr("opacity", l => (l.source as Node).id === d.id || (l.target as Node).id === d.id ? 1 : 0.1);
       nodeText.attr("opacity", n => n.id === d.id || links.some(l => ((l.source as Node).id === d.id && (l.target as Node).id === n.id) || ((l.target as Node).id === d.id && (l.source as Node).id === n.id)) ? 1 : 0.2);
     }).on("mouseout", () => {
+      if (selectedNodeRef.current) return;
       node.attr("opacity", 1);
       link.attr("stroke-opacity", 0.6);
       linkText.attr("opacity", 1);
@@ -216,6 +226,27 @@ export default function RelationshipGraph({ data }: Props) {
         .on("end", dragended);
     }
   }, [filteredData]);
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = d3.select(svgRef.current);
+    const node = svg.selectAll(".node-circle");
+    const link = svg.selectAll("line");
+    const linkText = svg.selectAll(".link-text");
+    const nodeText = svg.selectAll(".node-text");
+
+    if (selectedNode) {
+      node.attr("opacity", (n: any) => n.id === selectedNode || filteredData.some(l => (l.source === selectedNode && l.target === n.id) || (l.target === selectedNode && l.source === n.id)) ? 1 : 0.2);
+      link.attr("stroke-opacity", (l: any) => l.source.id === selectedNode || l.target.id === selectedNode ? 1 : 0.1);
+      linkText.attr("opacity", (l: any) => l.source.id === selectedNode || l.target.id === selectedNode ? 1 : 0.1);
+      nodeText.attr("opacity", (n: any) => n.id === selectedNode || filteredData.some(l => (l.source === selectedNode && l.target === n.id) || (l.target === selectedNode && l.source === n.id)) ? 1 : 0.2);
+    } else {
+      node.attr("opacity", 1);
+      link.attr("stroke-opacity", 0.6);
+      linkText.attr("opacity", 1);
+      nodeText.attr("opacity", 1);
+    }
+  }, [selectedNode, filteredData]);
 
   const exportSvg = () => {
     if (!svgRef.current) return;
@@ -337,35 +368,33 @@ export default function RelationshipGraph({ data }: Props) {
         <svg ref={svgRef} className="w-full h-full" />
 
         {selectedNode && (
-          <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-20 p-6 backdrop-blur-sm">
-            <div className="bg-[#0a0a0a] border border-white/10 p-6 rounded-2xl max-w-md w-full shadow-[0_0_40px_rgba(34,211,238,0.1)]">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-cyan-400 font-display font-semibold truncate text-xl tracking-wide">{selectedNode}</h3>
-                <button onClick={() => setSelectedNode(null)} className="text-white/40 hover:text-white transition-colors p-1 hover:bg-white/5 rounded-lg">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="text-sm text-white/70 max-h-64 overflow-y-auto pr-3 custom-scrollbar">
-                <p className="mb-3 text-xs text-white/40 uppercase tracking-widest font-medium">Connections</p>
-                {data.filter(d => d.source === selectedNode || d.target === selectedNode).length > 0 ? (
-                  <ul className="space-y-3">
-                    {data.filter(d => d.source === selectedNode || d.target === selectedNode).map((d, i) => (
-                      <li key={i} className="bg-white/5 p-4 rounded-xl border border-white/5 flex flex-col gap-2 hover:border-cyan-500/30 transition-colors">
-                        <div className="flex items-center gap-2 text-sm">
-                          <span className="text-white/40 font-light">{d.source === selectedNode ? 'Target:' : 'Source:'}</span>
-                          <span className="text-cyan-400 font-medium">{d.source === selectedNode ? d.target : d.source}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <span className="text-white/40 font-light">Relation:</span>
-                          <span className="text-white/90 italic font-light">{d.relation}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-white/40 italic text-sm font-light">No direct connections found.</p>
-                )}
-              </div>
+          <div className="absolute top-3 left-3 bottom-3 w-64 bg-[#0a0a0a]/90 backdrop-blur-md border border-white/10 p-4 rounded-xl shadow-[0_0_20px_rgba(34,211,238,0.05)] flex flex-col z-20">
+            <div className="flex justify-between items-center mb-4 shrink-0">
+              <h3 className="text-cyan-400 font-display font-semibold truncate text-base tracking-wide" title={selectedNode}>{selectedNode}</h3>
+              <button onClick={() => setSelectedNode(null)} className="text-white/40 hover:text-white transition-colors p-1 hover:bg-white/5 rounded-lg shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="text-sm text-white/70 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+              <p className="mb-2 text-[10px] text-white/40 uppercase tracking-widest font-medium">Connections</p>
+              {data.filter(d => d.source === selectedNode || d.target === selectedNode).length > 0 ? (
+                <ul className="space-y-2">
+                  {data.filter(d => d.source === selectedNode || d.target === selectedNode).map((d, i) => (
+                    <li key={i} className="bg-white/5 p-3 rounded-lg border border-white/5 flex flex-col gap-1 hover:border-cyan-500/30 transition-colors">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-white/40 font-light">{d.source === selectedNode ? 'Target:' : 'Source:'}</span>
+                        <span className="text-cyan-400 font-medium truncate" title={d.source === selectedNode ? d.target : d.source}>{d.source === selectedNode ? d.target : d.source}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-white/40 font-light">Relation:</span>
+                        <span className="text-white/90 italic font-light truncate" title={d.relation}>{d.relation}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-white/40 italic text-xs font-light">No direct connections found.</p>
+              )}
             </div>
           </div>
         )}

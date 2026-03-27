@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -15,12 +15,13 @@ interface Props {
   selectedChapterId: string | null;
   onSelectChapter: (docId: string, chapterId: string) => void;
   onUpload: (files: File[], options: PreprocessOptions) => void;
+  onDeleteDocument?: (docId: string) => void;
   isUploading: boolean;
   uploadProgress: string;
   uploadError: string | null;
 }
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, isUploading, uploadProgress, uploadError }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, isUploading, uploadProgress, uploadError }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -180,13 +181,24 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 )} />
                 <span className="text-sm font-medium text-white/80 truncate">{doc.name}</span>
               </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
-                className="p-1.5 text-white/30 hover:text-cyan-400 hover:bg-white/5 rounded-md transition-all shrink-0 ml-2"
-                title="Download text"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center shrink-0 ml-2">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
+                  className="p-1.5 text-white/30 hover:text-cyan-400 hover:bg-white/5 rounded-md transition-all"
+                  title="Download text"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                </button>
+                {onDeleteDocument && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc.id); }}
+                    className="p-1.5 text-white/30 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
+                    title="Delete document and chats"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             
             {expandedDocs.has(doc.id) && (
