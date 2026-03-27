@@ -4,23 +4,25 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import Login from './components/Login';
 import Signup from './components/Signup';
+import GlobalSearchModal from './components/GlobalSearchModal';
 import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
 import { generateChatResponse } from './lib/gemini';
 import { v4 as uuidv4 } from 'uuid';
-import { BookOpen, LogOut, User as UserIcon, Menu, X } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Menu, X, Search } from 'lucide-react';
 
 export default function App() {
   const { user, loading, logout } = useAuth();
   const [showLogin, setShowLogin] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState('');
+  const [uploadProgress, setUploadProgress] = useState<Record<string, string>>({});
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -140,6 +142,12 @@ export default function App() {
           <h1 className="font-display font-bold text-lg tracking-wide">READORA</h1>
         </div>
         <div className="flex items-center gap-4 md:gap-6">
+          <button
+            onClick={() => setIsSearchModalOpen(true)}
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <Search className="w-4 h-4" />
+          </button>
           <div className="flex items-center gap-2 text-sm text-white/50 font-medium hidden sm:flex">
             <UserIcon className="w-4 h-4" />
             <span className="truncate max-w-[100px] md:max-w-none">{user.name}</span>
@@ -153,6 +161,23 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      <GlobalSearchModal 
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onSelectResult={(docId, chapterId) => {
+          setSelectedDocId(docId);
+          if (chapterId) {
+            setSelectedChapterId(chapterId);
+          } else {
+            const doc = documents.find(d => d.id === docId);
+            if (doc && doc.chapters.length > 0) {
+              setSelectedChapterId(doc.chapters[0].id);
+            }
+          }
+          setIsSidebarOpen(false);
+        }}
+      />
 
       <div className="flex flex-1 overflow-hidden relative">
         {/* Mobile Sidebar Overlay */}

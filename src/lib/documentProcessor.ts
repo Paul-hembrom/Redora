@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
 import mammoth from 'mammoth';
+import ePub from 'epubjs';
 import { PreprocessOptions, Chapter } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { generateChapterMetadata } from './gemini';
@@ -37,6 +38,23 @@ export async function extractTextFromFile(file: File, onProgress?: (msg: string)
 
   if (extension === 'txt') {
     return new TextDecoder().decode(arrayBuffer);
+  }
+
+  if (extension === 'epub') {
+    if (onProgress) onProgress('Parsing EPUB...');
+    const book = ePub(arrayBuffer);
+    await book.ready;
+    let text = '';
+    const spine = book.spine as any;
+    for (let i = 0; i < spine.length; i++) {
+      if (onProgress) onProgress(`Extracting EPUB chapter ${i + 1} of ${spine.length}...`);
+      const item = spine.get(i);
+      const doc = await book.load(item.href);
+      if (doc && (doc as any).body) {
+        text += (doc as any).body.textContent + '\n\n';
+      }
+    }
+    return text;
   }
 
   if (extension === 'docx') {

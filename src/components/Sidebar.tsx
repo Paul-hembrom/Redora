@@ -48,7 +48,8 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     accept: {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'text/plain': ['.txt']
+      'text/plain': ['.txt'],
+      'application/epub+zip': ['.epub']
     },
     maxSize: 300 * 1024 * 1024,
     disabled: isUploading
@@ -124,7 +125,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
           <p className="text-sm font-medium text-white/60 group-hover:text-white/80 transition-colors">
             {isUploading ? uploadProgress : 'Upload Document'}
           </p>
-          <p className="text-xs text-white/30 mt-2 font-light">PDF, DOCX, TXT up to 300MB</p>
+          <p className="text-xs text-white/30 mt-2 font-light">PDF, DOCX, TXT, EPUB up to 300MB</p>
         </div>
         
         {(uploadError || localError) && (

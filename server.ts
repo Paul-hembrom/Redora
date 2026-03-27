@@ -202,6 +202,53 @@ app.post('/api/chats', authenticate, async (req: any, res) => {
   }
 });
 
+// --- Search Route ---
+app.get('/api/search', authenticate, async (req: any, res) => {
+  const query = req.query.q;
+  if (!query || typeof query !== 'string') {
+    return res.json({ documents: [], chapters: [], chats: [] });
+  }
+
+  try {
+    const searchPattern = `%${query}%`;
+    
+    // Search documents
+    const docs = await sql`
+      SELECT id, name, upload_date 
+      FROM documents 
+      WHERE user_id = ${req.userId} AND name ILIKE ${searchPattern}
+      LIMIT 10
+    `;
+
+    // Search chapters
+    const chapters = await sql`
+      SELECT c.id, c.document_id, c.chapter_number, c.title, c.summary, d.name as doc_name
+      FROM chapters c
+      JOIN documents d ON c.document_id = d.id
+      WHERE d.user_id = ${req.userId} AND (c.title ILIKE ${searchPattern} OR c.summary ILIKE ${searchPattern} OR c.content ILIKE ${searchPattern})
+      LIMIT 10
+    `;
+
+    // Search chats
+    const chats = await sql`
+      SELECT ch.id, ch.chapter_id, ch.text, ch.role, c.title as chapter_title, d.name as doc_name, d.id as doc_id
+      FROM chats ch
+      JOIN chapters c ON ch.chapter_id = c.id
+      JOIN documents d ON c.document_id = d.id
+      WHERE ch.user_id = ${req.userId} AND ch.text ILIKE ${searchPattern}
+      LIMIT 10
+    `;
+
+    res.json({
+      documents: docs,
+      chapters: chapters,
+      chats: chats
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function startServer() {
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
