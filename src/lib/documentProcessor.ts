@@ -31,7 +31,7 @@ export function preprocessText(text: string, options: PreprocessOptions): string
   return words.join(' ');
 }
 
-export async function extractTextFromFile(file: File): Promise<string> {
+export async function extractTextFromFile(file: File, onProgress?: (msg: string) => void): Promise<string> {
   const extension = file.name.split('.').pop()?.toLowerCase();
   const arrayBuffer = await file.arrayBuffer();
 
@@ -45,26 +45,37 @@ export async function extractTextFromFile(file: File): Promise<string> {
   }
 
   if (extension === 'pdf') {
-    try {
+    const extractPdf = async (workerSrc?: string) => {
+      if (workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+      }
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       let text = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map((item: any) => item.str).join(' ') + '\n';
+      const batchSize = 10;
+      for (let i = 1; i <= pdf.numPages; i += batchSize) {
+        if (onProgress) {
+          onProgress(`Extracting PDF pages ${i} to ${Math.min(i + batchSize - 1, pdf.numPages)} of ${pdf.numPages}...`);
+        }
+        const pagePromises = [];
+        for (let j = 0; j < batchSize && (i + j) <= pdf.numPages; j++) {
+          pagePromises.push(
+            pdf.getPage(i + j).then(async (page) => {
+              const content = await page.getTextContent();
+              return content.items.map((item: any) => item.str).join(' ');
+            })
+          );
+        }
+        const pagesText = await Promise.all(pagePromises);
+        text += pagesText.join('\n') + '\n';
       }
       return text;
+    };
+
+    try {
+      return await extractPdf();
     } catch (error) {
       console.error("Primary PDF extraction failed, trying fallback worker...", error);
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let text = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        text += content.items.map((item: any) => item.str).join(' ') + '\n';
-      }
-      return text;
+      return await extractPdf(`https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`);
     }
   }
 
@@ -79,17 +90,37 @@ export function splitIntoChapters(text: string): string[] {
     return splits;
   }
   
-  const chunkSize = 15000;
-  const chunks = [];
-  for (let i = 0; i < text.length; i += chunkSize) {
-    chunks.push(text.slice(i, i + chunkSize));
+  // Fallback: Split by paragraphs, accumulating up to a max chunk size
+  const maxChunkSize = 15000;
+  const paragraphs = text.split(/\n\s*\n/);
+  const chunks: string[] = [];
+  let currentChunk = '';
+  
+  for (const para of paragraphs) {
+    if (currentChunk.length + para.length > maxChunkSize && currentChunk.length > 0) {
+      chunks.push(currentChunk);
+      currentChunk = para;
+    } else {
+      currentChunk += (currentChunk ? '\n\n' : '') + para;
+    }
   }
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+  
+  // If paragraphs were too long (rare but possible), fallback to safe slice
+  if (chunks.length === 0) {
+    for (let i = 0; i < text.length; i += maxChunkSize) {
+      chunks.push(text.slice(i, i + maxChunkSize));
+    }
+  }
+  
   return chunks;
 }
 
 export async function processDocument(file: File, options: PreprocessOptions, onProgress: (msg: string) => void): Promise<Chapter[]> {
   onProgress('Extracting text...');
-  const rawText = await extractTextFromFile(file);
+  const rawText = await extractTextFromFile(file, onProgress);
   
   onProgress('Preprocessing text...');
   const processedText = preprocessText(rawText, options);
@@ -100,7 +131,8 @@ export async function processDocument(file: File, options: PreprocessOptions, on
   const chapters: Chapter[] = [];
   
   for (let i = 0; i < chunks.length; i++) {
-    onProgress(`Generating metadata for Chapter ${i + 1} of ${chunks.length}...`);
+    const percent = Math.round(((i) / chunks.length) * 100);
+    onProgress(`Generating metadata for Chapter ${i + 1} of ${chunks.length}... (${percent}%)`);
     try {
       const metadata = await generateChapterMetadata(chunks[i], i + 1);
       chapters.push({
