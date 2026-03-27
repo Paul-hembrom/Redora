@@ -122,8 +122,8 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
 app.post('/api/documents', authenticate, async (req: any, res) => {
   const { id, name, chapters } = req.body;
   try {
-    await sql.begin(async (sql) => {
-      await sql`INSERT INTO documents (id, user_id, name) VALUES (${id}, ${req.userId}, ${name})`;
+    await sql.begin(async (tx: any) => {
+      await tx`INSERT INTO documents (id, user_id, name) VALUES (${id}, ${req.userId}, ${name})`;
       
       if (chapters && chapters.length > 0) {
         const chaptersToInsert = chapters.map((ch: any) => ({
@@ -134,7 +134,7 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
           summary: ch.summary,
           content: ch.content
         }));
-        await sql`INSERT INTO chapters ${sql(chaptersToInsert)}`;
+        await tx`INSERT INTO chapters ${tx(chaptersToInsert)}`;
       }
     });
     res.json({ success: true });
@@ -152,10 +152,10 @@ app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
 
     // With ON DELETE CASCADE in the schema, deleting the document will delete chapters and chats automatically.
     // However, to be safe and explicit (or if cascade isn't fully set up on existing DBs), we can delete manually:
-    await sql.begin(async (sql) => {
-      await sql`DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ${docId})`;
-      await sql`DELETE FROM chapters WHERE document_id = ${docId}`;
-      await sql`DELETE FROM documents WHERE id = ${docId}`;
+    await sql.begin(async (tx: any) => {
+      await tx`DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ${docId})`;
+      await tx`DELETE FROM chapters WHERE document_id = ${docId}`;
+      await tx`DELETE FROM documents WHERE id = ${docId}`;
     });
     
     res.json({ success: true });

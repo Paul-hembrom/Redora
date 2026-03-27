@@ -92,23 +92,39 @@ export function splitIntoChapters(text: string): string[] {
   
   // Fallback: Split by paragraphs, accumulating up to a max chunk size
   const maxChunkSize = 15000;
-  const paragraphs = text.split(/\n\s*\n/);
+  let parts = text.split(/\n\s*\n/);
+  
+  // If double newlines didn't yield enough parts, try single newlines
+  if (parts.length < 5) {
+    parts = text.split('\n');
+  }
+
   const chunks: string[] = [];
   let currentChunk = '';
   
-  for (const para of paragraphs) {
-    if (currentChunk.length + para.length > maxChunkSize && currentChunk.length > 0) {
+  for (const part of parts) {
+    if (part.length > maxChunkSize) {
+      // If a single part is massive, push current chunk and hard-slice the massive part
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+      for (let i = 0; i < part.length; i += maxChunkSize) {
+        chunks.push(part.slice(i, i + maxChunkSize));
+      }
+    } else if (currentChunk.length + part.length > maxChunkSize && currentChunk.length > 0) {
       chunks.push(currentChunk);
-      currentChunk = para;
+      currentChunk = part;
     } else {
-      currentChunk += (currentChunk ? '\n\n' : '') + para;
+      currentChunk += (currentChunk ? '\n' : '') + part;
     }
   }
+  
   if (currentChunk) {
     chunks.push(currentChunk);
   }
   
-  // If paragraphs were too long (rare but possible), fallback to safe slice
+  // Absolute fallback just in case
   if (chunks.length === 0) {
     for (let i = 0; i < text.length; i += maxChunkSize) {
       chunks.push(text.slice(i, i + maxChunkSize));

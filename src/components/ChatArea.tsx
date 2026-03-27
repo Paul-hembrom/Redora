@@ -183,7 +183,7 @@ export default function ChatArea({ chapter }: Props) {
                       {msg.followUps.map((q, i) => (
                         <button
                           key={i}
-                          onClick={() => onSendMessage(q)}
+                          onClick={() => handleSendMessage(q)}
                           className="text-xs px-4 py-2 rounded-full border border-white/10 bg-white/5 text-white/70 hover:bg-cyan-500/10 hover:border-cyan-500/30 hover:text-cyan-400 transition-all duration-300 text-left shadow-sm hover:shadow-[0_0_10px_rgba(34,211,238,0.1)]"
                         >
                           {q}
