@@ -104,27 +104,27 @@ export default function ChatArea({ chapter }: Props) {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#050505] relative">
-      <div className="h-16 border-b border-white/5 flex items-center px-8 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
-        <div>
-          <h2 className="text-sm font-display font-semibold text-white">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
-          <p className="text-xs text-white/40 font-light tracking-wide">Context restricted to this chapter</p>
+    <div className="flex-1 flex flex-col h-full bg-[#050505] relative w-full max-w-full">
+      <div className="h-16 border-b border-white/5 flex items-center px-4 md:px-8 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
+        <div className="min-w-0">
+          <h2 className="text-sm font-display font-semibold text-white truncate">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
+          <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar relative z-0">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 custom-scrollbar relative z-0">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="flex gap-6 max-w-4xl mx-auto w-full"
+          className="flex gap-3 md:gap-6 max-w-4xl mx-auto w-full"
         >
           <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
             <Sparkles className="w-5 h-5" />
           </div>
-          <div className="flex-1 space-y-3 pt-1">
+          <div className="flex-1 space-y-3 pt-1 min-w-0">
             <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
-            <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light">
+            <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
             </div>
           </div>
@@ -137,24 +137,24 @@ export default function ChatArea({ chapter }: Props) {
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
-              className={cn("flex gap-6 max-w-4xl mx-auto w-full", msg.role === 'user' ? "flex-row-reverse" : "")}
+              className={cn("flex gap-3 md:gap-6 max-w-4xl mx-auto w-full", msg.role === 'user' ? "flex-row-reverse" : "")}
             >
               <div className={cn(
-                "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg",
+                "w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg text-sm md:text-base",
                 msg.role === 'user' 
                   ? "bg-white/10 text-white border border-white/20" 
                   : "bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.15)]"
               )}>
-                {msg.role === 'user' ? 'U' : <Sparkles className="w-5 h-5" />}
+                {msg.role === 'user' ? 'U' : <Sparkles className="w-4 h-4 md:w-5 md:h-5" />}
               </div>
-              <div className={cn("flex-1 space-y-5", msg.role === 'user' ? "text-right" : "")}>
+              <div className={cn("flex-1 space-y-4 md:space-y-5 min-w-0", msg.role === 'user' ? "text-right" : "")}>
                 <div className={cn(
-                  "inline-block p-5 rounded-2xl max-w-[85%] text-left shadow-sm",
+                  "inline-block p-4 md:p-5 rounded-2xl max-w-[90%] md:max-w-[85%] text-left shadow-sm overflow-hidden",
                   msg.role === 'user' 
                     ? "bg-white/5 border border-white/10 text-white rounded-tr-sm" 
                     : "bg-transparent text-white/80"
                 )}>
-                  <div className="prose prose-invert prose-sm max-w-none font-light leading-relaxed">
+                  <div className="prose prose-invert prose-sm max-w-none font-light leading-relaxed break-words">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
                   </div>
                 </div>
@@ -202,10 +202,10 @@ export default function ChatArea({ chapter }: Props) {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="flex gap-6 max-w-4xl mx-auto w-full"
+            className="flex gap-3 md:gap-6 max-w-4xl mx-auto w-full"
           >
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
-              <Loader2 className="w-5 h-5 animate-spin" />
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
+              <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
             </div>
             <div className="flex-1 flex items-center pt-2">
               <div className="flex gap-1.5">
@@ -231,9 +231,9 @@ export default function ChatArea({ chapter }: Props) {
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      <div className="p-6 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent shrink-0 relative z-10">
+      <div className="p-4 md:p-6 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent shrink-0 relative z-10">
         <div className="max-w-4xl mx-auto">
-          <form onSubmit={handleSubmit} className="relative flex items-end gap-3 bg-white/5 border border-white/10 rounded-2xl p-2 focus-within:border-cyan-500/50 focus-within:bg-white/[0.07] transition-all duration-300 shadow-lg backdrop-blur-sm">
+          <form onSubmit={handleSubmit} className="relative flex items-end gap-2 md:gap-3 bg-white/5 border border-white/10 rounded-2xl p-1.5 md:p-2 focus-within:border-cyan-500/50 focus-within:bg-white/[0.07] transition-all duration-300 shadow-lg backdrop-blur-sm">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -244,18 +244,18 @@ export default function ChatArea({ chapter }: Props) {
                 }
               }}
               placeholder="Ask a question about this chapter..."
-              className="w-full max-h-40 min-h-[52px] bg-transparent text-base p-3 resize-none focus:outline-none placeholder:text-white/30 text-white font-light custom-scrollbar"
+              className="w-full max-h-32 md:max-h-40 min-h-[44px] md:min-h-[52px] bg-transparent text-[16px] p-2.5 md:p-3 resize-none focus:outline-none placeholder:text-white/30 text-white font-light custom-scrollbar"
               rows={1}
             />
             <button
               type="submit"
               disabled={!input.trim() || isTyping}
-              className="p-3.5 rounded-xl bg-cyan-500 text-black hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:shadow-[0_0_25px_rgba(34,211,238,0.5)] disabled:shadow-none"
+              className="p-2.5 md:p-3.5 rounded-xl bg-cyan-500 text-black hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:shadow-[0_0_25px_rgba(34,211,238,0.5)] disabled:shadow-none"
             >
-              <Send className="w-5 h-5" />
+              <Send className="w-4 h-4 md:w-5 md:h-5" />
             </button>
           </form>
-          <p className="text-center text-xs text-white/30 mt-3 font-light tracking-wide">
+          <p className="text-center text-[10px] md:text-xs text-white/30 mt-2 md:mt-3 font-light tracking-wide px-2">
             AI can make mistakes. Consider verifying important information.
           </p>
         </div>

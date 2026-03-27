@@ -330,7 +330,7 @@ export default function RelationshipGraph({ data }: Props) {
             placeholder="Filter nodes or relations..."
             value={filterTerm}
             onChange={(e) => setFilterTerm(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg text-sm py-2 pl-9 pr-3 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 text-white placeholder:text-white/30 transition-all"
+            className="w-full bg-white/5 border border-white/10 rounded-lg text-[16px] md:text-sm py-2 pl-9 pr-3 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 text-white placeholder:text-white/30 transition-all"
           />
         </div>
       </div>

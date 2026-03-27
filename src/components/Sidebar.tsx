@@ -82,7 +82,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     });
 
   return (
-    <div className="w-80 h-full bg-[#0a0a0a]/50 backdrop-blur-xl border-r border-white/5 flex flex-col relative z-10">
+    <div className="w-80 h-full bg-[#0a0a0a]/95 md:bg-[#0a0a0a]/50 backdrop-blur-xl border-r border-white/5 flex flex-col relative z-10">
       <div className="p-6 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xs font-display font-semibold text-white/40 uppercase tracking-widest">Library</h2>
@@ -142,7 +142,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
             placeholder="Search library..." 
             value={filterText}
             onChange={e => setFilterText(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all"
+            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-[16px] md:text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all"
           />
         </div>
         <div className="flex items-center justify-between px-1">
