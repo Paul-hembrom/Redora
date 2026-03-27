@@ -2,7 +2,12 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { ChatMessage } from '../types';
 
 export async function generateChapterMetadata(content: string, chapterNumber: number) {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+    console.error("GEMINI_API_KEY is missing in the client bundle.");
+    throw new Error("GEMINI_API_KEY is missing. You must redeploy your app after setting the environment variable.");
+  }
+  const ai = new GoogleGenAI({ apiKey });
   
   const prompt = `
 Analyze the following text (Chapter ${chapterNumber}).
@@ -40,7 +45,11 @@ export async function generateChatResponse(
   chapterContent: string, 
   history: ChatMessage[]
 ) {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+    throw new Error("GEMINI_API_KEY is missing. You must redeploy your app after setting the environment variable.");
+  }
+  const ai = new GoogleGenAI({ apiKey });
   
   const systemInstruction = `
 You are an AI Book Reader assistant.

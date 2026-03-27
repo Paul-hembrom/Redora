@@ -110,6 +110,10 @@ export async function processDocument(file: File, options: PreprocessOptions, on
         summary: metadata.summary,
         content: chunks[i]
       });
+      // Add a small delay to avoid hitting Gemini API rate limits (15 RPM for free tier)
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 4000));
+      }
     } catch (err) {
       console.error(`Failed to generate metadata for chapter ${i + 1}`, err);
       chapters.push({
