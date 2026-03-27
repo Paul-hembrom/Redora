@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import db from './server/db';
+import sql from './server/db.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -30,18 +30,18 @@ const authenticate = (req: any, res: any, next: any) => {
 };
 
 // --- Auth Routes ---
-app.post('/api/auth/signup', (req, res) => {
+app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'All fields are required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
 
   try {
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-    if (existingUser) return res.status(400).json({ error: 'Email already in use' });
+    const existingUser = await sql`SELECT id FROM users WHERE email = ${email}`;
+    if (existingUser.length > 0) return res.status(400).json({ error: 'Email already in use' });
 
     const id = uuidv4();
     const hash = bcrypt.hashSync(password, 10);
-    db.prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?, ?, ?, ?)').run(id, name, email, hash);
+    await sql`INSERT INTO users (id, name, email, password_hash) VALUES (${id}, ${name}, ${email}, ${hash})`;
 
     const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
@@ -51,12 +51,13 @@ app.post('/api/auth/signup', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   try {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+    const users = await sql`SELECT * FROM users WHERE email = ${email}`;
+    const user = users[0];
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -69,9 +70,10 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
-app.get('/api/auth/me', authenticate, (req: any, res) => {
+app.get('/api/auth/me', authenticate, async (req: any, res) => {
   try {
-    const user = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(req.userId);
+    const users = await sql`SELECT id, name, email FROM users WHERE id = ${req.userId}`;
+    const user = users[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ user });
   } catch (err: any) {
@@ -85,11 +87,19 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // --- Document Routes ---
-app.get('/api/documents', authenticate, (req: any, res) => {
+app.get('/api/documents', authenticate, async (req: any, res) => {
   try {
-    const docs = db.prepare('SELECT * FROM documents WHERE user_id = ? ORDER BY upload_date DESC').all(req.userId) as any[];
+    const docs = await sql`SELECT * FROM documents WHERE user_id = ${req.userId} ORDER BY upload_date DESC`;
+    
+    // Fetch all chapters for these documents
+    const docIds = docs.map(d => d.id);
+    let allChapters: any[] = [];
+    if (docIds.length > 0) {
+      allChapters = await sql`SELECT * FROM chapters WHERE document_id IN ${sql(docIds)} ORDER BY chapter_number ASC`;
+    }
+
     const result = docs.map(doc => {
-      const chapters = db.prepare('SELECT * FROM chapters WHERE document_id = ? ORDER BY chapter_number ASC').all(doc.id) as any[];
+      const chapters = allChapters.filter(ch => ch.document_id === doc.id);
       return {
         id: doc.id,
         name: doc.name,
@@ -109,37 +119,44 @@ app.get('/api/documents', authenticate, (req: any, res) => {
   }
 });
 
-app.post('/api/documents', authenticate, (req: any, res) => {
+app.post('/api/documents', authenticate, async (req: any, res) => {
   const { id, name, chapters } = req.body;
   try {
-    db.transaction(() => {
-      db.prepare('INSERT INTO documents (id, user_id, name) VALUES (?, ?, ?)').run(id, req.userId, name);
-      const insertChapter = db.prepare('INSERT INTO chapters (id, document_id, chapter_number, title, summary, content) VALUES (?, ?, ?, ?, ?, ?)');
-      for (const ch of chapters) {
-        insertChapter.run(ch.id, id, ch.chapterNumber, ch.title, ch.summary, ch.content);
+    await sql.begin(async (sql) => {
+      await sql`INSERT INTO documents (id, user_id, name) VALUES (${id}, ${req.userId}, ${name})`;
+      
+      if (chapters && chapters.length > 0) {
+        const chaptersToInsert = chapters.map((ch: any) => ({
+          id: ch.id,
+          document_id: id,
+          chapter_number: ch.chapterNumber,
+          title: ch.title,
+          summary: ch.summary,
+          content: ch.content
+        }));
+        await sql`INSERT INTO chapters ${sql(chaptersToInsert)}`;
       }
-    })();
+    });
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/documents/:id', authenticate, (req: any, res) => {
+app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
   try {
     const docId = req.params.id;
     // Verify ownership
-    const doc = db.prepare('SELECT id FROM documents WHERE id = ? AND user_id = ?').get(docId, req.userId);
-    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
 
-    db.transaction(() => {
-      // Delete chats associated with chapters of this document
-      db.prepare('DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ?)').run(docId);
-      // Delete chapters
-      db.prepare('DELETE FROM chapters WHERE document_id = ?').run(docId);
-      // Delete document
-      db.prepare('DELETE FROM documents WHERE id = ?').run(docId);
-    })();
+    // With ON DELETE CASCADE in the schema, deleting the document will delete chapters and chats automatically.
+    // However, to be safe and explicit (or if cascade isn't fully set up on existing DBs), we can delete manually:
+    await sql.begin(async (sql) => {
+      await sql`DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ${docId})`;
+      await sql`DELETE FROM chapters WHERE document_id = ${docId}`;
+      await sql`DELETE FROM documents WHERE id = ${docId}`;
+    });
     
     res.json({ success: true });
   } catch (err: any) {
@@ -148,9 +165,9 @@ app.delete('/api/documents/:id', authenticate, (req: any, res) => {
 });
 
 // --- Chat Routes ---
-app.get('/api/chats/:chapterId', authenticate, (req: any, res) => {
+app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
-    const chats = db.prepare('SELECT * FROM chats WHERE chapter_id = ? AND user_id = ? ORDER BY created_at ASC').all(req.params.chapterId, req.userId) as any[];
+    const chats = await sql`SELECT * FROM chats WHERE chapter_id = ${req.params.chapterId} AND user_id = ${req.userId} ORDER BY created_at ASC`;
     const result = chats.map(c => ({
       id: c.id,
       role: c.role,
@@ -164,11 +181,21 @@ app.get('/api/chats/:chapterId', authenticate, (req: any, res) => {
   }
 });
 
-app.post('/api/chats', authenticate, (req: any, res) => {
+app.post('/api/chats', authenticate, async (req: any, res) => {
   const { id, chapterId, role, text, relationshipGraph, followUps } = req.body;
   try {
-    db.prepare('INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, chapterId, req.userId, role, text, relationshipGraph ? JSON.stringify(relationshipGraph) : null, followUps ? JSON.stringify(followUps) : null);
+    await sql`
+      INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups) 
+      VALUES (
+        ${id}, 
+        ${chapterId}, 
+        ${req.userId}, 
+        ${role}, 
+        ${text}, 
+        ${relationshipGraph ? JSON.stringify(relationshipGraph) : null}, 
+        ${followUps ? JSON.stringify(followUps) : null}
+      )
+    `;
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
