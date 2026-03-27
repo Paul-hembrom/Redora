@@ -1,9 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { ChatMessage } from '../types';
 
-export async function generateChapterMetadata(content: string, chapterNumber: number) {
+export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3): Promise<{title: string, summary: string}> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null' || apiKey === '') {
     console.error("GEMINI_API_KEY is missing in the client bundle.");
     throw new Error("GEMINI_API_KEY is missing. You must redeploy your app after setting the environment variable.");
   }
@@ -18,26 +18,40 @@ Text:
 ${content.substring(0, 10000)}
   `.trim();
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          title: { type: Type.STRING },
-          summary: { type: Type.STRING }
-        },
-        required: ["title", "summary"]
-      }
-    }
-  });
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              summary: { type: Type.STRING }
+            },
+            required: ["title", "summary"]
+          }
+        }
+      });
 
-  if (response.text) {
-    return JSON.parse(response.text) as { title: string; summary: string };
+      if (response.text) {
+        return JSON.parse(response.text) as { title: string; summary: string };
+      }
+      throw new Error("No response generated.");
+    } catch (error: any) {
+      console.error(`Attempt ${attempt + 1} failed for chapter ${chapterNumber}:`, error);
+      if (attempt === retries - 1) {
+        throw error;
+      }
+      // Exponential backoff: 2s, 4s, 8s...
+      const delay = Math.pow(2, attempt) * 2000;
+      console.log(`Retrying chapter ${chapterNumber} in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
-  throw new Error("No response generated.");
+  throw new Error("Failed to generate metadata after multiple attempts.");
 }
 
 export async function generateChatResponse(

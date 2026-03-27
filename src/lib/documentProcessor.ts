@@ -114,13 +114,13 @@ export async function processDocument(file: File, options: PreprocessOptions, on
       if (i < chunks.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 4000));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Failed to generate metadata for chapter ${i + 1}`, err);
       chapters.push({
         id: uuidv4(),
         chapterNumber: i + 1,
         title: `Chapter ${i + 1}`,
-        summary: `Summary generation failed.`,
+        summary: `Summary generation failed: ${err.message || 'Unknown error. Please check your API key and rate limits.'}`,
         content: chunks[i]
       });
     }
