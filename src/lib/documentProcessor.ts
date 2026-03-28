@@ -4,7 +4,7 @@ import mammoth from 'mammoth';
 import ePub from 'epubjs';
 import { PreprocessOptions, Chapter } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChapterMetadata } from './gemini';
+import { generateChapterMetadata, extractTextFromImage } from './gemini';
 
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.mjs`;
@@ -60,6 +60,16 @@ export async function extractTextFromFile(file: File, onProgress?: (msg: string)
   if (extension === 'docx') {
     const result = await mammoth.extractRawText({ arrayBuffer });
     return result.value;
+  }
+
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(extension || '')) {
+    if (onProgress) onProgress('Extracting text from image using AI...');
+    const base64Data = btoa(
+      new Uint8Array(arrayBuffer)
+        .reduce((data, byte) => data + String.fromCharCode(byte), '')
+    );
+    const mimeType = file.type || `image/${extension === 'jpg' ? 'jpeg' : extension}`;
+    return await extractTextFromImage(base64Data, mimeType);
   }
 
   if (extension === 'pdf') {

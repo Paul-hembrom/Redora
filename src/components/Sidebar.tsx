@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2 } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -16,12 +16,13 @@ interface Props {
   onSelectChapter: (docId: string, chapterId: string) => void;
   onUpload: (files: File[], options: PreprocessOptions) => void;
   onDeleteDocument?: (docId: string) => void;
+  onClearChats?: (docId: string) => void;
   isUploading: boolean;
   uploadProgress: string;
   uploadError: string | null;
 }
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, isUploading, uploadProgress, uploadError }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, isUploading, uploadProgress, uploadError }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -49,7 +50,10 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'text/plain': ['.txt'],
-      'application/epub+zip': ['.epub']
+      'application/epub+zip': ['.epub'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp']
     },
     maxSize: 300 * 1024 * 1024,
     disabled: isUploading
@@ -105,27 +109,46 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
           </div>
         )}
 
-        <div 
-          {...getRootProps()} 
-          className={cn(
-            "border border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden",
-            isDragActive ? "border-cyan-400 bg-cyan-400/5" : "border-white/10 hover:border-cyan-400/50 hover:bg-white/5",
-            isUploading ? "opacity-50 cursor-not-allowed pointer-events-none" : "",
-            (uploadError || localError) && "border-red-500/50 bg-red-500/5"
-          )}
-        >
-          {isUploading && (
-            <div className="absolute inset-0 bg-cyan-500/10 animate-pulse" />
-          )}
-          <input {...getInputProps()} />
-          <UploadCloud className={cn(
-            "w-8 h-8 mx-auto mb-3 transition-colors duration-300",
-            isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/30 group-hover:text-cyan-400/70"
-          )} />
-          <p className="text-sm font-medium text-white/60 group-hover:text-white/80 transition-colors">
-            {isUploading ? uploadProgress : 'Upload Document'}
-          </p>
-          <p className="text-xs text-white/30 mt-2 font-light">PDF, DOCX, TXT, EPUB up to 300MB</p>
+        <div className="flex gap-2 mb-4">
+          <div 
+            {...getRootProps()} 
+            className={cn(
+              "flex-1 border border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden",
+              isDragActive ? "border-cyan-400 bg-cyan-400/5" : "border-white/10 hover:border-cyan-400/50 hover:bg-white/5",
+              isUploading ? "opacity-50 cursor-not-allowed pointer-events-none" : "",
+              (uploadError || localError) && "border-red-500/50 bg-red-500/5"
+            )}
+          >
+            {isUploading && (
+              <div className="absolute inset-0 bg-cyan-500/10 animate-pulse" />
+            )}
+            <input {...getInputProps()} />
+            <UploadCloud className={cn(
+              "w-8 h-8 mx-auto mb-3 transition-colors duration-300",
+              isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/30 group-hover:text-cyan-400/70"
+            )} />
+            <p className="text-sm font-medium text-white/60 group-hover:text-white/80 transition-colors">
+              {isUploading ? uploadProgress : 'Upload Document'}
+            </p>
+            <p className="text-xs text-white/30 mt-2 font-light">PDF, DOCX, TXT, EPUB, Images up to 300MB</p>
+          </div>
+          
+          <label className="flex flex-col items-center justify-center w-16 border border-white/10 rounded-xl cursor-pointer hover:bg-white/[0.02] hover:border-cyan-500/50 transition-all group">
+            <input 
+              type="file" 
+              accept="image/*" 
+              capture="environment" 
+              className="hidden" 
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  onUpload(Array.from(e.target.files), options);
+                }
+              }}
+              disabled={isUploading}
+            />
+            <Camera className="w-5 h-5 text-white/50 group-hover:text-cyan-400 transition-colors mb-1" />
+            <span className="text-[10px] text-white/40 group-hover:text-white/60">Photo</span>
+          </label>
         </div>
         
         {(uploadError || localError) && (
@@ -190,6 +213,15 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
+                {onClearChats && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onClearChats(doc.id); }}
+                    className="p-1.5 text-white/30 hover:text-yellow-400 hover:bg-white/5 rounded-md transition-all"
+                    title="Clear all chats for this document"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 {onDeleteDocument && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc.id); }}

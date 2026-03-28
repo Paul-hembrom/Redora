@@ -202,6 +202,21 @@ app.post('/api/chats', authenticate, async (req: any, res) => {
   }
 });
 
+app.delete('/api/chats/document/:docId', authenticate, async (req: any, res) => {
+  try {
+    const docId = req.params.docId;
+    // Verify ownership
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+
+    await sql`DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ${docId})`;
+    
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Search Route ---
 app.get('/api/search', authenticate, async (req: any, res) => {
   const query = req.query.q;

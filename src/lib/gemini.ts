@@ -54,6 +54,38 @@ ${content.substring(0, 10000)}
   throw new Error("Failed to generate metadata after multiple attempts.");
 }
 
+export async function extractTextFromImage(base64Data: string, mimeType: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null' || apiKey === '') {
+    throw new Error("GEMINI_API_KEY is missing. You must redeploy your app after setting the environment variable.");
+  }
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const prompt = "Extract all text from this image. Return only the extracted text, preserving formatting where possible. If there is no text, return an empty string.";
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: {
+      parts: [
+        {
+          inlineData: {
+            data: base64Data,
+            mimeType: mimeType,
+          },
+        },
+        {
+          text: prompt,
+        },
+      ],
+    },
+  });
+
+  if (response.text) {
+    return response.text;
+  }
+  throw new Error("No text extracted from image.");
+}
+
 export async function generateChatResponse(
   query: string, 
   chapterContent: string, 

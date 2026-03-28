@@ -22,7 +22,7 @@ export default function App() {
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<Record<string, string>>({});
+  const [uploadProgress, setUploadProgress] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -122,6 +122,24 @@ export default function App() {
     }
   };
 
+  const handleClearChats = async (docId: string) => {
+    try {
+      const res = await fetch(`/api/chats/document/${docId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to clear chats');
+      
+      // Force a re-render of ChatArea by toggling selected chapter briefly
+      // or we can just let the ChatArea handle it if we add a refresh trigger.
+      // Easiest is to just reload the page or clear the current messages if it's the active doc.
+      if (selectedDocId === docId && selectedChapterId) {
+        const currentChapterId = selectedChapterId;
+        setSelectedChapterId(null);
+        setTimeout(() => setSelectedChapterId(currentChapterId), 10);
+      }
+    } catch (err) {
+      console.error('Error clearing chats:', err);
+    }
+  };
+
   const selectedDoc = documents.find(d => d.id === selectedDocId);
   const selectedChapter = selectedDoc?.chapters.find(c => c.id === selectedChapterId);
 
@@ -196,6 +214,7 @@ export default function App() {
             onSelectChapter={handleSelectChapter}
             onUpload={handleUpload}
             onDeleteDocument={handleDeleteDocument}
+            onClearChats={handleClearChats}
             isUploading={isUploading}
             uploadProgress={uploadProgress}
             uploadError={uploadError}
