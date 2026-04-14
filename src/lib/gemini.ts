@@ -1,6 +1,47 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { ChatMessage } from '../types';
 
+function isRateLimitError(error: any): boolean {
+  const msg = error?.message?.toLowerCase() || '';
+  return msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('rate limit');
+}
+
+async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) throw new Error("NVIDIA_API_KEY is missing for fallback.");
+
+  const messages = [];
+  if (systemInstruction) {
+    messages.push({ role: "system", content: systemInstruction });
+  }
+  messages.push({ role: "user", content: prompt });
+
+  const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "mistralai/mistral-large-3-675b-instruct-2512",
+      messages: messages,
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 2048
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`NVIDIA API Error: ${err}`);
+  }
+
+  const data = await response.json();
+  let content = data.choices[0].message.content;
+  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+  return content;
+}
+
 export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3): Promise<{title: string, summary: string}> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'undefined' || apiKey === 'null' || apiKey === '') {
@@ -41,6 +82,18 @@ ${content.substring(0, 10000)}
       }
       throw new Error("No response generated.");
     } catch (error: any) {
+      if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
+        console.log("Gemini rate limit exceeded, falling back to NVIDIA Mistral...");
+        try {
+          const nvidiaPrompt = prompt + "\n\nIMPORTANT: You must return ONLY a valid JSON object with 'title' and 'summary' keys. No markdown formatting, no explanation.";
+          const nvidiaResponse = await callNvidiaFallback(nvidiaPrompt);
+          return JSON.parse(nvidiaResponse) as { title: string; summary: string };
+        } catch (nvidiaError) {
+          console.error("NVIDIA fallback also failed:", nvidiaError);
+          throw nvidiaError;
+        }
+      }
+
       console.error(`Attempt ${attempt + 1} failed for chapter ${chapterNumber}:`, error);
       if (attempt === retries - 1) {
         throw error;
@@ -63,27 +116,35 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
   
   const prompt = "Extract all text from this image. Return only the extracted text, preserving formatting where possible. If there is no text, return an empty string.";
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: mimeType,
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: base64Data,
+              mimeType: mimeType,
+            },
           },
-        },
-        {
-          text: prompt,
-        },
-      ],
-    },
-  });
+          {
+            text: prompt,
+          },
+        ],
+      },
+    });
 
-  if (response.text) {
-    return response.text;
+    if (response.text) {
+      return response.text;
+    }
+    throw new Error("No text extracted from image.");
+  } catch (error: any) {
+    if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
+      console.log("Gemini rate limit exceeded. NVIDIA fallback model (Mistral Large 3) does not support vision.");
+      throw new Error("Gemini rate limit exceeded. The NVIDIA fallback model does not support image extraction.");
+    }
+    throw error;
   }
-  throw new Error("No text extracted from image.");
 }
 
 export async function generateChatResponse(
@@ -129,41 +190,55 @@ ${formattedHistory}
 User Query: ${query}
   `.trim();
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: prompt,
-    config: {
-      systemInstruction,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          response: { type: Type.STRING },
-          followUpQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-          relationshipGraph: { 
-            type: Type.ARRAY, 
-            items: { 
-              type: Type.OBJECT,
-              properties: {
-                source: { type: Type.STRING },
-                target: { type: Type.STRING },
-                relation: { type: Type.STRING }
-              },
-              required: ["source", "target", "relation"]
-            } 
-          }
-        },
-        required: ["response", "followUpQuestions", "relationshipGraph"]
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            response: { type: Type.STRING },
+            followUpQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+            relationshipGraph: { 
+              type: Type.ARRAY, 
+              items: { 
+                type: Type.OBJECT,
+                properties: {
+                  source: { type: Type.STRING },
+                  target: { type: Type.STRING },
+                  relation: { type: Type.STRING }
+                },
+                required: ["source", "target", "relation"]
+              } 
+            }
+          },
+          required: ["response", "followUpQuestions", "relationshipGraph"]
+        }
       }
-    }
-  });
+    });
 
-  if (response.text) {
-    return JSON.parse(response.text) as {
-      response: string;
-      followUpQuestions: string[];
-      relationshipGraph: { source: string; target: string; relation: string }[];
-    };
+    if (response.text) {
+      return JSON.parse(response.text) as {
+        response: string;
+        followUpQuestions: string[];
+        relationshipGraph: { source: string; target: string; relation: string }[];
+      };
+    }
+    throw new Error("No response generated.");
+  } catch (error: any) {
+    if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
+      console.log("Gemini rate limit exceeded, falling back to NVIDIA Mistral...");
+      const nvidiaPrompt = prompt + "\n\nIMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQuestions' (array of strings), and 'relationshipGraph' (array of objects with source, target, relation) keys. No markdown formatting, no explanation.";
+      const nvidiaResponse = await callNvidiaFallback(nvidiaPrompt, systemInstruction);
+      return JSON.parse(nvidiaResponse) as {
+        response: string;
+        followUpQuestions: string[];
+        relationshipGraph: { source: string; target: string; relation: string }[];
+      };
+    }
+    throw error;
   }
-  throw new Error("No response generated.");
 }
