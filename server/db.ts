@@ -88,6 +88,14 @@ export async function initDb() {
         'Did you forget to replace [YOUR-PASSWORD] with your actual database password?\n' +
         'Make sure to remove the brackets [] as well.\n' +
         '================================================================================\n\n');
+    } else if (error.message?.includes('Tenant or user not found')) {
+      console.error('\n\n================================================================================\n' +
+        'CRITICAL ERROR: Database Tenant or User Not Found.\n' +
+        'The connection string in your DATABASE_URL secret is incorrect.\n' +
+        'If you are using Supabase Connection Pooling (port 6543), your username MUST include the project reference.\n' +
+        'Format: postgres://[db-user].[project-ref]:[password]@...pooler.supabase.com:6543/[db-name]\n' +
+        'If you are using Neon, ensure the endpoint ID in the username or host is correct.\n' +
+        '================================================================================\n\n');
     }
     throw error; // Re-throw to ensure the app fails fast if DB is unreachable
   }
