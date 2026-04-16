@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -17,18 +19,25 @@ interface Props {
   onUpload: (files: File[], options: PreprocessOptions) => void;
   onDeleteDocument?: (docId: string) => void;
   onClearChats?: (docId: string) => void;
+  onUpdateTags?: (docId: string, tags: string[]) => void;
+  onToggleShare?: (docId: string, isPublic: boolean) => void;
   isUploading: boolean;
   uploadProgress: string;
   uploadError: string | null;
 }
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, isUploading, uploadProgress, uploadError }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+  const [expandedSummaries, setExpandedSummaries] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'date' | 'name'>('date');
   const [filterText, setFilterText] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [editingTagsFor, setEditingTagsFor] = useState<string | null>(null);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [copiedSummaryId, setCopiedSummaryId] = useState<string | null>(null);
+  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (files) => {
@@ -66,6 +75,47 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     setExpandedDocs(newSet);
   };
 
+  const toggleSummary = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const newSet = new Set(expandedSummaries);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setExpandedSummaries(newSet);
+  };
+
+  const handleCopySummary = (e: React.MouseEvent, id: string, text: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text);
+    setCopiedSummaryId(id);
+    setTimeout(() => setCopiedSummaryId(null), 2000);
+  };
+
+  const handleShare = (e: React.MouseEvent, doc: Document) => {
+    e.stopPropagation();
+    if (onToggleShare && !doc.isPublic) {
+      onToggleShare(doc.id, true);
+    }
+    const url = `${window.location.origin}/?sharedDoc=${doc.id}`;
+    navigator.clipboard.writeText(url);
+    setCopiedShareId(doc.id);
+    setTimeout(() => setCopiedShareId(null), 2000);
+  };
+
+  const handleAddTag = (doc: Document) => {
+    if (!newTagInput.trim() || !onUpdateTags) return;
+    const currentTags = doc.tags || [];
+    if (!currentTags.includes(newTagInput.trim())) {
+      onUpdateTags(doc.id, [...currentTags, newTagInput.trim()]);
+    }
+    setNewTagInput('');
+  };
+
+  const handleRemoveTag = (doc: Document, tagToRemove: string) => {
+    if (!onUpdateTags) return;
+    const currentTags = doc.tags || [];
+    onUpdateTags(doc.id, currentTags.filter(t => t !== tagToRemove));
+  };
+
   const handleDownload = (doc: Document) => {
     const content = doc.chapters.map(ch => `${ch.chapterNumber}. ${ch.title}\n\n${ch.content}`).join('\n\n---\n\n');
     const blob = new Blob([content], { type: 'text/plain' });
@@ -80,11 +130,19 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   };
 
   const sortedDocs = [...documents]
-    .filter(d => d.name.toLowerCase().includes(filterText.toLowerCase()))
+    .filter(d => {
+      const matchesName = d.name.toLowerCase().includes(filterText.toLowerCase());
+      const matchesTags = d.tags?.some(t => t.toLowerCase().includes(filterText.toLowerCase()));
+      return matchesName || matchesTags;
+    })
     .sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime();
     });
+
+  // Extract percentage from uploadProgress string e.g. "(45%)"
+  const progressMatch = uploadProgress.match(/\((\d+)%\)/);
+  const progressPercent = progressMatch ? parseInt(progressMatch[1], 10) : null;
 
   return (
     <div className="w-80 h-full bg-[#0a0a0a]/95 md:bg-[#0a0a0a]/50 backdrop-blur-xl border-r border-white/5 flex flex-col relative z-10">
@@ -113,8 +171,8 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
           <div 
             {...getRootProps()} 
             className={cn(
-              "flex-1 border border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden",
-              isDragActive ? "border-cyan-400 bg-cyan-400/5" : "border-white/10 hover:border-cyan-400/50 hover:bg-white/5",
+              "flex-1 border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden",
+              isDragActive ? "border-cyan-400 bg-cyan-400/10" : "border-white/20 hover:border-cyan-400/60 hover:bg-white/10 bg-white/[0.02]",
               isUploading ? "opacity-50 cursor-not-allowed pointer-events-none" : "",
               (uploadError || localError) && "border-red-500/50 bg-red-500/5"
             )}
@@ -122,15 +180,29 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
             {isUploading && (
               <div className="absolute inset-0 bg-cyan-500/10 animate-pulse" />
             )}
+            {isUploading && progressPercent !== null && (
+              <div 
+                className="absolute bottom-0 left-0 h-1 bg-cyan-400 transition-all duration-300 ease-out" 
+                style={{ width: `${progressPercent}%` }} 
+              />
+            )}
             <input {...getInputProps()} />
             <UploadCloud className={cn(
-              "w-8 h-8 mx-auto mb-3 transition-colors duration-300",
-              isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/30 group-hover:text-cyan-400/70"
+              "w-10 h-10 mx-auto mb-3 transition-all duration-300 transform group-hover:-translate-y-1 group-hover:scale-110",
+              isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/50 group-hover:text-cyan-400"
             )} />
-            <p className="text-sm font-medium text-white/60 group-hover:text-white/80 transition-colors">
-              {isUploading ? uploadProgress : 'Upload Document'}
+            <p className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">
+              {isUploading ? uploadProgress : 'Drag & Drop or Click to Browse'}
             </p>
-            <p className="text-xs text-white/30 mt-2 font-light">PDF, DOCX, TXT, EPUB, Images up to 300MB</p>
+            {!isUploading && (
+              <div className="flex flex-wrap justify-center gap-1.5 mt-4">
+                {['PDF', 'EPUB', 'DOCX', 'TXT', 'IMG'].map(ext => (
+                  <span key={ext} className="px-2 py-1 rounded bg-white/10 text-white/70 text-[10px] font-bold tracking-wider">
+                    {ext}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           
           <label className="flex flex-col items-center justify-center w-16 border border-white/10 rounded-xl cursor-pointer hover:bg-white/[0.02] hover:border-cyan-500/50 transition-all group">
@@ -207,6 +279,13 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
               </div>
               <div className="flex items-center shrink-0 ml-2">
                 <button 
+                  onClick={(e) => handleShare(e, doc)}
+                  className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}
+                  title={doc.isPublic ? "Copy share link" : "Share document"}
+                >
+                  {copiedShareId === doc.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Share2 className="w-3.5 h-3.5" />}
+                </button>
+                <button 
                   onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
                   className="p-1.5 text-white/30 hover:text-cyan-400 hover:bg-white/5 rounded-md transition-all"
                   title="Download text"
@@ -236,20 +315,82 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
             
             {expandedDocs.has(doc.id) && (
               <div className="bg-black/20 border-t border-white/5 py-2">
+                <div className="px-4 py-2 mb-2 border-b border-white/5">
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {doc.tags?.map(tag => (
+                      <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/60">
+                        {tag}
+                        <button onClick={(e) => { e.stopPropagation(); handleRemoveTag(doc, tag); }} className="hover:text-red-400"><X className="w-3 h-3" /></button>
+                      </span>
+                    ))}
+                  </div>
+                  {editingTagsFor === doc.id ? (
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="text" 
+                        value={newTagInput}
+                        onChange={e => setNewTagInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddTag(doc);
+                          } else if (e.key === 'Escape') {
+                            setEditingTagsFor(null);
+                          }
+                        }}
+                        placeholder="Add tag..."
+                        className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                        autoFocus
+                      />
+                      <button onClick={(e) => { e.stopPropagation(); handleAddTag(doc); }} className="p-1 text-cyan-400 hover:bg-white/5 rounded"><Plus className="w-3 h-3" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(null); }} className="p-1 text-white/40 hover:bg-white/5 rounded"><X className="w-3 h-3" /></button>
+                    </div>
+                  ) : (
+                    <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(doc.id); }} className="text-[10px] text-white/40 hover:text-cyan-400 flex items-center gap-1">
+                      <Tag className="w-3 h-3" /> Add Tag
+                    </button>
+                  )}
+                </div>
                 {doc.chapters.map(chapter => (
-                  <button
-                    key={chapter.id}
-                    onClick={() => onSelectChapter(doc.id, chapter.id)}
-                    className={cn(
-                      "w-full text-left px-10 py-2 text-sm transition-colors flex items-center gap-2",
-                      selectedChapterId === chapter.id 
-                        ? "text-cyan-400 bg-cyan-500/5 font-medium" 
-                        : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                  <div key={chapter.id} className="flex flex-col">
+                    <button
+                      onClick={() => onSelectChapter(doc.id, chapter.id)}
+                      className={cn(
+                        "w-full text-left px-4 py-2 text-sm transition-colors flex items-center justify-between group",
+                        selectedChapterId === chapter.id 
+                          ? "text-cyan-400 bg-cyan-500/5 font-medium" 
+                          : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                      )}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
+                        <span className="truncate">{chapter.title}</span>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span 
+                          onClick={(e) => toggleSummary(e, chapter.id)}
+                          className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white"
+                          title="Toggle Summary"
+                        >
+                          {expandedSummaries.has(chapter.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                        </span>
+                      </div>
+                    </button>
+                    {expandedSummaries.has(chapter.id) && (
+                      <div className="px-8 py-2 text-xs text-white/50 bg-black/10 border-l-2 border-white/5 ml-4 mr-4 mb-2 relative group/summary">
+                        <div className="prose prose-invert prose-sm max-w-none font-light">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
+                        </div>
+                        <button
+                          onClick={(e) => handleCopySummary(e, chapter.id, chapter.summary)}
+                          className="absolute top-2 right-2 p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400 opacity-0 group-hover/summary:opacity-100 transition-opacity"
+                          title="Copy Summary"
+                        >
+                          {copiedSummaryId === chapter.id ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
                     )}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
-                    <span className="truncate">{chapter.title}</span>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}

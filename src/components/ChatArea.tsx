@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -16,13 +16,15 @@ function cn(...inputs: ClassValue[]) {
 
 interface Props {
   chapter: Chapter;
+  onClearChats: () => void;
 }
 
-export default function ChatArea({ chapter }: Props) {
+export default function ChatArea({ chapter, onClearChats }: Props) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,6 +55,12 @@ export default function ChatArea({ chapter }: Props) {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  const handleCopy = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || isTyping) return;
@@ -105,10 +113,39 @@ export default function ChatArea({ chapter }: Props) {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#050505] relative w-full max-w-full">
-      <div className="h-16 border-b border-white/5 flex items-center px-4 md:px-8 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
+      <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
         <div className="min-w-0">
           <h2 className="text-sm font-display font-semibold text-white truncate">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const content = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}:\n${m.text}`).join('\n\n---\n\n');
+              const blob = new Blob([content], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `chat-${chapter.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.txt`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+            className="p-2 text-white/40 hover:text-cyan-400 hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2"
+            title="Export chat history"
+          >
+            <Download className="w-4 h-4" />
+            <span className="text-xs font-medium hidden sm:inline">Export Chat</span>
+          </button>
+          <button
+            onClick={onClearChats}
+            className="p-2 text-white/40 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2"
+            title="Clear all chats for this document"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span className="text-xs font-medium hidden sm:inline">Clear Chats</span>
+          </button>
         </div>
       </div>
 
@@ -137,7 +174,7 @@ export default function ChatArea({ chapter }: Props) {
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
-              className={cn("flex gap-3 md:gap-6 max-w-4xl mx-auto w-full", msg.role === 'user' ? "flex-row-reverse" : "")}
+              className={cn("flex gap-3 md:gap-6 max-w-4xl mx-auto w-full group", msg.role === 'user' ? "flex-row-reverse" : "")}
             >
               <div className={cn(
                 "w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg text-sm md:text-base",
@@ -149,14 +186,23 @@ export default function ChatArea({ chapter }: Props) {
               </div>
               <div className={cn("flex-1 space-y-4 md:space-y-5 min-w-0", msg.role === 'user' ? "text-right" : "")}>
                 <div className={cn(
-                  "inline-block p-4 md:p-5 rounded-2xl max-w-[90%] md:max-w-[85%] text-left shadow-sm overflow-hidden",
+                  "inline-block p-4 md:p-5 rounded-2xl max-w-[90%] md:max-w-[85%] text-left shadow-sm overflow-hidden relative group/bubble transition-colors",
                   msg.role === 'user' 
-                    ? "bg-white/5 border border-white/10 text-white rounded-tr-sm" 
-                    : "bg-transparent text-white/80"
+                    ? "bg-white/5 border border-white/10 text-white rounded-tr-sm hover:bg-white/10" 
+                    : "bg-transparent text-white/80 hover:bg-white/[0.02]"
                 )}>
                   <div className="prose prose-invert prose-sm max-w-none font-light leading-relaxed break-words">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
                   </div>
+                  {msg.role === 'model' && (
+                    <button
+                      onClick={() => handleCopy(msg.id, msg.text)}
+                      className="absolute top-2 right-2 p-1.5 text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40 rounded-md opacity-0 group-hover/bubble:opacity-100 transition-all"
+                      title="Copy response"
+                    >
+                      {copiedId === msg.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
                 </div>
 
                 {msg.relationshipGraph && msg.relationshipGraph.length > 0 && (

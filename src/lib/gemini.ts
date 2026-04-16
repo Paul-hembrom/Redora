@@ -53,7 +53,7 @@ export async function generateChapterMetadata(content: string, chapterNumber: nu
   const prompt = `
 Analyze the following text (Chapter ${chapterNumber}).
 Generate a short, meaningful title (max 6 words).
-Generate a concise summary (5-10 lines).
+Provide a highly accurate and concise summary (3-5 bullet points) that captures the main points and core arguments effectively.
 
 Text:
 ${content.substring(0, 10000)}

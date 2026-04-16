@@ -104,6 +104,8 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
         id: doc.id,
         name: doc.name,
         uploadDate: doc.upload_date,
+        tags: doc.tags ? JSON.parse(doc.tags) : [],
+        isPublic: doc.is_public,
         chapters: chapters.map(ch => ({
           id: ch.id,
           chapterNumber: ch.chapter_number,
@@ -120,10 +122,10 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/documents', authenticate, async (req: any, res) => {
-  const { id, name, chapters } = req.body;
+  const { id, name, chapters, tags } = req.body;
   try {
     await sql.begin(async (tx: any) => {
-      await tx`INSERT INTO documents (id, user_id, name) VALUES (${id}, ${req.userId}, ${name})`;
+      await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${name}, ${tags ? JSON.stringify(tags) : '[]'})`;
       
       if (chapters && chapters.length > 0) {
         const chaptersToInsert = chapters.map((ch: any) => ({
@@ -138,6 +140,64 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
       }
     });
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/documents/:id/tags', authenticate, async (req: any, res) => {
+  try {
+    const docId = req.params.id;
+    const { tags } = req.body;
+    
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+
+    await sql`UPDATE documents SET tags = ${JSON.stringify(tags)} WHERE id = ${docId}`;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/documents/:id/share', authenticate, async (req: any, res) => {
+  try {
+    const docId = req.params.id;
+    const { isPublic } = req.body;
+    
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+
+    await sql`UPDATE documents SET is_public = ${isPublic} WHERE id = ${docId}`;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/shared/:id', async (req: any, res) => {
+  try {
+    const docId = req.params.id;
+    const docs = await sql`SELECT * FROM documents WHERE id = ${docId} AND is_public = TRUE`;
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found or not public' });
+    
+    const doc = docs[0];
+    const chapters = await sql`SELECT * FROM chapters WHERE document_id = ${docId} ORDER BY chapter_number ASC`;
+    
+    res.json({
+      id: doc.id,
+      name: doc.name,
+      uploadDate: doc.upload_date,
+      tags: doc.tags ? JSON.parse(doc.tags) : [],
+      isPublic: doc.is_public,
+      chapters: chapters.map(ch => ({
+        id: ch.id,
+        chapterNumber: ch.chapter_number,
+        title: ch.title,
+        summary: ch.summary,
+        content: ch.content
+      }))
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

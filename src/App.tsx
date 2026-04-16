@@ -9,7 +9,14 @@ import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
 import { generateChatResponse } from './lib/gemini';
 import { v4 as uuidv4 } from 'uuid';
-import { BookOpen, LogOut, User as UserIcon, Menu, X, Search } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud } from 'lucide-react';
+import { useDropzone } from 'react-dropzone';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 export default function App() {
   const { user, loading, logout } = useAuth();
@@ -25,7 +32,27 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  const { getRootProps: getEmptyRootProps, getInputProps: getEmptyInputProps, isDragActive: isEmptyDragActive } = useDropzone({
+    onDrop: (files) => {
+      handleUpload(files, { removeStopWords: false, applyStemming: false });
+    },
+    accept: {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'text/plain': ['.txt'],
+      'application/epub+zip': ['.epub'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp']
+    },
+    maxSize: 300 * 1024 * 1024,
+    disabled: isUploading
+  });
+
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedDocId = urlParams.get('sharedDoc');
+
     if (user) {
       fetch('/api/documents')
         .then(res => {
@@ -35,9 +62,34 @@ export default function App() {
           }
           return res.json();
         })
-        .then(data => {
+        .then(async data => {
           if (Array.isArray(data)) {
-            setDocuments(data);
+            let docs = data;
+            
+            // If there's a shared doc ID and it's not in the user's docs, fetch it
+            if (sharedDocId && !docs.some(d => d.id === sharedDocId)) {
+              try {
+                const sharedRes = await fetch(`/api/shared/${sharedDocId}`);
+                if (sharedRes.ok) {
+                  const sharedDoc = await sharedRes.json();
+                  docs = [sharedDoc, ...docs];
+                  setSelectedDocId(sharedDoc.id);
+                  if (sharedDoc.chapters.length > 0) {
+                    setSelectedChapterId(sharedDoc.chapters[0].id);
+                  }
+                }
+              } catch (err) {
+                console.error('Failed to fetch shared document:', err);
+              }
+            } else if (sharedDocId && docs.some(d => d.id === sharedDocId)) {
+               setSelectedDocId(sharedDocId);
+               const doc = docs.find(d => d.id === sharedDocId);
+               if (doc && doc.chapters.length > 0) {
+                 setSelectedChapterId(doc.chapters[0].id);
+               }
+            }
+            
+            setDocuments(docs);
           } else {
             console.error('Failed to fetch documents:', data);
             setDocuments([]);
@@ -140,6 +192,34 @@ export default function App() {
     }
   };
 
+  const handleUpdateTags = async (docId: string, tags: string[]) => {
+    try {
+      const res = await fetch(`/api/documents/${docId}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags })
+      });
+      if (!res.ok) throw new Error('Failed to update tags');
+      setDocuments(prev => prev.map(d => d.id === docId ? { ...d, tags } : d));
+    } catch (err) {
+      console.error('Error updating tags:', err);
+    }
+  };
+
+  const handleToggleShare = async (docId: string, isPublic: boolean) => {
+    try {
+      const res = await fetch(`/api/documents/${docId}/share`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPublic })
+      });
+      if (!res.ok) throw new Error('Failed to update share status');
+      setDocuments(prev => prev.map(d => d.id === docId ? { ...d, isPublic } : d));
+    } catch (err) {
+      console.error('Error updating share status:', err);
+    }
+  };
+
   const selectedDoc = documents.find(d => d.id === selectedDocId);
   const selectedChapter = selectedDoc?.chapters.find(c => c.id === selectedChapterId);
 
@@ -215,6 +295,8 @@ export default function App() {
             onUpload={handleUpload}
             onDeleteDocument={handleDeleteDocument}
             onClearChats={handleClearChats}
+            onUpdateTags={handleUpdateTags}
+            onToggleShare={handleToggleShare}
             isUploading={isUploading}
             uploadProgress={uploadProgress}
             uploadError={uploadError}
@@ -225,28 +307,50 @@ export default function App() {
           {selectedChapter ? (
             <ChatArea 
               chapter={selectedChapter}
+              onClearChats={() => selectedDocId && handleClearChats(selectedDocId)}
             />
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-white/40 p-6 md:p-8 text-center relative overflow-hidden">
+            <div 
+              {...getEmptyRootProps()}
+              className={cn(
+                "flex-1 flex flex-col items-center justify-center text-white/40 p-6 md:p-8 text-center relative overflow-hidden transition-colors duration-300",
+                isEmptyDragActive ? "bg-cyan-900/20" : ""
+              )}
+            >
+              <input {...getEmptyInputProps()} />
               {/* Abstract Background Glow */}
               <div className="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
                 <div className="w-[20rem] h-[20rem] md:w-[40rem] md:h-[40rem] bg-cyan-900/10 rounded-full blur-[60px] md:blur-[100px]" />
               </div>
               
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-6 shadow-2xl">
-                  <BookOpen className="w-8 h-8 md:w-10 md:h-10 text-cyan-400/50" />
+              <div className="relative z-10 flex flex-col items-center max-w-lg w-full">
+                <div className={cn(
+                  "w-20 h-20 md:w-24 md:h-24 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center mb-8 shadow-2xl transition-transform duration-500",
+                  isEmptyDragActive ? "scale-110 border-cyan-500/50 bg-cyan-500/10 text-cyan-400" : "text-cyan-400/50"
+                )}>
+                  <UploadCloud className="w-10 h-10 md:w-12 md:h-12" />
                 </div>
-                <h2 className="font-display text-2xl md:text-3xl font-semibold text-white mb-3">Welcome, {user.name}</h2>
-                <p className="max-w-md text-sm md:text-base font-light text-white/50 leading-relaxed">
-                  Upload a document to automatically detect chapters, generate summaries, and interact with the text using a chapter-specific query engine.
+                <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-4">
+                  {isEmptyDragActive ? "Drop document here" : `Welcome, ${user.name}`}
+                </h2>
+                <p className="text-base md:text-lg font-light text-white/60 leading-relaxed mb-10">
+                  Upload your first document to automatically detect chapters, generate summaries, and interact with the text using AI.
                 </p>
+                
                 <button 
-                  className="mt-8 md:hidden px-6 py-3 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-xl font-medium"
-                  onClick={() => setIsSidebarOpen(true)}
+                  className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black rounded-xl font-semibold text-lg transition-all duration-300 shadow-[0_0_20px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] hover:-translate-y-1 flex items-center gap-3"
                 >
-                  Open Library
+                  <UploadCloud className="w-5 h-5" />
+                  Upload a Document
                 </button>
+
+                <div className="flex flex-wrap justify-center gap-2 mt-8">
+                  {['PDF', 'EPUB', 'DOCX', 'TXT', 'Images'].map(ext => (
+                    <span key={ext} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50 text-xs font-medium">
+                      {ext}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           )}

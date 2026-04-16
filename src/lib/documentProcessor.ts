@@ -176,7 +176,7 @@ export async function processDocument(file: File, options: PreprocessOptions, on
   
   for (let i = 0; i < chunks.length; i++) {
     const percent = Math.round(((i) / chunks.length) * 100);
-    onProgress(`Generating metadata for Chapter ${i + 1} of ${chunks.length}... (${percent}%)`);
+    onProgress(`Analyzing Chapter ${i + 1} of ${chunks.length}... (${percent}%)`);
     try {
       const metadata = await generateChapterMetadata(chunks[i], i + 1);
       chapters.push({
@@ -188,6 +188,7 @@ export async function processDocument(file: File, options: PreprocessOptions, on
       });
       // Add a small delay to avoid hitting Gemini API rate limits (15 RPM for free tier)
       if (i < chunks.length - 1) {
+        onProgress(`Waiting for rate limits before Chapter ${i + 2}...`);
         await new Promise(resolve => setTimeout(resolve, 4000));
       }
     } catch (err: any) {
@@ -196,11 +197,12 @@ export async function processDocument(file: File, options: PreprocessOptions, on
         id: uuidv4(),
         chapterNumber: i + 1,
         title: `Chapter ${i + 1}`,
-        summary: `Summary generation failed: ${err.message || 'Unknown error. Please check your API key and rate limits.'}`,
+        summary: `*Summary generation failed: ${err.message || 'Unknown error. Please check your API key and rate limits.'}*`,
         content: chunks[i]
       });
     }
   }
   
+  onProgress('Finalizing document...');
   return chapters;
 }

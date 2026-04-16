@@ -16,6 +16,8 @@ export interface Document {
   name: string;
   uploadDate: string;
   chapters: Chapter[];
+  tags?: string[];
+  isPublic?: boolean;
 }
 
 export interface ChatMessage {

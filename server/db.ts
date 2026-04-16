@@ -45,9 +45,19 @@ export async function initDb() {
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
-        upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        tags TEXT DEFAULT '[]',
+        is_public BOOLEAN DEFAULT FALSE
       );
     `;
+
+    // Add columns if they don't exist (for existing databases)
+    try {
+      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'`;
+      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`;
+    } catch (e) {
+      // Ignore if columns already exist or syntax error on older PG versions
+    }
 
     await sql`
       CREATE TABLE IF NOT EXISTS chapters (
