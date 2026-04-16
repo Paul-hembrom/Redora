@@ -121,9 +121,36 @@ export default function App() {
     setUploadError(null);
     try {
       for (const file of files) {
-        const chapters = await processDocument(file, options, setUploadProgress);
-        const newDoc: Document = {
-          id: uuidv4(),
+        const tempDocId = uuidv4();
+        
+        const chapters = await processDocument(file, options, setUploadProgress, {
+          onDiscovered: (initialChapters) => {
+            const newDoc: Document = {
+              id: tempDocId,
+              name: file.name,
+              uploadDate: new Date().toISOString(),
+              chapters: initialChapters
+            };
+            setDocuments(prev => [newDoc, ...prev]);
+            if (!selectedDocId) {
+              setSelectedDocId(newDoc.id);
+              if (initialChapters.length > 0) {
+                setSelectedChapterId(initialChapters[0].id);
+              }
+            }
+          },
+          onChapterDone: (idx, title, summary) => {
+            setDocuments(prev => prev.map(d => {
+              if (d.id !== tempDocId) return d;
+              const nextChap = [...d.chapters];
+              nextChap[idx] = { ...nextChap[idx], title, summary, isGenerating: false };
+              return { ...d, chapters: nextChap };
+            }));
+          }
+        });
+
+        const finalDoc: Document = {
+          id: tempDocId,
           name: file.name,
           uploadDate: new Date().toISOString(),
           chapters
@@ -132,17 +159,8 @@ export default function App() {
         await fetch('/api/documents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newDoc)
+          body: JSON.stringify(finalDoc)
         });
-
-        setDocuments(prev => [newDoc, ...prev]);
-        
-        if (!selectedDocId) {
-          setSelectedDocId(newDoc.id);
-          if (chapters.length > 0) {
-            setSelectedChapterId(chapters[0].id);
-          }
-        }
       }
     } catch (err: any) {
       console.error(err);

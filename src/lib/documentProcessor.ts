@@ -162,7 +162,15 @@ export function splitIntoChapters(text: string): string[] {
   return chunks;
 }
 
-export async function processDocument(file: File, options: PreprocessOptions, onProgress: (msg: string) => void): Promise<Chapter[]> {
+export async function processDocument(
+  file: File, 
+  options: PreprocessOptions, 
+  onProgress: (msg: string) => void,
+  callbacks?: {
+    onDiscovered?: (chapters: Chapter[]) => void;
+    onChapterDone?: (index: number, title: string, summary: string) => void;
+  }
+): Promise<Chapter[]> {
   onProgress('Extracting text...');
   const rawText = await extractTextFromFile(file, onProgress);
   
@@ -172,34 +180,39 @@ export async function processDocument(file: File, options: PreprocessOptions, on
   onProgress('Detecting chapters...');
   const chunks = splitIntoChapters(processedText);
   
-  const chapters: Chapter[] = [];
+  const chapters: Chapter[] = chunks.map((chunk, i) => ({
+    id: uuidv4(),
+    chapterNumber: i + 1,
+    title: `Chapter ${i + 1}`,
+    summary: '',
+    content: chunk,
+    isGenerating: true
+  }));
+
+  if (callbacks?.onDiscovered) {
+    callbacks.onDiscovered(chapters);
+  }
   
-  for (let i = 0; i < chunks.length; i++) {
-    const percent = Math.round(((i) / chunks.length) * 100);
-    onProgress(`Analyzing Chapter ${i + 1} of ${chunks.length}... (${percent}%)`);
+  for (let i = 0; i < chapters.length; i++) {
+    const percent = Math.round(((i) / chapters.length) * 100);
+    onProgress(`Analyzing Chapter ${i + 1} of ${chapters.length}... (${percent}%)`);
     try {
-      const metadata = await generateChapterMetadata(chunks[i], i + 1);
-      chapters.push({
-        id: uuidv4(),
-        chapterNumber: i + 1,
-        title: metadata.title,
-        summary: metadata.summary,
-        content: chunks[i]
-      });
+      const metadata = await generateChapterMetadata(chapters[i].content, i + 1);
+      chapters[i].title = metadata.title;
+      chapters[i].summary = metadata.summary;
+      chapters[i].isGenerating = false;
+      if (callbacks?.onChapterDone) callbacks.onChapterDone(i, metadata.title, metadata.summary);
+      
       // Add a small delay to avoid hitting Gemini API rate limits (15 RPM for free tier)
-      if (i < chunks.length - 1) {
+      if (i < chapters.length - 1) {
         onProgress(`Waiting for rate limits before Chapter ${i + 2}...`);
         await new Promise(resolve => setTimeout(resolve, 4000));
       }
     } catch (err: any) {
       console.error(`Failed to generate metadata for chapter ${i + 1}`, err);
-      chapters.push({
-        id: uuidv4(),
-        chapterNumber: i + 1,
-        title: `Chapter ${i + 1}`,
-        summary: `*Summary generation failed: ${err.message || 'Unknown error. Please check your API key and rate limits.'}*`,
-        content: chunks[i]
-      });
+      chapters[i].summary = `*Summary generation failed: ${err.message || 'Unknown error. Please check your API key and rate limits.'}*`;
+      chapters[i].isGenerating = false;
+      if (callbacks?.onChapterDone) callbacks.onChapterDone(i, chapters[i].title, chapters[i].summary);
     }
   }
   

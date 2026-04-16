@@ -9,6 +9,7 @@ export interface Chapter {
   title: string;
   summary: string;
   content: string;
+  isGenerating?: boolean;
 }
 
 export interface Document {

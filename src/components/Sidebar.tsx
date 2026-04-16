@@ -30,6 +30,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+  const [expandedChaptersList, setExpandedChaptersList] = useState<Set<string>>(new Set());
   const [expandedSummaries, setExpandedSummaries] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'date' | 'name'>('date');
   const [filterText, setFilterText] = useState('');
@@ -68,11 +69,36 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     disabled: isUploading
   });
 
-  const toggleDoc = (id: string) => {
-    const newSet = new Set(expandedDocs);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setExpandedDocs(newSet);
+  const toggleDoc = (docId: string) => {
+    setExpandedDocs(prev => {
+      const next = new Set(prev);
+      if (next.has(docId)) {
+        next.delete(docId);
+        setExpandedChaptersList(chaptersNext => {
+          const newSet = new Set(chaptersNext);
+          newSet.delete(docId);
+          return newSet;
+        });
+      } else {
+        next.add(docId);
+        setExpandedChaptersList(chaptersNext => {
+          const newSet = new Set(chaptersNext);
+          newSet.add(docId);
+          return newSet;
+        });
+      }
+      return next;
+    });
+  };
+
+  const toggleChaptersList = (e: React.MouseEvent, docId: string) => {
+    e.stopPropagation();
+    setExpandedChaptersList(prev => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
   };
 
   const toggleSummary = (e: React.MouseEvent, id: string) => {
@@ -325,7 +351,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     ))}
                   </div>
                   {editingTagsFor === doc.id ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-2 mt-1">
                       <input 
                         type="text" 
                         value={newTagInput}
@@ -338,12 +364,18 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                             setEditingTagsFor(null);
                           }
                         }}
-                        placeholder="Add tag..."
-                        className="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                        placeholder="Type new tag..."
+                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-colors"
                         autoFocus
                       />
-                      <button onClick={(e) => { e.stopPropagation(); handleAddTag(doc); }} className="p-1 text-cyan-400 hover:bg-white/5 rounded"><Plus className="w-3 h-3" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(null); }} className="p-1 text-white/40 hover:bg-white/5 rounded"><X className="w-3 h-3" /></button>
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={(e) => { e.stopPropagation(); handleAddTag(doc); }} className="flex-1 px-2 py-1 bg-cyan-500 hover:bg-cyan-400 text-black rounded text-[10px] font-semibold transition-colors">
+                          Add
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(null); }} className="flex-1 px-2 py-1 bg-white/10 hover:bg-white/20 text-white rounded text-[10px] font-medium transition-colors">
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(doc.id); }} className="text-[10px] text-white/40 hover:text-cyan-400 flex items-center gap-1">
@@ -351,25 +383,45 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     </button>
                   )}
                 </div>
-                {doc.chapters.map(chapter => (
+                
+                <div 
+                  className="px-4 py-2 flex items-center justify-between text-xs font-semibold text-white/50 cursor-pointer hover:text-white/80 transition-colors border-y border-white/5 bg-black/10"
+                  onClick={(e) => toggleChaptersList(e, doc.id)}
+                >
+                  <span className="flex items-center gap-1.5 uppercase tracking-wider">
+                    {expandedChaptersList.has(doc.id) ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    Chapters ({doc.chapters.length})
+                  </span>
+                </div>
+                
+                {expandedChaptersList.has(doc.id) && doc.chapters.map(chapter => (
                   <div key={chapter.id} className="flex flex-col">
                     <button
-                      onClick={() => onSelectChapter(doc.id, chapter.id)}
+                      onClick={() => !chapter.isGenerating && onSelectChapter(doc.id, chapter.id)}
+                      disabled={chapter.isGenerating}
                       className={cn(
                         "w-full text-left px-4 py-2 text-sm transition-colors flex items-center justify-between group",
                         selectedChapterId === chapter.id 
                           ? "text-cyan-400 bg-cyan-500/5 font-medium" 
-                          : "text-white/50 hover:text-white/80 hover:bg-white/5"
+                          : chapter.isGenerating
+                            ? "text-white/30 bg-black/10 cursor-wait"
+                            : "text-white/50 hover:text-white/80 hover:bg-white/5"
                       )}
                     >
                       <div className="flex items-center gap-2 truncate">
-                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
-                        <span className="truncate">{chapter.title}</span>
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full shrink-0",
+                          chapter.isGenerating ? "bg-cyan-400 opacity-100 animate-pulse" : "bg-current opacity-50"
+                        )} />
+                        <span className="truncate">{chapter.isGenerating ? 'Generating...' : chapter.title}</span>
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1">
+                        {chapter.isGenerating && (
+                          <Loader2 className="w-3 h-3 text-cyan-400 animate-spin shrink-0 mr-1" />
+                        )}
                         <span 
                           onClick={(e) => toggleSummary(e, chapter.id)}
-                          className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white"
+                          className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Toggle Summary"
                         >
                           {expandedSummaries.has(chapter.id) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}

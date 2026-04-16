@@ -112,7 +112,12 @@ export default function GlobalSearchModal({ isOpen, onClose, onSelectResult }: G
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-white truncate">Chapter {chapter.chapter_number}: {chapter.title}</p>
                         <p className="text-xs text-white/40 truncate">in {chapter.doc_name}</p>
-                        <p className="text-xs text-white/60 mt-1 line-clamp-2">{chapter.summary}</p>
+                        <div className="mt-1.5 p-2 bg-black/20 rounded-md border border-white/5">
+                          <p className="text-xs text-white/60 line-clamp-2 leading-relaxed">
+                            <span className="font-medium text-white/80">Summary: </span>
+                            {chapter.summary || 'Summary unavailable'}
+                          </p>
+                        </div>
                       </div>
                     </button>
                   ))}
@@ -135,10 +140,12 @@ export default function GlobalSearchModal({ isOpen, onClose, onSelectResult }: G
                         <MessageSquare className="w-4 h-4 text-blue-400" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-white line-clamp-2">{chat.text}</p>
-                        <p className="text-xs text-white/40 truncate mt-1">
+                        <p className="text-xs text-white/40 truncate mb-1">
                           {chat.role === 'user' ? 'You' : 'AI'} in {chat.chapter_title} ({chat.doc_name})
                         </p>
+                        <div className="p-2 bg-black/20 rounded-md border border-white/5">
+                          <p className="text-sm text-white/80 line-clamp-2 leading-relaxed font-light">"{chat.text}"</p>
+                        </div>
                       </div>
                     </button>
                   ))}
