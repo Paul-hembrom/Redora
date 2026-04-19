@@ -42,6 +42,51 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
   return content;
 }
 
+async function callNvidiaVisionFallback(base64Data: string, mimeType: string, prompt: string) {
+  const apiKey = process.env.NVIDIA_API_KEY;
+  if (!apiKey) throw new Error("NVIDIA_API_KEY is missing for fallback.");
+
+  const messages = [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: prompt
+        },
+        {
+          type: "image_url",
+          image_url: {
+            url: `data:${mimeType};base64,${base64Data}`
+          }
+        }
+      ]
+    }
+  ];
+
+  const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "google/gemma-3-27b-it",
+      messages: messages,
+      temperature: 0.2,
+      max_tokens: 2048
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`NVIDIA Vision API Error: ${err}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
+
 export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3): Promise<{title: string, summary: string}> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'undefined' || apiKey === 'null' || apiKey === '') {
@@ -140,8 +185,8 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
     throw new Error("No text extracted from image.");
   } catch (error: any) {
     if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
-      console.log("Gemini rate limit exceeded. NVIDIA fallback model (Mistral Large 3) does not support vision.");
-      throw new Error("Gemini rate limit exceeded. The NVIDIA fallback model does not support image extraction.");
+      console.log("Gemini rate limit exceeded. Falling back to NVIDIA Gemma 3 27B IT for image extraction...");
+      return await callNvidiaVisionFallback(base64Data, mimeType, prompt);
     }
     throw error;
   }
