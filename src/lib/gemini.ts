@@ -23,7 +23,7 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "mistralai/mistral-large-3-675b-instruct-2512",
+      model: "meta/llama-3.2-90b-vision-instruct",
       messages: messages,
       response_format: { type: "json_object" },
       temperature: 0.2,
