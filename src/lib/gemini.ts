@@ -71,7 +71,7 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "google/gemma-3-27b-it",
+      model: "meta/llama-3.2-90b-vision-instruct",
       messages: messages,
       temperature: 0.2,
       max_tokens: 2048
