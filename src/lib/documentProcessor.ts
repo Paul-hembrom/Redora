@@ -4,7 +4,7 @@ import mammoth from 'mammoth';
 import ePub from 'epubjs';
 import { PreprocessOptions, Chapter } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChapterMetadata, extractTextFromImage, ApiRateLimitError } from './gemini';
+import { generateChapterMetadata, generateBatchChapterMetadata, extractTextFromImage, ApiRateLimitError } from './gemini';
 
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.mjs`;
