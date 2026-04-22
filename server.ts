@@ -325,34 +325,22 @@ app.get('/api/search', authenticate, async (req: any, res) => {
 });
 
 // --- NVIDIA AI Proxy Routes ---
-app.post('/api/ai/nvidia', authenticate, async (req: any, res) => {
-  const { prompt, systemInstruction, model, temperature, max_tokens, response_format } = req.body;
+app.post('/api/nvidia/chat/completions', authenticate, async (req: any, res) => {
   const apiKey = process.env.VITE_NVIDIA_API_KEY || process.env.NVIDIA_API_KEY;
   
   if (!apiKey) {
     return res.status(500).json({ error: "NVIDIA_API_KEY is missing on the server." });
   }
 
-  const messages = [];
-  if (systemInstruction) {
-    messages.push({ role: "system", content: systemInstruction });
-  }
-  messages.push({ role: "user", content: prompt });
-
   try {
     const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
       },
-      body: JSON.stringify({
-        model: model || "meta/llama-3.2-90b-vision-instruct",
-        messages,
-        response_format,
-        temperature: temperature || 0.2,
-        max_tokens: max_tokens || 2048
-      })
+      body: JSON.stringify(req.body)
     });
 
     if (!response.ok) {
@@ -360,59 +348,6 @@ app.post('/api/ai/nvidia', authenticate, async (req: any, res) => {
       return res.status(response.status).set({ 'Retry-After': response.headers.get('Retry-After') || '' }).send(errText);
     }
     
-    const data = await response.json();
-    res.json(data);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/ai/nvidia-vision', authenticate, async (req: any, res) => {
-  const { base64Data, mimeType, prompt, model, temperature, max_tokens } = req.body;
-  const apiKey = process.env.VITE_NVIDIA_API_KEY || process.env.NVIDIA_API_KEY;
-  
-  if (!apiKey) {
-    return res.status(500).json({ error: "NVIDIA_API_KEY is missing on the server." });
-  }
-
-  const messages = [
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: prompt
-        },
-        {
-          type: "image_url",
-          image_url: {
-            url: `data:${mimeType};base64,${base64Data}`
-          }
-        }
-      ]
-    }
-  ];
-
-  try {
-    const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: model || "meta/llama-3.2-90b-vision-instruct",
-        messages,
-        temperature: temperature || 0.2,
-        max_tokens: max_tokens || 2048
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      return res.status(response.status).set({ 'Retry-After': response.headers.get('Retry-After') || '' }).send(errText);
-    }
-
     const data = await response.json();
     res.json(data);
   } catch (err: any) {

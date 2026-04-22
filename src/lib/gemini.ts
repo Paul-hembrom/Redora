@@ -14,16 +14,25 @@ function cleanErrorMessage(error: any): string {
 }
 
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
-  // Use proxy to avoid CORS
-  const response = await fetch("/api/ai/nvidia", {
+  // Use optional HF Space or local proxy to avoid CORS
+  const baseUrl = import.meta.env.VITE_BACKEND_URL || "";
+  const messages = [];
+  if (systemInstruction) {
+    messages.push({ role: "system", content: systemInstruction });
+  }
+  messages.push({ role: "user", content: prompt });
+
+  const response = await fetch(`${baseUrl}/api/nvidia/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      prompt,
-      systemInstruction,
-      response_format: { type: "json_object" }
+      model: "meta/llama-3.2-90b-vision-instruct",
+      messages,
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 2048
     })
   });
 
@@ -56,15 +65,33 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
 }
 
 async function callNvidiaVisionFallback(base64Data: string, mimeType: string, prompt: string) {
-  const response = await fetch("/api/ai/nvidia-vision", {
+  const baseUrl = import.meta.env.VITE_BACKEND_URL || "";
+  const response = await fetch(`${baseUrl}/api/nvidia/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      base64Data,
-      mimeType,
-      prompt
+      model: "meta/llama-3.2-90b-vision-instruct",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: prompt
+            },
+            {
+               type: "image_url",
+               image_url: {
+                 url: `data:${mimeType};base64,${base64Data}`
+               }
+            }
+          ]
+        }
+      ],
+      temperature: 0.2,
+      max_tokens: 2048
     })
   });
 
