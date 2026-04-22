@@ -154,10 +154,21 @@ No markdown formatting, no explanation.
       for (const key in parsed) {
         let summaryObj = parsed[key].summary;
         if (Array.isArray(summaryObj)) {
-          summaryObj = summaryObj.join("\\n- ");
+          summaryObj = summaryObj.join("\n- ");
           if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
+        } else if (typeof summaryObj === 'string') {
+          // Clean up weird literals
+          summaryObj = summaryObj.replace(/\\n/g, '\n');
+          // Add bullet if missing to first item
+          if (!summaryObj.trim().startsWith('-')) {
+            summaryObj = '- ' + summaryObj.trim();
+          }
         }
-        result[parseInt(key, 10)] = {
+        
+        const numericMatch = key.match(/\d+/);
+        const chapterNum = numericMatch ? parseInt(numericMatch[0], 10) : parseInt(key, 10);
+        
+        result[chapterNum] = {
           title: parsed[key].title,
           summary: summaryObj
         };
@@ -199,8 +210,13 @@ IMPORTANT: You must return ONLY a valid JSON object with 'title' and 'summary' k
       const parsed = JSON.parse(nvidiaResponse);
       let summaryObj = parsed.summary;
       if (Array.isArray(summaryObj)) {
-        summaryObj = summaryObj.join("\\n- ");
+        summaryObj = summaryObj.join("\n- ");
         if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
+      } else if (typeof summaryObj === 'string') {
+        summaryObj = summaryObj.replace(/\\n/g, '\n');
+        if (!summaryObj.trim().startsWith('-')) {
+          summaryObj = '- ' + summaryObj.trim();
+        }
       }
       return { title: parsed.title, summary: summaryObj };
     } catch (error: any) {

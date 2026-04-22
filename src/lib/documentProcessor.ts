@@ -205,8 +205,18 @@ export async function processDocument(
       for (let j = 0; j < batch.length; j++) {
         const globalIndex = i + j;
         const chapNum = chapters[globalIndex].chapterNumber;
-        const meta = batchMetadata[chapNum];
+        let meta = batchMetadata[chapNum];
         
+        if (!meta) {
+           console.warn(`Chapter ${chapNum} missed by AI batch array, generating individually...`);
+           try {
+             meta = await generateChapterMetadata(chapters[globalIndex].content, chapNum);
+             await new Promise(resolve => setTimeout(resolve, 500)); // Respect limits on fallback
+           } catch (fallbackErr: any) {
+             console.error("Individual fallback also failed:", fallbackErr);
+           }
+        }
+
         if (meta) {
           chapters[globalIndex].title = meta.title || `Chapter ${chapNum}`;
           chapters[globalIndex].summary = meta.summary || "*Summary not provided by AI*";
