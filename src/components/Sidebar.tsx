@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
@@ -26,9 +26,12 @@ interface Props {
   uploadError: string | null;
   persona: ReadingPersona;
   setPersona: (persona: ReadingPersona) => void;
+  librarySelection: Set<string>;
+  onToggleLibrarySelection: (docId: string) => void;
+  onOpenLibraryChat: () => void;
 }
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -275,6 +278,16 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
       </div>
 
       <div className="p-4 border-b border-white/5 shrink-0 space-y-3">
+        {librarySelection.size > 1 && (
+          <div className="mb-3">
+            <button
+              onClick={onOpenLibraryChat}
+              className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2.5 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:shadow-[0_0_20px_rgba(34,211,238,0.5)] hover:-translate-y-0.5"
+            >
+              <Layers className="w-4 h-4" /> Library Synthesis ({librarySelection.size})
+            </button>
+          </div>
+        )}
         <div className="relative">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
           <input 
@@ -310,6 +323,18 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 className="flex items-center gap-3 flex-1 min-w-0"
                 onClick={() => toggleDoc(doc.id)}
               >
+                <div 
+                  className="shrink-0 flex items-center justify-center w-5 h-5 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); onToggleLibrarySelection(doc.id); }}
+                >
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 rounded border border-white/20 bg-black/40 accent-cyan-500 cursor-pointer"
+                    checked={librarySelection.has(doc.id)}
+                    onChange={() => {}} // handled by parent div onClick to prevent double fires
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
                 {expandedDocs.has(doc.id) ? (
                   <ChevronDown className="w-4 h-4 text-white/40 shrink-0" />
                 ) : (

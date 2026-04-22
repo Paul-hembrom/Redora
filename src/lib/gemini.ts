@@ -215,9 +215,9 @@ export async function generateChatResponse(
 
   const systemInstruction = `
 ${personaInstruction}
-You are currently helping the user understand a specific chapter of a book.
-Answer the user's queries based ONLY on the provided chapter content.
-Maintain conversational memory for follow-up questions within this chapter.
+You are currently helping the user understand provided text, which could be a single chapter or multiple documents.
+Answer the user's queries based ONLY on the provided content. If comparing multiple documents, synthesize and cite them.
+Maintain conversational memory for follow-up questions.
 
 After every response:
 1. Generate 3-5 intelligent follow-up questions relevant to the current chapter that help deeper understanding.
@@ -236,7 +236,7 @@ Output JSON format:
   const formattedHistory = history.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.text}`).join('\n\n');
 
   const prompt = `
-Chapter Content:
+Provided Content:
 ${chapterContent}
 
 Chat History:
@@ -365,7 +365,7 @@ export async function generateActionTool(chapterContent: string, toolType: 'quiz
 Task: ${promptText}
 
 Chapter Content:
-${chapterContent.substring(0, 15000)} // Ensure within limits
+${chapterContent.substring(0, 50000)} // Ensure within limits
   `.trim();
 
   try {

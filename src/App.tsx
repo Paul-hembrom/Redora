@@ -24,6 +24,9 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   
+  const [librarySelection, setLibrarySelection] = useState<Set<string>>(new Set());
+  const [isLibraryChatActive, setIsLibraryChatActive] = useState(false);
+  
   const [persona, setPersona] = useState<ReadingPersona>(() => {
     return (localStorage.getItem('readora_persona') as ReadingPersona) || 'general';
   });
@@ -182,7 +185,24 @@ export default function App() {
   const handleSelectChapter = (docId: string, chapterId: string) => {
     setSelectedDocId(docId);
     setSelectedChapterId(chapterId);
+    setIsLibraryChatActive(false);
     setIsSidebarOpen(false); // Close sidebar on mobile when a chapter is selected
+  };
+
+  const handleToggleLibrarySelection = (docId: string) => {
+    setLibrarySelection(prev => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+
+  const handleOpenLibraryChat = () => {
+    setIsLibraryChatActive(true);
+    setSelectedDocId(null);
+    setSelectedChapterId(null);
+    setIsSidebarOpen(false);
   };
 
   const handleDeleteDocument = async (docId: string) => {
@@ -299,6 +319,7 @@ export default function App() {
               setSelectedChapterId(doc.chapters[0].id);
             }
           }
+          setIsLibraryChatActive(false);
           setIsSidebarOpen(false);
         }}
       />
@@ -328,17 +349,43 @@ export default function App() {
             uploadError={uploadError}
             persona={persona}
             setPersona={setPersona}
+            librarySelection={librarySelection}
+            onToggleLibrarySelection={handleToggleLibrarySelection}
+            onOpenLibraryChat={handleOpenLibraryChat}
           />
         </div>
         
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-0">
-          {selectedChapter ? (
-            <ChatArea 
-              chapter={selectedChapter}
-              onClearChats={() => selectedDocId && handleClearChats(selectedDocId)}
-              persona={persona}
-            />
-          ) : (
+          {(() => {
+            let activeChapter = selectedChapter;
+
+            if (isLibraryChatActive && librarySelection.size > 1) {
+              const selectedDocs = documents.filter(d => librarySelection.has(d.id));
+              const sortedIds = selectedDocs.map(d => d.id).sort();
+              const contentStr = selectedDocs.map(d => `--- DOCUMENT: ${d.name} ---\n\n` + d.chapters.map(c => `Chapter ${c.chapterNumber} - ${c.title}:\n${c.content}`).join('\n\n')).join('\n\n\n');
+              
+              activeChapter = {
+                id: `lib_${sortedIds.join('_')}`,
+                chapterNumber: 0,
+                title: `Library Synthesis (${selectedDocs.length} Docs)`,
+                summary: `Cross-document context established. Comparing: ${selectedDocs.map(d => d.name).join(' • ')}. Ask questions to compare, contrast, and synthesize knowledge across these sources.`,
+                content: contentStr
+              };
+            }
+
+            return activeChapter ? (
+              <ChatArea 
+                chapter={activeChapter}
+                onClearChats={() => {
+                  if (isLibraryChatActive) {
+                    // Do nothing for virtual chats
+                  } else if (selectedDocId) {
+                    handleClearChats(selectedDocId);
+                  }
+                }}
+                persona={persona}
+              />
+            ) : (
             <div 
               {...getEmptyRootProps()}
               className={cn(
@@ -382,7 +429,8 @@ export default function App() {
                 </div>
               </div>
             </div>
-          )}
+            );
+          })()}
         </div>
       </div>
     </div>

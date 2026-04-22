@@ -33,6 +33,10 @@ export default function ChatArea({ chapter, onClearChats, persona }: Props) {
     setError(null);
     setIsTyping(false);
     
+    if (chapter.id.startsWith('lib_')) {
+      return; // It's a virtual cross-document chapter, do not load from DB
+    }
+
     fetch(`/api/chats/${chapter.id}`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to load chat history');
@@ -73,11 +77,13 @@ export default function ChatArea({ chapter, onClearChats, persona }: Props) {
     setError(null);
 
     // Save user message to DB
-    fetch('/api/chats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
-    }).catch(console.error);
+    if (!chapter.id.startsWith('lib_')) {
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+      }).catch(console.error);
+    }
 
     try {
       const aiResult = await generateChatResponse(text, chapter.content, messages, persona);
@@ -93,11 +99,13 @@ export default function ChatArea({ chapter, onClearChats, persona }: Props) {
       setMessages(prev => [...prev, aiMsg]);
 
       // Save AI message to DB
-      fetch('/api/chats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
-      }).catch(console.error);
+      if (!chapter.id.startsWith('lib_')) {
+        fetch('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+        }).catch(console.error);
+      }
 
     } catch (err: any) {
       console.error(err);
@@ -120,11 +128,13 @@ export default function ChatArea({ chapter, onClearChats, persona }: Props) {
     setIsTyping(true);
     setError(null);
 
-    fetch('/api/chats', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
-    }).catch(console.error);
+    if (!chapter.id.startsWith('lib_')) {
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+      }).catch(console.error);
+    }
 
     try {
       const aiResult = await generateActionTool(chapter.content, toolType);
@@ -139,11 +149,13 @@ export default function ChatArea({ chapter, onClearChats, persona }: Props) {
 
       setMessages(prev => [...prev, aiMsg]);
 
-      fetch('/api/chats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
-      }).catch(console.error);
+      if (!chapter.id.startsWith('lib_')) {
+        fetch('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+        }).catch(console.error);
+      }
 
     } catch (err: any) {
       console.error(err);
