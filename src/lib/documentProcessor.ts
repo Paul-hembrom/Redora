@@ -193,22 +193,35 @@ export async function processDocument(
     callbacks.onDiscovered(chapters);
   }
   
-  for (let i = 0; i < chapters.length; i++) {
-    const percent = Math.round(((i) / chapters.length) * 100);
-    onProgress(`Analyzing Chapter ${i + 1} of ${chapters.length}... (${percent}%)`);
+  for (let i = 0; i < chapters.length; i += 4) {
+    const batch = chapters.slice(i, i + 4);
+    const percent = Math.round((i / chapters.length) * 100);
+    onProgress(`Analyzing Chapters ${i + 1}-${i + batch.length} of ${chapters.length}... (${percent}%)`);
+    
     try {
-      const metadata = await generateChapterMetadata(chapters[i].content, i + 1);
-      chapters[i].title = metadata.title;
-      chapters[i].summary = metadata.summary;
-      chapters[i].isGenerating = false;
-      if (callbacks?.onChapterDone) callbacks.onChapterDone(i, metadata.title, metadata.summary);
+      const batchData = batch.map(c => ({ content: c.content, chapterNumber: c.chapterNumber }));
+      const batchMetadata = await generateBatchChapterMetadata(batchData);
       
-      // Dynamic delay based on whether we hit rate limits or default to short pause
-      if (i < chapters.length - 1) {
+      for (let j = 0; j < batch.length; j++) {
+        const globalIndex = i + j;
+        const chapNum = chapters[globalIndex].chapterNumber;
+        const meta = batchMetadata[chapNum];
+        
+        if (meta) {
+          chapters[globalIndex].title = meta.title || `Chapter ${chapNum}`;
+          chapters[globalIndex].summary = meta.summary || "*Summary not provided by AI*";
+        } else {
+          chapters[globalIndex].summary = "*Summary generation skipped by AI*";
+        }
+        chapters[globalIndex].isGenerating = false;
+        if (callbacks?.onChapterDone) callbacks.onChapterDone(globalIndex, chapters[globalIndex].title, chapters[globalIndex].summary);
+      }
+      
+      if (i + 4 < chapters.length) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     } catch (err: any) {
-      console.error(`Failed to generate metadata for chapter ${i + 1}`, err);
+      console.error(`Failed to generate metadata for batch starting at chapter ${i + 1}`, err);
       let shortErr = err.message || 'Unknown error. Please check your API key.';
       if (shortErr.includes('rate limit') || shortErr.includes('429')) shortErr = "AI provider rate limit exceeded.";
       
@@ -216,12 +229,15 @@ export async function processDocument(
         shortErr = `Rate limit exceeded. Paused for ${Math.ceil(err.retryAfterMs / 1000)}s.`;
       }
 
-      chapters[i].summary = `*Summary generation failed: ${shortErr}*`;
-      chapters[i].isGenerating = false;
-      if (callbacks?.onChapterDone) callbacks.onChapterDone(i, chapters[i].title, chapters[i].summary);
+      for (let j = 0; j < batch.length; j++) {
+        const globalIndex = i + j;
+        chapters[globalIndex].summary = `*Summary generation failed: ${shortErr}*`;
+        chapters[globalIndex].isGenerating = false;
+        if (callbacks?.onChapterDone) callbacks.onChapterDone(globalIndex, chapters[globalIndex].title, chapters[globalIndex].summary);
+      }
 
-      if (err instanceof ApiRateLimitError && i < chapters.length - 1) {
-         onProgress(`Waiting ${Math.ceil(err.retryAfterMs / 1000)}s for rate limits before Chapter ${i + 2}...`);
+      if (err instanceof ApiRateLimitError && i + 4 < chapters.length) {
+         onProgress(`Waiting ${Math.ceil(err.retryAfterMs / 1000)}s for rate limits before continuing...`);
          await new Promise(resolve => setTimeout(resolve, err.retryAfterMs));
       }
     }

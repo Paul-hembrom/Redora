@@ -32,7 +32,7 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
       messages,
       response_format: { type: "json_object" },
       temperature: 0.2,
-      max_tokens: 2048
+      max_tokens: 8192
     })
   });
 
@@ -91,7 +91,7 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
         }
       ],
       temperature: 0.2,
-      max_tokens: 2048
+      max_tokens: 8192
     })
   });
 
@@ -119,6 +119,50 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
 
   const data = await response.json();
   return data.choices[0].message.content;
+}
+
+export async function generateBatchChapterMetadata(chaptersData: { content: string, chapterNumber: number }[], retries = 3): Promise<{ [chapterNumber: number]: { title: string, summary: string } }> {
+  const chaptersText = chaptersData.map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 15000)}`).join('\n\n');
+  const prompt = `
+Analyze the following text which contains multiple chapters.
+For each chapter, generate a short, meaningful title (max 6 words), and a concise summary (3-5 bullet points) that captures the main points effectively.
+
+Here are the chapters:
+${chaptersText}
+
+IMPORTANT: You must return ONLY a valid JSON object where the keys are the chapter numbers (as strings) and values are objects with 'title' and 'summary' keys. Example:
+{
+  "${chaptersData[0]?.chapterNumber || '1'}": { "title": "Example Title", "summary": "Example Summary" }
+}
+No markdown formatting, no explanation.
+  `.trim();
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const nvidiaResponse = await callNvidiaFallback(prompt);
+      const parsed = JSON.parse(nvidiaResponse);
+      const result: { [chapterNumber: number]: { title: string, summary: string } } = {};
+      
+      for (const key in parsed) {
+        result[parseInt(key, 10)] = parsed[key];
+      }
+      return result;
+    } catch (error: any) {
+      console.error(`Attempt ${attempt + 1} failed for batch:`, error);
+      if (attempt === retries - 1) {
+        if (error instanceof ApiRateLimitError) throw error;
+        throw new Error(cleanErrorMessage(error));
+      }
+      
+      let delay = Math.pow(2, attempt) * 4000;
+      if (error instanceof ApiRateLimitError) {
+        delay = Math.max(delay, error.retryAfterMs);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw new Error("Failed to generate metadata after multiple attempts.");
 }
 
 export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3): Promise<{title: string, summary: string}> {
