@@ -324,15 +324,14 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 onClick={() => toggleDoc(doc.id)}
               >
                 <div 
-                  className="shrink-0 flex items-center justify-center w-5 h-5 cursor-pointer"
+                  className="shrink-0 flex items-center justify-center w-5 h-5 cursor-pointer z-10"
                   onClick={(e) => { e.stopPropagation(); onToggleLibrarySelection(doc.id); }}
                 >
                   <input
                     type="checkbox"
-                    className="w-3.5 h-3.5 rounded border border-white/20 bg-black/40 accent-cyan-500 cursor-pointer"
+                    className="w-3.5 h-3.5 rounded border border-white/20 bg-black/40 accent-cyan-500 cursor-pointer pointer-events-none"
                     checked={librarySelection.has(doc.id)}
-                    onChange={() => {}} // handled by parent div onClick to prevent double fires
-                    onClick={(e) => e.stopPropagation()}
+                    readOnly
                   />
                 </div>
                 {expandedDocs.has(doc.id) ? (

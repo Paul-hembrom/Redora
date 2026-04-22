@@ -6,6 +6,13 @@ function isRateLimitError(error: any): boolean {
   return msg.includes('429') || msg.includes('quota') || msg.includes('exhausted') || msg.includes('rate limit');
 }
 
+function cleanErrorMessage(error: any): string {
+  if (isRateLimitError(error)) {
+    return "The AI provider's rate limit has been exceeded. Please wait a minute and try again.";
+  }
+  return error?.message || 'An unknown error occurred.';
+}
+
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
   const apiKey = process.env.NVIDIA_API_KEY;
   if (!apiKey) throw new Error("NVIDIA_API_KEY is missing for fallback.");
@@ -135,13 +142,13 @@ ${content.substring(0, 10000)}
           return JSON.parse(nvidiaResponse) as { title: string; summary: string };
         } catch (nvidiaError) {
           console.error("NVIDIA fallback also failed:", nvidiaError);
-          throw nvidiaError;
+          throw new Error(cleanErrorMessage(error));
         }
       }
 
       console.error(`Attempt ${attempt + 1} failed for chapter ${chapterNumber}:`, error);
       if (attempt === retries - 1) {
-        throw error;
+        throw new Error(cleanErrorMessage(error));
       }
       // Exponential backoff: 2s, 4s, 8s...
       const delay = Math.pow(2, attempt) * 2000;
@@ -186,9 +193,13 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
   } catch (error: any) {
     if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
       console.log("Gemini rate limit exceeded. Falling back to NVIDIA Gemma 3 27B IT for image extraction...");
-      return await callNvidiaVisionFallback(base64Data, mimeType, prompt);
+      try {
+        return await callNvidiaVisionFallback(base64Data, mimeType, prompt);
+      } catch (nvidiaError) {
+        throw new Error(cleanErrorMessage(error));
+      }
     }
-    throw error;
+    throw new Error(cleanErrorMessage(error));
   }
 }
 
@@ -286,15 +297,19 @@ User Query: ${query}
 } catch (error: any) {
     if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
       console.log("Gemini rate limit exceeded, falling back to NVIDIA Mistral...");
-      const nvidiaPrompt = prompt + "\n\nIMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQuestions' (array of strings), and 'relationshipGraph' (array of objects with source, target, relation) keys. No markdown formatting, no explanation.";
-      const nvidiaResponse = await callNvidiaFallback(nvidiaPrompt, systemInstruction);
-      return JSON.parse(nvidiaResponse) as {
-        response: string;
-        followUpQuestions: string[];
-        relationshipGraph: { source: string; target: string; relation: string }[];
-      };
+      try {
+        const nvidiaPrompt = prompt + "\n\nIMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQuestions' (array of strings), and 'relationshipGraph' (array of objects with source, target, relation) keys. No markdown formatting, no explanation.";
+        const nvidiaResponse = await callNvidiaFallback(nvidiaPrompt, systemInstruction);
+        return JSON.parse(nvidiaResponse) as {
+          response: string;
+          followUpQuestions: string[];
+          relationshipGraph: { source: string; target: string; relation: string }[];
+        };
+      } catch (nvidiaErr) {
+        throw new Error(cleanErrorMessage(error));
+      }
     }
-    throw error;
+    throw new Error(cleanErrorMessage(error));
   }
 }
 
@@ -383,15 +398,19 @@ ${chapterContent.substring(0, 50000)} // Ensure within limits
   } catch (error: any) {
     if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
       console.log(`Gemini rate limit exceeded for ${toolType}, falling back to NVIDIA Mistral...`);
-      let jsonFormatInstructions = "";
-      if (toolType === 'quiz') jsonFormatInstructions = "{ 'questions': [{ 'question': '...','options': ['A','B','C','D'], 'answerIndex': 0, 'explanation': '...' }] }";
-      if (toolType === 'glossary') jsonFormatInstructions = "{ 'terms': [{ 'term': '...', 'definition': '...' }] }";
-      if (toolType === 'brief') jsonFormatInstructions = "{ 'summaryMemo': '...', 'actionItems': ['...'], 'keyArguments': ['...'] }";
-      
-      const nvidiaPrompt = prompt + `\n\nIMPORTANT: You must return ONLY a valid JSON object exactly matching this structure: ${jsonFormatInstructions}. No markdown formatting, no explanation.`;
-      const nvidiaResponse = await callNvidiaFallback(nvidiaPrompt);
-      return JSON.parse(nvidiaResponse);
+      try {
+        let jsonFormatInstructions = "";
+        if (toolType === 'quiz') jsonFormatInstructions = "{ 'questions': [{ 'question': '...','options': ['A','B','C','D'], 'answerIndex': 0, 'explanation': '...' }] }";
+        if (toolType === 'glossary') jsonFormatInstructions = "{ 'terms': [{ 'term': '...', 'definition': '...' }] }";
+        if (toolType === 'brief') jsonFormatInstructions = "{ 'summaryMemo': '...', 'actionItems': ['...'], 'keyArguments': ['...'] }";
+        
+        const nvidiaPrompt = prompt + `\n\nIMPORTANT: You must return ONLY a valid JSON object exactly matching this structure: ${jsonFormatInstructions}. No markdown formatting, no explanation.`;
+        const nvidiaResponse = await callNvidiaFallback(nvidiaPrompt);
+        return JSON.parse(nvidiaResponse);
+      } catch (nvidiaErr) {
+        throw new Error(cleanErrorMessage(error));
+      }
     }
-    throw error;
+    throw new Error(cleanErrorMessage(error));
   }
 }

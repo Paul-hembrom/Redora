@@ -210,7 +210,9 @@ export async function processDocument(
       }
     } catch (err: any) {
       console.error(`Failed to generate metadata for chapter ${i + 1}`, err);
-      chapters[i].summary = `*Summary generation failed: ${err.message || 'Unknown error. Please check your API key and rate limits.'}*`;
+      let shortErr = err.message || 'Unknown error. Please check your API key and rate limits.';
+      if (shortErr.includes('rate limit') || shortErr.includes('429')) shortErr = "AI provider rate limit exceeded.";
+      chapters[i].summary = `*Summary generation failed: ${shortErr}*`;
       chapters[i].isGenerating = false;
       if (callbacks?.onChapterDone) callbacks.onChapterDone(i, chapters[i].title, chapters[i].summary);
     }
