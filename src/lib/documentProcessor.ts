@@ -193,8 +193,8 @@ export async function processDocument(
     callbacks.onDiscovered(chapters);
   }
   
-  for (let i = 0; i < chapters.length; i += 4) {
-    const batch = chapters.slice(i, i + 4);
+  for (let i = 0; i < chapters.length; i += 3) {
+    const batch = chapters.slice(i, i + 3);
     const percent = Math.round((i / chapters.length) * 100);
     onProgress(`Analyzing Chapters ${i + 1}-${i + batch.length} of ${chapters.length}... (${percent}%)`);
     
@@ -227,11 +227,11 @@ export async function processDocument(
         if (callbacks?.onChapterDone) callbacks.onChapterDone(globalIndex, chapters[globalIndex].title, chapters[globalIndex].summary);
       }
       
-      if (i + 4 < chapters.length) {
+      if (i + 3 < chapters.length) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     } catch (err: any) {
-      console.error(`Failed to generate metadata for batch starting at chapter ${i + 1}`, err);
+      console.warn(`Attempt failed for batch starting at chapter ${i + 1}. Details/Retries handled internally.`, err);
       let shortErr = err.message || 'Unknown error. Please check your API key.';
       if (shortErr.includes('rate limit') || shortErr.includes('429')) shortErr = "AI provider rate limit exceeded.";
       
@@ -246,7 +246,7 @@ export async function processDocument(
         if (callbacks?.onChapterDone) callbacks.onChapterDone(globalIndex, chapters[globalIndex].title, chapters[globalIndex].summary);
       }
 
-      if (err instanceof ApiRateLimitError && i + 4 < chapters.length) {
+      if (err instanceof ApiRateLimitError && i + 3 < chapters.length) {
          onProgress(`Waiting ${Math.ceil(err.retryAfterMs / 1000)}s for rate limits before continuing...`);
          await new Promise(resolve => setTimeout(resolve, err.retryAfterMs));
       }

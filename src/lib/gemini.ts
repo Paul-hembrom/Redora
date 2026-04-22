@@ -32,7 +32,7 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
       messages,
       response_format: { type: "json_object" },
       temperature: 0.2,
-      max_tokens: 8192
+      max_tokens: 4096
     })
   });
 
@@ -95,7 +95,7 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
         }
       ],
       temperature: 0.2,
-      max_tokens: 8192
+      max_tokens: 4096
     })
   });
 
@@ -130,7 +130,7 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
 }
 
 export async function generateBatchChapterMetadata(chaptersData: { content: string, chapterNumber: number }[], retries = 3): Promise<{ [chapterNumber: number]: { title: string, summary: string } }> {
-  const chaptersText = chaptersData.map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 15000)}`).join('\n\n');
+  const chaptersText = chaptersData.map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 9000)}`).join('\n\n');
   const prompt = `
 Analyze the following text which contains multiple chapters.
 For each chapter, generate a short, meaningful title (max 6 words), and a concise summary (3-5 bullet points) that captures the main points effectively.
@@ -175,7 +175,7 @@ No markdown formatting, no explanation.
       }
       return result;
     } catch (error: any) {
-      console.error(`Attempt ${attempt + 1} failed for batch:`, error);
+      console.warn(`[Retry Notice] Attempt ${attempt + 1} failed for batch (will auto-retry):`, error);
       if (attempt === retries - 1) {
         if (error instanceof ApiRateLimitError) throw error;
         throw new Error(cleanErrorMessage(error));
