@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Document, PreprocessOptions, ChatMessage } from './types';
+import { Document, PreprocessOptions, ChatMessage, ReadingPersona } from './types';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import Login from './components/Login';
@@ -23,6 +23,14 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  
+  const [persona, setPersona] = useState<ReadingPersona>(() => {
+    return (localStorage.getItem('readora_persona') as ReadingPersona) || 'general';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('readora_persona', persona);
+  }, [persona]);
 
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
@@ -318,6 +326,8 @@ export default function App() {
             isUploading={isUploading}
             uploadProgress={uploadProgress}
             uploadError={uploadError}
+            persona={persona}
+            setPersona={setPersona}
           />
         </div>
         
@@ -326,6 +336,7 @@ export default function App() {
             <ChatArea 
               chapter={selectedChapter}
               onClearChats={() => selectedDocId && handleClearChats(selectedDocId)}
+              persona={persona}
             />
           ) : (
             <div 

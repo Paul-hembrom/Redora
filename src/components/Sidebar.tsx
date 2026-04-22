@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Document, PreprocessOptions } from '../types';
+import { Document, PreprocessOptions, ReadingPersona } from '../types';
 import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -24,9 +24,11 @@ interface Props {
   isUploading: boolean;
   uploadProgress: string;
   uploadError: string | null;
+  persona: ReadingPersona;
+  setPersona: (persona: ReadingPersona) => void;
 }
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -181,15 +183,31 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
         </div>
 
         {showSettings && (
-          <div className="mb-5 p-4 bg-white/5 border border-white/10 rounded-xl space-y-3 text-xs font-medium text-white/60">
-            <label className="flex items-center gap-3 cursor-pointer group">
-              <input type="checkbox" checked={options.removeStopWords} onChange={e => setOptions({...options, removeStopWords: e.target.checked})} className="accent-cyan-500 w-4 h-4 rounded border-white/20 bg-transparent" />
-              <span className="group-hover:text-white transition-colors">Remove Stop Words</span>
-            </label>
-            <label className="flex items-center gap-3 cursor-pointer group">
-              <input type="checkbox" checked={options.applyStemming} onChange={e => setOptions({...options, applyStemming: e.target.checked})} className="accent-cyan-500 w-4 h-4 rounded border-white/20 bg-transparent" />
-              <span className="group-hover:text-white transition-colors">Apply Stemming</span>
-            </label>
+          <div className="mb-5 p-4 bg-white/5 border border-white/10 rounded-xl space-y-4 text-xs font-medium text-white/60">
+            <div>
+              <label className="text-white/40 mb-1.5 block uppercase tracking-wider text-[10px]">Reading Persona</label>
+              <select 
+                value={persona} 
+                onChange={e => setPersona(e.target.value as ReadingPersona)}
+                className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-white/80 focus:outline-none focus:border-cyan-500/50"
+              >
+                <option value="general">Generic Assistant</option>
+                <option value="student">Student (Simple, Analogies)</option>
+                <option value="academic">Academic (Rigorous, Theory)</option>
+                <option value="professional">Professional (Exec Brief)</option>
+              </select>
+            </div>
+            <div className="space-y-3 pt-3 border-t border-white/5">
+              <label className="text-white/40 mb-1.5 block uppercase tracking-wider text-[10px]">Processing Options</label>
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input type="checkbox" checked={options.removeStopWords} onChange={e => setOptions({...options, removeStopWords: e.target.checked})} className="accent-cyan-500 w-4 h-4 rounded border-white/20 bg-transparent" />
+                <span className="group-hover:text-white transition-colors">Remove Stop Words</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input type="checkbox" checked={options.applyStemming} onChange={e => setOptions({...options, applyStemming: e.target.checked})} className="accent-cyan-500 w-4 h-4 rounded border-white/20 bg-transparent" />
+                <span className="group-hover:text-white transition-colors">Apply Stemming</span>
+              </label>
+            </div>
           </div>
         )}
 

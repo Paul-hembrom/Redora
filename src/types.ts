@@ -1,3 +1,5 @@
+export type ReadingPersona = 'general' | 'student' | 'academic' | 'professional';
+
 export interface PreprocessOptions {
   removeStopWords: boolean;
   applyStemming: boolean;
@@ -27,4 +29,6 @@ export interface ChatMessage {
   text: string;
   relationshipGraph?: { source: string; target: string; relation: string }[];
   followUps?: string[];
+  type?: 'text' | 'quiz' | 'glossary' | 'brief';
+  actionData?: any;
 }

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Chapter, ChatMessage } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download } from 'lucide-react';
+import { Chapter, ChatMessage, ReadingPersona } from '../types';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -8,7 +8,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChatResponse } from '../lib/gemini';
+import { generateChatResponse, generateActionTool } from '../lib/gemini';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -17,9 +17,10 @@ function cn(...inputs: ClassValue[]) {
 interface Props {
   chapter: Chapter;
   onClearChats: () => void;
+  persona: ReadingPersona;
 }
 
-export default function ChatArea({ chapter, onClearChats }: Props) {
+export default function ChatArea({ chapter, onClearChats, persona }: Props) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -79,7 +80,7 @@ export default function ChatArea({ chapter, onClearChats }: Props) {
     }).catch(console.error);
 
     try {
-      const aiResult = await generateChatResponse(text, chapter.content, messages);
+      const aiResult = await generateChatResponse(text, chapter.content, messages, persona);
       
       const aiMsg: ChatMessage = {
         id: uuidv4(),
@@ -106,6 +107,128 @@ export default function ChatArea({ chapter, onClearChats }: Props) {
     }
   };
 
+  const handleGenerateAction = async (toolType: 'quiz' | 'glossary' | 'brief') => {
+    if (isTyping) return;
+    
+    let text = "";
+    if (toolType === 'quiz') text = "Generate a multiple-choice Quiz.";
+    else if (toolType === 'glossary') text = "Generate a Glossary of Key Terms.";
+    else if (toolType === 'brief') text = "Generate an Executive Briefing.";
+
+    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text };
+    setMessages(prev => [...prev, userMsg]);
+    setIsTyping(true);
+    setError(null);
+
+    fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+    }).catch(console.error);
+
+    try {
+      const aiResult = await generateActionTool(chapter.content, toolType);
+      
+      const aiMsg: ChatMessage = {
+        id: uuidv4(),
+        role: 'model',
+        text: `Here is the requested ${toolType}.`,
+        type: toolType,
+        actionData: aiResult
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+      }).catch(console.error);
+
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || `Failed to generate ${toolType}.`);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const renderActionData = (msg: ChatMessage) => {
+    if (!msg.actionData) return null;
+    
+    if (msg.type === 'quiz') {
+      const questions = msg.actionData.questions || [];
+      return (
+        <div className="mt-4 space-y-4">
+          <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2"><Target className="w-4 h-4" /> Practice Quiz</h3>
+          {questions.map((q: any, i: number) => (
+            <div key={i} className="bg-black/20 p-4 rounded-xl border border-white/5">
+              <p className="font-medium text-white/90 mb-3">{i + 1}. {q.question}</p>
+              <div className="space-y-2">
+                {q.options.map((opt: string, optIdx: number) => (
+                  <div key={optIdx} className="flex items-start gap-2">
+                    <span className="shrink-0 w-5 h-5 rounded bg-white/10 text-[10px] flex items-center justify-center font-bold">{['A','B','C','D'][optIdx] || optIdx + 1}</span>
+                    <span className={optIdx === q.answerIndex ? "text-green-400 font-medium" : "text-white/60"}>
+                      {opt} {optIdx === q.answerIndex && '✓'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-white/50 bg-white/5 p-2 rounded-md"><span className="font-semibold text-white/70">Explanation:</span> {q.explanation}</p>
+            </div>
+          ))}
+        </div>
+      );
+    } else if (msg.type === 'glossary') {
+      const terms = msg.actionData.terms || [];
+      return (
+        <div className="mt-4 space-y-3">
+          <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-widest mb-3 flex items-center gap-2"><BookA className="w-4 h-4" /> Glossary of Terms</h3>
+          {terms.map((t: any, i: number) => (
+            <div key={i} className="flex flex-col md:flex-row gap-2 bg-black/20 border border-white/5 rounded-lg p-3">
+              <span className="font-semibold text-emerald-300 md:w-1/3 shrink-0">{t.term}</span>
+              <span className="text-white/70 text-sm">{t.definition}</span>
+            </div>
+          ))}
+        </div>
+      );
+    } else if (msg.type === 'brief') {
+      const { summaryMemo, actionItems = [], keyArguments = [] } = msg.actionData;
+      return (
+        <div className="mt-4 space-y-5">
+          <h3 className="text-sm font-bold text-amber-400 uppercase tracking-widest mb-3 flex items-center gap-2"><Zap className="w-4 h-4" /> Executive Briefing</h3>
+          <div className="bg-amber-400/5 border border-amber-400/20 p-4 rounded-xl">
+            <h4 className="text-xs uppercase tracking-wide text-amber-400 mb-2 font-semibold">Memo</h4>
+            <p className="text-sm text-white/80 leading-relaxed">{summaryMemo}</p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="bg-black/20 border border-white/5 p-4 rounded-xl">
+              <h4 className="text-xs uppercase tracking-wide text-white/40 mb-3 font-semibold">Key Arguments</h4>
+              <ul className="space-y-2">
+                {keyArguments.map((arg: string, i: number) => (
+                  <li key={i} className="text-sm text-white/70 flex items-start gap-2">
+                    <span className="text-amber-400 mt-1">•</span> <span>{arg}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="bg-black/20 border border-white/5 p-4 rounded-xl">
+              <h4 className="text-xs uppercase tracking-wide text-white/40 mb-3 font-semibold">Action Items</h4>
+              <ul className="space-y-2">
+                {actionItems.map((item: string, i: number) => (
+                  <li key={i} className="text-sm text-white/70 flex items-start gap-2">
+                    <span className="text-amber-400 mt-1">→</span> <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleSendMessage(input);
@@ -119,6 +242,17 @@ export default function ChatArea({ chapter, onClearChats }: Props) {
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-1.5 mr-4 bg-black/40 p-1 rounded-lg border border-white/5">
+            <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Generate practice quiz">
+              <Target className="w-3.5 h-3.5" /> Quiz
+            </button>
+            <button onClick={() => handleGenerateAction('glossary')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-emerald-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Extract key terms">
+              <BookA className="w-3.5 h-3.5" /> Glossary
+            </button>
+            <button onClick={() => handleGenerateAction('brief')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-amber-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Get an executive briefing">
+              <Zap className="w-3.5 h-3.5" /> Briefing
+            </button>
+          </div>
           <button
             onClick={() => {
               const content = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}:\n${m.text}`).join('\n\n---\n\n');
@@ -192,8 +326,13 @@ export default function ChatArea({ chapter, onClearChats }: Props) {
                     : "bg-transparent text-white/80 hover:bg-white/[0.02]"
                 )}>
                   <div className="prose prose-invert prose-sm max-w-none font-light leading-relaxed break-words">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                    {msg.type && msg.type !== 'text' ? (
+                      <p className="text-xs font-semibold uppercase tracking-wider opacity-50 mb-2">{msg.text}</p>
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                    )}
                   </div>
+                  {renderActionData(msg)}
                   {msg.role === 'model' && (
                     <button
                       onClick={() => handleCopy(msg.id, msg.text)}

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { ChatMessage } from '../types';
+import { ChatMessage, ReadingPersona } from '../types';
 
 function isRateLimitError(error: any): boolean {
   const msg = error?.message?.toLowerCase() || '';
@@ -195,7 +195,8 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
 export async function generateChatResponse(
   query: string, 
   chapterContent: string, 
-  history: ChatMessage[]
+  history: ChatMessage[],
+  persona: ReadingPersona = 'general'
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
@@ -203,8 +204,17 @@ export async function generateChatResponse(
   }
   const ai = new GoogleGenAI({ apiKey });
   
+  let personaInstruction = "You are an AI Book Reader assistant.";
+  if (persona === 'student') {
+    personaInstruction = "You are a patient, brilliant tutor. Explain concepts to a student using simple language, clear analogies, and focus on fundamental understanding.";
+  } else if (persona === 'academic') {
+    personaInstruction = "You are an academic researcher. Discuss this chapter with rigorous language, focusing on underlying theories, logic, methodological strengths/flaws, and broader implications.";
+  } else if (persona === 'professional') {
+    personaInstruction = "You are an executive assistant. Give a pragmatic executive briefing. Focus solely on action items, core arguments, and real-world takeaways without any fluff.";
+  }
+
   const systemInstruction = `
-You are an AI Book Reader assistant.
+${personaInstruction}
 You are currently helping the user understand a specific chapter of a book.
 Answer the user's queries based ONLY on the provided chapter content.
 Maintain conversational memory for follow-up questions within this chapter.
@@ -273,7 +283,7 @@ User Query: ${query}
       };
     }
     throw new Error("No response generated.");
-  } catch (error: any) {
+} catch (error: any) {
     if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
       console.log("Gemini rate limit exceeded, falling back to NVIDIA Mistral...");
       const nvidiaPrompt = prompt + "\n\nIMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQuestions' (array of strings), and 'relationshipGraph' (array of objects with source, target, relation) keys. No markdown formatting, no explanation.";
@@ -283,6 +293,104 @@ User Query: ${query}
         followUpQuestions: string[];
         relationshipGraph: { source: string; target: string; relation: string }[];
       };
+    }
+    throw error;
+  }
+}
+
+export async function generateActionTool(chapterContent: string, toolType: 'quiz' | 'glossary' | 'brief') {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+    throw new Error("GEMINI_API_KEY is missing. You must redeploy your app after setting the environment variable.");
+  }
+  const ai = new GoogleGenAI({ apiKey });
+
+  let schema: any;
+  let promptText = "";
+
+  if (toolType === 'quiz') {
+    promptText = "Generate a multiple-choice quiz based on the core concepts of this chapter to test understanding.";
+    schema = {
+      type: Type.OBJECT,
+      properties: {
+        questions: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              question: { type: Type.STRING },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              answerIndex: { type: Type.INTEGER, description: "0-based index of the correct option" },
+              explanation: { type: Type.STRING }
+            },
+            required: ["question", "options", "answerIndex", "explanation"]
+          }
+        }
+      },
+      required: ["questions"]
+    };
+  } else if (toolType === 'glossary') {
+    promptText = "Extract the most important specialized terms or complex concepts from this chapter and provide clear definitions.";
+    schema = {
+      type: Type.OBJECT,
+      properties: {
+        terms: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              term: { type: Type.STRING },
+              definition: { type: Type.STRING }
+            },
+            required: ["term", "definition"]
+          }
+        }
+      },
+      required: ["terms"]
+    };
+  } else if (toolType === 'brief') {
+    promptText = "Generate an executive briefing from this chapter. It must include action items, key arguments, and a short memo-style summary.";
+    schema = {
+      type: Type.OBJECT,
+      properties: {
+        summaryMemo: { type: Type.STRING },
+        actionItems: { type: Type.ARRAY, items: { type: Type.STRING } },
+        keyArguments: { type: Type.ARRAY, items: { type: Type.STRING } }
+      },
+      required: ["summaryMemo", "actionItems", "keyArguments"]
+    };
+  }
+
+  const prompt = `
+Task: ${promptText}
+
+Chapter Content:
+${chapterContent.substring(0, 15000)} // Ensure within limits
+  `.trim();
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: schema
+      }
+    });
+
+    if (response.text) return JSON.parse(response.text);
+    throw new Error("No response generated.");
+  } catch (error: any) {
+    if (isRateLimitError(error) && process.env.NVIDIA_API_KEY) {
+      console.log(`Gemini rate limit exceeded for ${toolType}, falling back to NVIDIA Mistral...`);
+      let jsonFormatInstructions = "";
+      if (toolType === 'quiz') jsonFormatInstructions = "{ 'questions': [{ 'question': '...','options': ['A','B','C','D'], 'answerIndex': 0, 'explanation': '...' }] }";
+      if (toolType === 'glossary') jsonFormatInstructions = "{ 'terms': [{ 'term': '...', 'definition': '...' }] }";
+      if (toolType === 'brief') jsonFormatInstructions = "{ 'summaryMemo': '...', 'actionItems': ['...'], 'keyArguments': ['...'] }";
+      
+      const nvidiaPrompt = prompt + `\n\nIMPORTANT: You must return ONLY a valid JSON object exactly matching this structure: ${jsonFormatInstructions}. No markdown formatting, no explanation.`;
+      const nvidiaResponse = await callNvidiaFallback(nvidiaPrompt);
+      return JSON.parse(nvidiaResponse);
     }
     throw error;
   }
