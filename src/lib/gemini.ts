@@ -53,8 +53,12 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
       }
       throw new ApiRateLimitError(`NVIDIA API Rate Limit Exceeded`, retryDelayMs);
     }
-    const errObj = await response.json().catch(() => ({}));
-    const errText = errObj.error || await response.text();
+    const errTextRaw = await response.text();
+    let errText = errTextRaw;
+    try {
+      const errObj = JSON.parse(errTextRaw);
+      if (errObj.error) errText = typeof errObj.error === 'string' ? errObj.error : JSON.stringify(errObj.error);
+    } catch (e) {}
     throw new Error(`NVIDIA API Error: ${errText}`);
   }
 
@@ -112,8 +116,12 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
       }
       throw new ApiRateLimitError(`NVIDIA Vision API Rate Limit Exceeded`, retryDelayMs);
     }
-    const errObj = await response.json().catch(() => ({}));
-    const errText = errObj.error || await response.text();
+    const errTextRaw = await response.text();
+    let errText = errTextRaw;
+    try {
+      const errObj = JSON.parse(errTextRaw);
+      if (errObj.error) errText = typeof errObj.error === 'string' ? errObj.error : JSON.stringify(errObj.error);
+    } catch (e) {}
     throw new Error(`NVIDIA Vision API Error: ${errText}`);
   }
 
@@ -144,7 +152,15 @@ No markdown formatting, no explanation.
       const result: { [chapterNumber: number]: { title: string, summary: string } } = {};
       
       for (const key in parsed) {
-        result[parseInt(key, 10)] = parsed[key];
+        let summaryObj = parsed[key].summary;
+        if (Array.isArray(summaryObj)) {
+          summaryObj = summaryObj.join("\\n- ");
+          if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
+        }
+        result[parseInt(key, 10)] = {
+          title: parsed[key].title,
+          summary: summaryObj
+        };
       }
       return result;
     } catch (error: any) {
@@ -180,7 +196,13 @@ IMPORTANT: You must return ONLY a valid JSON object with 'title' and 'summary' k
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const nvidiaResponse = await callNvidiaFallback(prompt);
-      return JSON.parse(nvidiaResponse) as { title: string; summary: string };
+      const parsed = JSON.parse(nvidiaResponse);
+      let summaryObj = parsed.summary;
+      if (Array.isArray(summaryObj)) {
+        summaryObj = summaryObj.join("\\n- ");
+        if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
+      }
+      return { title: parsed.title, summary: summaryObj };
     } catch (error: any) {
       console.error(`Attempt ${attempt + 1} failed for chapter ${chapterNumber}:`, error);
       if (attempt === retries - 1) {
