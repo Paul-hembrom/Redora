@@ -14,40 +14,28 @@ function cleanErrorMessage(error: any): string {
 }
 
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
-  const apiKey = import.meta.env.VITE_NVIDIA_API_KEY;
-  if (!apiKey) throw new Error("VITE_NVIDIA_API_KEY is missing. Please set it in your environment variables / Vercel settings.");
-
-  const messages = [];
-  if (systemInstruction) {
-    messages.push({ role: "system", content: systemInstruction });
-  }
-  messages.push({ role: "user", content: prompt });
-
-  const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+  // Use proxy to avoid CORS
+  const response = await fetch("/api/ai/nvidia", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "meta/llama-3.2-90b-vision-instruct",
-      messages: messages,
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-      max_tokens: 2048
+      prompt,
+      systemInstruction,
+      response_format: { type: "json_object" }
     })
   });
 
   if (!response.ok) {
     if (response.status === 429) {
       const retryAfterStr = response.headers.get('Retry-After');
-      let retryDelayMs = 5000; // default 5 seconds
+      let retryDelayMs = 5000;
       if (retryAfterStr) {
         const parsed = parseInt(retryAfterStr, 10);
         if (!isNaN(parsed)) {
           retryDelayMs = parsed * 1000;
         } else {
-          // It might be a date string
           const date = new Date(retryAfterStr);
           if (!isNaN(date.getTime())) {
             retryDelayMs = Math.max(date.getTime() - Date.now(), 5000);
@@ -56,8 +44,9 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
       }
       throw new ApiRateLimitError(`NVIDIA API Rate Limit Exceeded`, retryDelayMs);
     }
-    const err = await response.text();
-    throw new Error(`NVIDIA API Error: ${err}`);
+    const errObj = await response.json().catch(() => ({}));
+    const errText = errObj.error || await response.text();
+    throw new Error(`NVIDIA API Error: ${errText}`);
   }
 
   const data = await response.json();
@@ -67,45 +56,22 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
 }
 
 async function callNvidiaVisionFallback(base64Data: string, mimeType: string, prompt: string) {
-  const apiKey = import.meta.env.VITE_NVIDIA_API_KEY;
-  if (!apiKey) throw new Error("VITE_NVIDIA_API_KEY is missing. Please set it in your environment variables.");
-
-  const messages = [
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: prompt
-        },
-        {
-          type: "image_url",
-          image_url: {
-            url: `data:${mimeType};base64,${base64Data}`
-          }
-        }
-      ]
-    }
-  ];
-
-  const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+  const response = await fetch("/api/ai/nvidia-vision", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "meta/llama-3.2-90b-vision-instruct",
-      messages: messages,
-      temperature: 0.2,
-      max_tokens: 2048
+      base64Data,
+      mimeType,
+      prompt
     })
   });
 
   if (!response.ok) {
     if (response.status === 429) {
       const retryAfterStr = response.headers.get('Retry-After');
-      let retryDelayMs = 5000; // default 5 seconds
+      let retryDelayMs = 5000;
       if (retryAfterStr) {
         const parsed = parseInt(retryAfterStr, 10);
         if (!isNaN(parsed)) {
@@ -119,8 +85,9 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
       }
       throw new ApiRateLimitError(`NVIDIA Vision API Rate Limit Exceeded`, retryDelayMs);
     }
-    const err = await response.text();
-    throw new Error(`NVIDIA Vision API Error: ${err}`);
+    const errObj = await response.json().catch(() => ({}));
+    const errText = errObj.error || await response.text();
+    throw new Error(`NVIDIA Vision API Error: ${errText}`);
   }
 
   const data = await response.json();
