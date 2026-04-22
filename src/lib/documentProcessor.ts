@@ -4,7 +4,7 @@ import mammoth from 'mammoth';
 import ePub from 'epubjs';
 import { PreprocessOptions, Chapter } from '../types';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChapterMetadata, extractTextFromImage } from './gemini';
+import { generateChapterMetadata, extractTextFromImage, ApiRateLimitError } from './gemini';
 
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.mjs`;
@@ -203,18 +203,27 @@ export async function processDocument(
       chapters[i].isGenerating = false;
       if (callbacks?.onChapterDone) callbacks.onChapterDone(i, metadata.title, metadata.summary);
       
-      // Add a small delay to avoid hitting Gemini API rate limits (15 RPM for free tier)
+      // Dynamic delay based on whether we hit rate limits or default to short pause
       if (i < chapters.length - 1) {
-        onProgress(`Waiting for rate limits before Chapter ${i + 2}...`);
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     } catch (err: any) {
       console.error(`Failed to generate metadata for chapter ${i + 1}`, err);
-      let shortErr = err.message || 'Unknown error. Please check your API key and rate limits.';
+      let shortErr = err.message || 'Unknown error. Please check your API key.';
       if (shortErr.includes('rate limit') || shortErr.includes('429')) shortErr = "AI provider rate limit exceeded.";
+      
+      if (err instanceof ApiRateLimitError) {
+        shortErr = `Rate limit exceeded. Paused for ${Math.ceil(err.retryAfterMs / 1000)}s.`;
+      }
+
       chapters[i].summary = `*Summary generation failed: ${shortErr}*`;
       chapters[i].isGenerating = false;
       if (callbacks?.onChapterDone) callbacks.onChapterDone(i, chapters[i].title, chapters[i].summary);
+
+      if (err instanceof ApiRateLimitError && i < chapters.length - 1) {
+         onProgress(`Waiting ${Math.ceil(err.retryAfterMs / 1000)}s for rate limits before Chapter ${i + 2}...`);
+         await new Promise(resolve => setTimeout(resolve, err.retryAfterMs));
+      }
     }
   }
   

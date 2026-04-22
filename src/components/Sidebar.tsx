@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
@@ -311,12 +311,19 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-        {sortedDocs.map(doc => (
-          <div key={doc.id} className="border border-white/5 rounded-xl overflow-hidden bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+        {sortedDocs.map(doc => {
+          const isSelectedForLibrary = librarySelection.has(doc.id);
+          return (
+          <div key={doc.id} className={cn(
+            "border rounded-xl overflow-hidden transition-all duration-200",
+            isSelectedForLibrary 
+              ? "bg-cyan-500/10 border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.1)]" 
+              : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"
+          )}>
             <div 
               className={cn(
                 "flex items-center justify-between p-3 cursor-pointer transition-colors",
-                selectedDocId === doc.id ? "bg-cyan-500/10 border-l-2 border-l-cyan-400" : "border-l-2 border-l-transparent"
+                selectedDocId === doc.id && !isSelectedForLibrary ? "bg-cyan-500/10 border-l-2 border-l-cyan-400" : "border-l-2 border-l-transparent"
               )}
             >
               <div 
@@ -324,15 +331,15 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 onClick={() => toggleDoc(doc.id)}
               >
                 <div 
-                  className="shrink-0 flex items-center justify-center w-5 h-5 cursor-pointer z-10"
+                  className="shrink-0 flex items-center justify-center w-6 h-6 cursor-pointer z-10 text-white/50 hover:text-cyan-400 transition-colors"
                   onClick={(e) => { e.stopPropagation(); onToggleLibrarySelection(doc.id); }}
+                  title={isSelectedForLibrary ? "Remove from Library Chat" : "Add to Library Chat"}
                 >
-                  <input
-                    type="checkbox"
-                    className="w-3.5 h-3.5 rounded border border-white/20 bg-black/40 accent-cyan-500 cursor-pointer pointer-events-none"
-                    checked={librarySelection.has(doc.id)}
-                    readOnly
-                  />
+                  {isSelectedForLibrary ? (
+                    <CheckCircle2 className="w-5 h-5 text-cyan-400 fill-cyan-400/20" />
+                  ) : (
+                    <Circle className="w-5 h-5" />
+                  )}
                 </div>
                 {expandedDocs.has(doc.id) ? (
                   <ChevronDown className="w-4 h-4 text-white/40 shrink-0" />
@@ -341,9 +348,12 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 )}
                 <Book className={cn(
                   "w-4 h-4 shrink-0",
-                  selectedDocId === doc.id ? "text-cyan-400" : "text-white/40"
+                  (selectedDocId === doc.id || isSelectedForLibrary) ? "text-cyan-400" : "text-white/40"
                 )} />
-                <span className="text-sm font-medium text-white/80 truncate">{doc.name}</span>
+                <span className={cn(
+                  "text-sm truncate transition-colors",
+                  isSelectedForLibrary ? "text-cyan-50 font-semibold" : "text-white/80 font-medium"
+                )}>{doc.name}</span>
               </div>
               <div className="flex items-center shrink-0 ml-2">
                 <button 
@@ -489,7 +499,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
               </div>
             )}
           </div>
-        ))}
+        )})}
         {sortedDocs.length === 0 && !isUploading && (
           <div className="text-center p-6 text-white/30 text-sm font-light">
             No documents found.

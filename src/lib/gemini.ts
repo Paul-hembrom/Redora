@@ -1,12 +1,21 @@
 import { ChatMessage, ReadingPersona } from '../types';
 
+export class ApiRateLimitError extends Error {
+  public retryAfterMs: number;
+  constructor(message: string, retryAfterMs: number) {
+    super(`Rate limit exceeded. Please wait ${Math.ceil(retryAfterMs / 1000)} seconds before trying again.`);
+    this.name = 'ApiRateLimitError';
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
 function cleanErrorMessage(error: any): string {
   return error?.message || 'An unknown error occurred.';
 }
 
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
-  const apiKey = process.env.NVIDIA_API_KEY;
-  if (!apiKey) throw new Error("NVIDIA_API_KEY is missing for fallback.");
+  const apiKey = import.meta.env.VITE_NVIDIA_API_KEY;
+  if (!apiKey) throw new Error("VITE_NVIDIA_API_KEY is missing. Please set it in your environment variables / Vercel settings.");
 
   const messages = [];
   if (systemInstruction) {
@@ -30,6 +39,23 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
   });
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const retryAfterStr = response.headers.get('Retry-After');
+      let retryDelayMs = 5000; // default 5 seconds
+      if (retryAfterStr) {
+        const parsed = parseInt(retryAfterStr, 10);
+        if (!isNaN(parsed)) {
+          retryDelayMs = parsed * 1000;
+        } else {
+          // It might be a date string
+          const date = new Date(retryAfterStr);
+          if (!isNaN(date.getTime())) {
+            retryDelayMs = Math.max(date.getTime() - Date.now(), 5000);
+          }
+        }
+      }
+      throw new ApiRateLimitError(`NVIDIA API Rate Limit Exceeded`, retryDelayMs);
+    }
     const err = await response.text();
     throw new Error(`NVIDIA API Error: ${err}`);
   }
@@ -41,8 +67,8 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
 }
 
 async function callNvidiaVisionFallback(base64Data: string, mimeType: string, prompt: string) {
-  const apiKey = process.env.NVIDIA_API_KEY;
-  if (!apiKey) throw new Error("NVIDIA_API_KEY is missing for fallback.");
+  const apiKey = import.meta.env.VITE_NVIDIA_API_KEY;
+  if (!apiKey) throw new Error("VITE_NVIDIA_API_KEY is missing. Please set it in your environment variables.");
 
   const messages = [
     {
@@ -77,6 +103,22 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
   });
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const retryAfterStr = response.headers.get('Retry-After');
+      let retryDelayMs = 5000; // default 5 seconds
+      if (retryAfterStr) {
+        const parsed = parseInt(retryAfterStr, 10);
+        if (!isNaN(parsed)) {
+          retryDelayMs = parsed * 1000;
+        } else {
+          const date = new Date(retryAfterStr);
+          if (!isNaN(date.getTime())) {
+            retryDelayMs = Math.max(date.getTime() - Date.now(), 5000);
+          }
+        }
+      }
+      throw new ApiRateLimitError(`NVIDIA Vision API Rate Limit Exceeded`, retryDelayMs);
+    }
     const err = await response.text();
     throw new Error(`NVIDIA Vision API Error: ${err}`);
   }
@@ -104,10 +146,15 @@ IMPORTANT: You must return ONLY a valid JSON object with 'title' and 'summary' k
     } catch (error: any) {
       console.error(`Attempt ${attempt + 1} failed for chapter ${chapterNumber}:`, error);
       if (attempt === retries - 1) {
+        if (error instanceof ApiRateLimitError) throw error;
         throw new Error(cleanErrorMessage(error));
       }
-      // Exponential backoff
-      const delay = Math.pow(2, attempt) * 2000;
+      
+      let delay = Math.pow(2, attempt) * 2000;
+      if (error instanceof ApiRateLimitError) {
+        delay = Math.max(delay, error.retryAfterMs);
+      }
+      
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -120,6 +167,7 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
   try {
     return await callNvidiaVisionFallback(base64Data, mimeType, prompt);
   } catch (error: any) {
+    if (error instanceof ApiRateLimitError) throw error;
     throw new Error(cleanErrorMessage(error));
   }
 }
@@ -181,6 +229,7 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
       relationshipGraph: { source: string; target: string; relation: string }[];
     };
   } catch (error: any) {
+    if (error instanceof ApiRateLimitError) throw error;
     throw new Error(cleanErrorMessage(error));
   }
 }
@@ -213,6 +262,7 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
     const nvidiaResponse = await callNvidiaFallback(prompt);
     return JSON.parse(nvidiaResponse);
   } catch (error: any) {
+    if (error instanceof ApiRateLimitError) throw error;
     throw new Error(cleanErrorMessage(error));
   }
 }
