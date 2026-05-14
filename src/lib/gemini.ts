@@ -132,14 +132,17 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
 export async function generateBatchChapterMetadata(chaptersData: { content: string, chapterNumber: number }[], retries = 3): Promise<{ [chapterNumber: number]: { title: string, summary: string } }> {
   const chaptersText = chaptersData.map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 9000)}`).join('\n\n');
   const prompt = `
-Analyze the following text which contains multiple chapters. You are an academic researcher. For each chapter, generate a short, meaningful title (max 6 words), and a concise summary (3-5 bullet points) focusing on accuracy, theoretical depth, logic, and core arguments.
+Analyze the following text which contains multiple chapters. You are a senior subject matter expert and academic researcher. 
+For each chapter, generate:
+1. A short, meaningful title (max 6 words).
+2. A comprehensive and detailed summary. The summary should be highly informative, starting with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing the academic depth, underlying theories, precise nuances, key methodologies, and core arguments. Do not provide brief or superficial descriptions. Make the summary extensive enough to be practically useful for deep review.
 
 Here are the chapters:
 ${chaptersText}
 
 IMPORTANT: You must return ONLY a valid JSON object where the keys are the chapter numbers (as strings) and values are objects with 'title' and 'summary' keys. Example:
 {
-  "${chaptersData[0]?.chapterNumber || '1'}": { "title": "Example Title", "summary": "Example Summary" }
+  "${chaptersData[0]?.chapterNumber || '1'}": { "title": "Example Title", "summary": "Detailed paragraph overview...\\n\\n- Comprehensive bullet point 1...\\n- Comprehensive bullet point 2..." }
 }
 No markdown formatting, no explanation.
   `.trim();
@@ -193,14 +196,19 @@ No markdown formatting, no explanation.
 
 export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3): Promise<{title: string, summary: string}> {
   const prompt = `
-Analyze the following text (Chapter ${chapterNumber}). You are an academic researcher.
+Analyze the following text (Chapter ${chapterNumber}). You are a senior subject matter expert and academic researcher.
 Generate a short, meaningful title (max 6 words).
-Provide a highly accurate and concise summary (3-5 bullet points) prioritizing academic depth, underlying theories, logic, and core arguments effectively.
+Provide a comprehensive and detailed summary. The summary should be highly informative, starting with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing the academic depth, nuances, underlying theories, key methodologies, logic, and core arguments presented in the text. Avoid superficial high-level descriptions.
 
 Text:
 ${content.substring(0, 10000)}
 
-IMPORTANT: You must return ONLY a valid JSON object with 'title' and 'summary' keys. No markdown formatting, no explanation.
+IMPORTANT: You must return ONLY a valid JSON object with 'title' and 'summary' keys. Example:
+{
+  "title": "Example Title",
+  "summary": "Detailed paragraph overview...\\n\\n- Comprehensive bullet point 1...\\n- Comprehensive bullet point 2..."
+}
+No markdown formatting, no explanation.
   `.trim();
 
   for (let attempt = 0; attempt < retries; attempt++) {
