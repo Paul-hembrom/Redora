@@ -18,9 +18,12 @@ interface Props {
   chapter: Chapter;
   onClearChats: () => void;
   persona: ReadingPersona;
+  onNavigateChapter?: (direction: 'next' | 'prev') => void;
+  hasPrevChapter?: boolean;
+  hasNextChapter?: boolean;
 }
 
-export default function ChatArea({ chapter, onClearChats, persona }: Props) {
+export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter }: Props) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -254,6 +257,27 @@ export default function ChatArea({ chapter, onClearChats, persona }: Props) {
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
         <div className="flex items-center gap-2">
+          {onNavigateChapter && (
+            <div className="flex items-center bg-black/40 rounded-lg border border-white/5 mr-2 overflow-hidden">
+              <button 
+                onClick={() => onNavigateChapter('prev')}
+                disabled={!hasPrevChapter}
+                className="px-3 py-1.5 text-xs font-medium text-white/60 hover:text-cyan-400 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Previous Chapter"
+              >
+                Prev
+              </button>
+              <div className="w-px h-4 bg-white/10" />
+              <button 
+                onClick={() => onNavigateChapter('next')}
+                disabled={!hasNextChapter}
+                className="px-3 py-1.5 text-xs font-medium text-white/60 hover:text-cyan-400 hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Next Chapter"
+              >
+                Next
+              </button>
+            </div>
+          )}
           <div className="hidden lg:flex items-center gap-1.5 mr-4 bg-black/40 p-1 rounded-lg border border-white/5">
             <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Generate practice quiz">
               <Target className="w-3.5 h-3.5" /> Quiz

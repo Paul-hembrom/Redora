@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2 } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
@@ -356,6 +356,13 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 )}>{doc.name}</span>
               </div>
               <div className="flex items-center shrink-0 ml-2">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onSelectChapter(doc.id, 'read_all'); }}
+                  className="p-1.5 text-white/30 hover:text-cyan-400 hover:bg-white/5 rounded-md transition-all"
+                  title="Read Full Document"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                </button>
                 <button 
                   onClick={(e) => handleShare(e, doc)}
                   className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}

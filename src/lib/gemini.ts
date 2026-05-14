@@ -132,8 +132,7 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
 export async function generateBatchChapterMetadata(chaptersData: { content: string, chapterNumber: number }[], retries = 3): Promise<{ [chapterNumber: number]: { title: string, summary: string } }> {
   const chaptersText = chaptersData.map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 9000)}`).join('\n\n');
   const prompt = `
-Analyze the following text which contains multiple chapters.
-For each chapter, generate a short, meaningful title (max 6 words), and a concise summary (3-5 bullet points) that captures the main points effectively.
+Analyze the following text which contains multiple chapters. You are an academic researcher. For each chapter, generate a short, meaningful title (max 6 words), and a concise summary (3-5 bullet points) focusing on accuracy, theoretical depth, logic, and core arguments.
 
 Here are the chapters:
 ${chaptersText}
@@ -194,9 +193,9 @@ No markdown formatting, no explanation.
 
 export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3): Promise<{title: string, summary: string}> {
   const prompt = `
-Analyze the following text (Chapter ${chapterNumber}).
+Analyze the following text (Chapter ${chapterNumber}). You are an academic researcher.
 Generate a short, meaningful title (max 6 words).
-Provide a highly accurate and concise summary (3-5 bullet points) that captures the main points and core arguments effectively.
+Provide a highly accurate and concise summary (3-5 bullet points) prioritizing academic depth, underlying theories, logic, and core arguments effectively.
 
 Text:
 ${content.substring(0, 10000)}

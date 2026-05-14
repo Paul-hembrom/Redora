@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Document, PreprocessOptions, ChatMessage, ReadingPersona } from './types';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
+import DocumentReader from './components/DocumentReader';
 import Login from './components/Login';
 import Signup from './components/Signup';
 import GlobalSearchModal from './components/GlobalSearchModal';
@@ -60,6 +61,31 @@ export default function App() {
     disabled: isUploading
   });
 
+  const [sharedPublicDoc, setSharedPublicDoc] = useState<Document | null>(null);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sharedDocId = urlParams.get('sharedDoc');
+
+    if (sharedDocId) {
+      if (user) {
+        // Handled inside the main fetch below
+        return;
+      }
+      
+      // Fetch public doc if not logged in
+      fetch(`/api/shared/${sharedDocId}`)
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('Not public or not found');
+        })
+        .then(data => {
+          setSharedPublicDoc(data);
+        })
+        .catch(console.error);
+    }
+  }, [user]);
+
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const sharedDocId = urlParams.get('sharedDoc');
@@ -117,6 +143,26 @@ export default function App() {
           <BookOpen className="w-6 h-6 animate-pulse" />
         </div>
         <p className="text-white/40 font-display tracking-widest uppercase text-sm font-medium animate-pulse">Loading Readora</p>
+      </div>
+    );
+  }
+
+  if (sharedPublicDoc && !user) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white flex flex-col">
+        <header className="h-16 border-b border-white/5 flex items-center justify-between px-6 shrink-0 bg-[#0a0a0a]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <h1 className="text-lg font-display font-semibold tracking-wide text-white/90">Readora <span className="text-cyan-400 font-light ml-1">Reader</span></h1>
+            <span className="ml-4 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Public Shared Link</span>
+          </div>
+          <button onClick={() => setShowLogin(true)} className="text-sm font-medium text-cyan-400 hover:text-cyan-300">Sign in to interact</button>
+        </header>
+        <div className="flex-1 overflow-hidden">
+          <DocumentReader document={sharedPublicDoc} />
+        </div>
       </div>
     );
   }
@@ -373,6 +419,29 @@ export default function App() {
               };
             }
 
+            if (selectedChapterId === 'read_all' && selectedDoc) {
+              return <DocumentReader document={selectedDoc} />;
+            }
+
+            let hasPrevChapter = false;
+            let hasNextChapter = false;
+            let onNavigateChapter = undefined;
+
+            if (selectedDoc && activeChapter && activeChapter.id !== `lib_${Array.from(librarySelection).sort().join('_')}`) {
+              const chapters = selectedDoc.chapters;
+              const currentIndex = chapters.findIndex(c => c.id === activeChapter.id);
+              if (currentIndex > 0) hasPrevChapter = true;
+              if (currentIndex >= 0 && currentIndex < chapters.length - 1) hasNextChapter = true;
+              
+              onNavigateChapter = (direction: 'prev' | 'next') => {
+                if (direction === 'prev' && hasPrevChapter) {
+                  setSelectedChapterId(chapters[currentIndex - 1].id);
+                } else if (direction === 'next' && hasNextChapter) {
+                  setSelectedChapterId(chapters[currentIndex + 1].id);
+                }
+              };
+            }
+
             return activeChapter ? (
               <ChatArea 
                 chapter={activeChapter}
@@ -384,6 +453,9 @@ export default function App() {
                   }
                 }}
                 persona={persona}
+                hasNextChapter={hasNextChapter}
+                hasPrevChapter={hasPrevChapter}
+                onNavigateChapter={onNavigateChapter}
               />
             ) : (
             <div 

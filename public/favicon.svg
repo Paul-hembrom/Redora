@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="128" fill="#0A0A0A" />
+  
+  <!-- Outer Book Border -->
+  <path d="M128 160C128 160 224 160 256 192C288 160 384 160 384 160V384C384 384 288 384 256 352C224 384 128 384 128 384V160Z" 
+        fill="none" 
+        stroke="#22D3EE" 
+        stroke-width="32" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" />
+        
+  <!-- Center Book Fold -->
+  <line x1="256" y1="192" x2="256" y2="448" 
+        stroke="#22D3EE" 
+        stroke-width="32" 
+        stroke-linecap="round" />
+
+  <!-- Inner Spark / AI Symbol -->
+  <path d="M256 96 C256 128, 224 160, 256 192 C288 160, 256 128, 256 96 Z" fill="#34D399" />
+  
+  <circle cx="192" cy="272" r="24" fill="#34D399" />
+  <circle cx="320" cy="272" r="24" fill="#34D399" />
+  <circle cx="256" cy="320" r="24" fill="#34D399" />
+  
+</svg>

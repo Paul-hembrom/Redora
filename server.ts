@@ -286,12 +286,14 @@ app.get('/api/search', authenticate, async (req: any, res) => {
 
   try {
     const searchPattern = `%${query}%`;
+    const fuzzyChars = query.replace(/\s+/g, '').split('').join('%');
+    const fuzzyPattern = `%${fuzzyChars}%`;
     
     // Search documents
     const docs = await sql`
       SELECT id, name, upload_date 
       FROM documents 
-      WHERE user_id = ${req.userId} AND name ILIKE ${searchPattern}
+      WHERE user_id = ${req.userId} AND (name ILIKE ${fuzzyPattern} OR tags ILIKE ${searchPattern})
       LIMIT 10
     `;
 
@@ -300,7 +302,7 @@ app.get('/api/search', authenticate, async (req: any, res) => {
       SELECT c.id, c.document_id, c.chapter_number, c.title, c.summary, d.name as doc_name
       FROM chapters c
       JOIN documents d ON c.document_id = d.id
-      WHERE d.user_id = ${req.userId} AND (c.title ILIKE ${searchPattern} OR c.summary ILIKE ${searchPattern} OR c.content ILIKE ${searchPattern})
+      WHERE d.user_id = ${req.userId} AND (c.title ILIKE ${fuzzyPattern} OR c.summary ILIKE ${searchPattern} OR c.content ILIKE ${searchPattern} OR d.tags ILIKE ${searchPattern})
       LIMIT 10
     `;
 
