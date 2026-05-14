@@ -200,7 +200,7 @@ export async function processDocument(
     
     try {
       const batchData = batch.map(c => ({ content: c.content, chapterNumber: c.chapterNumber }));
-      const batchMetadata = await generateBatchChapterMetadata(batchData);
+      const batchMetadata = await generateBatchChapterMetadata(batchData, 3, options.summaryDetail || 'detailed');
       
       for (let j = 0; j < batch.length; j++) {
         const globalIndex = i + j;
@@ -210,7 +210,7 @@ export async function processDocument(
         if (!meta) {
            console.warn(`Chapter ${chapNum} missed by AI batch array, generating individually...`);
            try {
-             meta = await generateChapterMetadata(chapters[globalIndex].content, chapNum);
+             meta = await generateChapterMetadata(chapters[globalIndex].content, chapNum, 3, options.summaryDetail || 'detailed');
              await new Promise(resolve => setTimeout(resolve, 500)); // Respect limits on fallback
            } catch (fallbackErr: any) {
              console.error("Individual fallback also failed:", fallbackErr);

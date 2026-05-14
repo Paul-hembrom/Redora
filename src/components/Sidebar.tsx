@@ -29,11 +29,12 @@ interface Props {
   librarySelection: Set<string>;
   onToggleLibrarySelection: (docId: string) => void;
   onOpenLibraryChat: () => void;
+  onUpdateSummary?: (chapterId: string, summary: string) => void;
 }
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary }: Props) {
   const [showSettings, setShowSettings] = useState(false);
-  const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false });
+  const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
   const [expandedChaptersList, setExpandedChaptersList] = useState<Set<string>>(new Set());
   const [expandedSummaries, setExpandedSummaries] = useState<Set<string>>(new Set());
@@ -44,6 +45,9 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   const [newTagInput, setNewTagInput] = useState('');
   const [copiedSummaryId, setCopiedSummaryId] = useState<string | null>(null);
   const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+  
+  const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null);
+  const [editingSummaryDraft, setEditingSummaryDraft] = useState('');
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (files) => {
@@ -112,6 +116,30 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
     setExpandedSummaries(newSet);
+  };
+
+  const startEditingSummary = (e: React.MouseEvent, chapterId: string, currentSummary: string) => {
+    e.stopPropagation();
+    setEditingSummaryId(chapterId);
+    setEditingSummaryDraft(currentSummary);
+    setExpandedSummaries(prev => {
+      const next = new Set(prev);
+      next.add(chapterId);
+      return next;
+    });
+  };
+
+  const saveSummary = async (e: React.MouseEvent, chapterId: string) => {
+    e.stopPropagation();
+    if (editingSummaryDraft.trim()) {
+       await onUpdateSummary?.(chapterId, editingSummaryDraft);
+    }
+    setEditingSummaryId(null);
+  };
+
+  const cancelEditingSummary = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingSummaryId(null);
   };
 
   const handleCopySummary = (e: React.MouseEvent, id: string, text: string) => {
@@ -202,6 +230,18 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
             </div>
             <div className="space-y-3 pt-3 border-t border-white/5">
               <label className="text-white/40 mb-1.5 block uppercase tracking-wider text-[10px]">Processing Options</label>
+              <div className="pb-2">
+                <label className="text-white/40 mb-1.5 block text-[10px]">SUMMARY DETAIL</label>
+                <select 
+                  value={options.summaryDetail || 'detailed'} 
+                  onChange={e => setOptions({...options, summaryDetail: e.target.value as any})}
+                  className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-white/80 focus:outline-none focus:border-cyan-500/50"
+                >
+                  <option value="brief">Brief</option>
+                  <option value="detailed">Detailed</option>
+                  <option value="academic">Academic / Rigorous</option>
+                </select>
+              </div>
               <label className="flex items-center gap-3 cursor-pointer group">
                 <input type="checkbox" checked={options.removeStopWords} onChange={e => setOptions({...options, removeStopWords: e.target.checked})} className="accent-cyan-500 w-4 h-4 rounded border-white/20 bg-transparent" />
                 <span className="group-hover:text-white transition-colors">Remove Stop Words</span>
@@ -489,16 +529,42 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     </button>
                     {expandedSummaries.has(chapter.id) && (
                       <div className="px-8 py-2 text-xs text-white/50 bg-black/10 border-l-2 border-white/5 ml-4 mr-4 mb-2 relative group/summary">
-                        <div className="prose prose-invert prose-sm max-w-none font-light">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
-                        </div>
-                        <button
-                          onClick={(e) => handleCopySummary(e, chapter.id, chapter.summary)}
-                          className="absolute top-2 right-2 p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400 opacity-0 group-hover/summary:opacity-100 transition-opacity"
-                          title="Copy Summary"
-                        >
-                          {copiedSummaryId === chapter.id ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
-                        </button>
+                        {editingSummaryId === chapter.id ? (
+                          <div className="flex flex-col gap-2 relative z-10" onClick={(e) => e.stopPropagation()}>
+                            <textarea
+                              value={editingSummaryDraft}
+                              onChange={(e) => setEditingSummaryDraft(e.target.value)}
+                              className="w-full bg-black/20 border border-white/10 rounded px-2 py-1 text-white/80 min-h-[100px] resize-y outline-none focus:border-cyan-500/50"
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button onClick={cancelEditingSummary} className="px-2 py-1 text-[10px] text-white/40 hover:text-white/80">Cancel</button>
+                              <button onClick={(e) => saveSummary(e, chapter.id, doc.id)} className="px-2 py-1 text-[10px] bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">Save</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="prose prose-invert prose-sm max-w-none font-light">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
+                            </div>
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => startEditingSummary(e, chapter.id, chapter.summary)}
+                                className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
+                                title="Edit Summary"
+                              >
+                                {/* We can just use an inner SVG or text if we don't import Edit yet */}
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                              </button>
+                              <button
+                                onClick={(e) => handleCopySummary(e, chapter.id, chapter.summary)}
+                                className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
+                                title="Copy Summary"
+                              >
+                                {copiedSummaryId === chapter.id ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

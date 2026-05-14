@@ -312,6 +312,25 @@ export default function App() {
     }
   };
 
+  const handleUpdateSummary = async (chapterId: string, summary: string) => {
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary })
+      });
+      if (!res.ok) throw new Error('Failed to update summary');
+      setDocuments(prev => prev.map(d => {
+        const hasChap = d.chapters.some(c => c.id === chapterId);
+        if (!hasChap) return d;
+        const nextChap = d.chapters.map(c => c.id === chapterId ? { ...c, summary } : c);
+        return { ...d, chapters: nextChap };
+      }));
+    } catch (err) {
+      console.error('Error updating summary:', err);
+    }
+  };
+
   const selectedDoc = documents.find(d => d.id === selectedDocId);
   const selectedChapter = selectedDoc?.chapters.find(c => c.id === selectedChapterId);
 
@@ -398,6 +417,7 @@ export default function App() {
             librarySelection={librarySelection}
             onToggleLibrarySelection={handleToggleLibrarySelection}
             onOpenLibraryChat={handleOpenLibraryChat}
+            onUpdateSummary={handleUpdateSummary}
           />
         </div>
         

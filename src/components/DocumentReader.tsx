@@ -47,18 +47,51 @@ export default function DocumentReader({ document }: Props) {
             <h1 className="text-3xl font-display font-bold text-white mb-4">{document.name}</h1>
           </div>
           
-          {document.chapters.map((chapter) => (
-            <div 
-              key={chapter.id} 
-              ref={el => chapterRefs.current[chapter.id] = el}
-              className="scroll-mt-12"
-            >
-              <h2 className="text-2xl font-semibold text-white mb-6">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
-              <div className="prose prose-invert max-w-none text-white/80 whitespace-pre-wrap font-serif leading-relaxed">
-                {chapter.content}
+          {document.chapters.map((chapter, index) => {
+            const prevChapter = index > 0 ? document.chapters[index - 1] : null;
+            const nextChapter = index < document.chapters.length - 1 ? document.chapters[index + 1] : null;
+
+            return (
+              <div 
+                key={chapter.id} 
+                ref={el => chapterRefs.current[chapter.id] = el}
+                className="scroll-mt-12 group"
+              >
+                <h2 className="text-2xl font-semibold text-white mb-6">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
+                {chapter.summary && (
+                  <div className="bg-white/5 border-l-4 border-cyan-500/50 p-4 mb-8 rounded-r-lg">
+                    <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400 mb-2">Summary</h4>
+                    <div className="prose prose-invert prose-sm max-w-none text-white/70 font-light">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
+                    </div>
+                  </div>
+                )}
+                <div className="prose prose-invert max-w-none text-white/80 whitespace-pre-wrap font-serif leading-relaxed">
+                  {chapter.content}
+                </div>
+                
+                {/* Chapter Navigation Linking */}
+                <div className="mt-12 flex justify-between items-center border-t border-white/5 pt-6 opacity-50 group-hover:opacity-100 transition-opacity">
+                  {prevChapter ? (
+                    <button 
+                      onClick={() => scrollToChapter(prevChapter.id)}
+                      className="text-cyan-400 hover:text-cyan-300 text-sm flex items-center gap-2"
+                    >
+                      &larr; Previous: {prevChapter.title}
+                    </button>
+                  ) : <div />}
+                  {nextChapter ? (
+                    <button 
+                      onClick={() => scrollToChapter(nextChapter.id)}
+                      className="text-cyan-400 hover:text-cyan-300 text-sm flex items-center gap-2"
+                    >
+                      Next: {nextChapter.title} &rarr;
+                    </button>
+                  ) : <div />}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

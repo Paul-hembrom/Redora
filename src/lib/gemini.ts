@@ -129,20 +129,31 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
   return data.choices[0].message.content;
 }
 
-export async function generateBatchChapterMetadata(chaptersData: { content: string, chapterNumber: number }[], retries = 3): Promise<{ [chapterNumber: number]: { title: string, summary: string } }> {
+export async function generateBatchChapterMetadata(chaptersData: { content: string, chapterNumber: number }[], retries = 3, summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed'): Promise<{ [chapterNumber: number]: { title: string, summary: string } }> {
   const chaptersText = chaptersData.map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 9000)}`).join('\n\n');
+  
+  let instructions = "";
+  if (summaryDetail === 'brief') {
+    instructions = "Provide a very brief summary (2-3 short bullet points) highlighting only the most critical takeaway.";
+  } else if (summaryDetail === 'academic') {
+    instructions = "Provide a comprehensive and academic summary. Start with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing academic depth, underlying theories, specific methodologies, and core arguments. Do not provide superficial descriptions.";
+  } else {
+    // detailed
+    instructions = "Provide a detailed summary. Start with a short overview paragraph, then 4-6 descriptive bullet points capturing key concepts, events, logic, and arguments.";
+  }
+
   const prompt = `
-Analyze the following text which contains multiple chapters. You are a senior subject matter expert and academic researcher. 
+Analyze the following text which contains multiple chapters. You are an expert analyst. 
 For each chapter, generate:
-1. A short, meaningful title (max 6 words).
-2. A comprehensive and detailed summary. The summary should be highly informative, starting with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing the academic depth, underlying theories, precise nuances, key methodologies, and core arguments. Do not provide brief or superficial descriptions. Make the summary extensive enough to be practically useful for deep review.
+1. A highly descriptive, context-relevant title that accurately reflects the exact topic, key findings, or primary theme of the chapter (max 8 words). Avoid generic titles like "Introduction" or "Conclusion" if possible; instead, summarize the specific focus (e.g., "Introduction to Quantum Mechanics" rather than just "Introduction").
+2. ${instructions}
 
 Here are the chapters:
 ${chaptersText}
 
 IMPORTANT: You must return ONLY a valid JSON object where the keys are the chapter numbers (as strings) and values are objects with 'title' and 'summary' keys. Example:
 {
-  "${chaptersData[0]?.chapterNumber || '1'}": { "title": "Example Title", "summary": "Detailed paragraph overview...\\n\\n- Comprehensive bullet point 1...\\n- Comprehensive bullet point 2..." }
+  "${chaptersData[0]?.chapterNumber || '1'}": { "title": "Example Descriptive Title", "summary": "Overview paragraph...\\n\\n- Bullet point 1...\\n- Bullet point 2..." }
 }
 No markdown formatting, no explanation.
   `.trim();
@@ -194,19 +205,29 @@ No markdown formatting, no explanation.
   throw new Error("Failed to generate metadata after multiple attempts.");
 }
 
-export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3): Promise<{title: string, summary: string}> {
+export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3, summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed'): Promise<{title: string, summary: string}> {
+  let instructions = "";
+  if (summaryDetail === 'brief') {
+    instructions = "Provide a very brief summary (2-3 short bullet points) highlighting only the most critical takeaway.";
+  } else if (summaryDetail === 'academic') {
+    instructions = "Provide a comprehensive and academic summary. Start with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing academic depth, underlying theories, specific methodologies, and core arguments. Do not provide superficial descriptions.";
+  } else {
+    // detailed
+    instructions = "Provide a detailed summary. Start with a short overview paragraph, then 4-6 descriptive bullet points capturing key concepts, events, logic, and arguments.";
+  }
+
   const prompt = `
-Analyze the following text (Chapter ${chapterNumber}). You are a senior subject matter expert and academic researcher.
-Generate a short, meaningful title (max 6 words).
-Provide a comprehensive and detailed summary. The summary should be highly informative, starting with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing the academic depth, nuances, underlying theories, key methodologies, logic, and core arguments presented in the text. Avoid superficial high-level descriptions.
+Analyze the following text (Chapter ${chapterNumber}). You are an expert analyst.
+Generate a highly descriptive, context-relevant title that accurately reflects the exact topic, key findings, or primary theme of the chapter (max 8 words). Avoid generic titles like "Introduction" or "Conclusion" if possible.
+${instructions}
 
 Text:
 ${content.substring(0, 10000)}
 
 IMPORTANT: You must return ONLY a valid JSON object with 'title' and 'summary' keys. Example:
 {
-  "title": "Example Title",
-  "summary": "Detailed paragraph overview...\\n\\n- Comprehensive bullet point 1...\\n- Comprehensive bullet point 2..."
+  "title": "Example Descriptive Title",
+  "summary": "Overview paragraph...\\n\\n- Bullet point 1...\\n- Bullet point 2..."
 }
 No markdown formatting, no explanation.
   `.trim();

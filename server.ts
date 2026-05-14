@@ -145,6 +145,27 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
   }
 });
 
+app.put('/api/chapters/:id', authenticate, async (req: any, res) => {
+  const chapterId = req.params.id;
+  const { summary } = req.body;
+  try {
+    // Verify ownership
+    const docQuery = await sql`
+      SELECT d.id FROM documents d
+      JOIN chapters c ON c.document_id = d.id
+      WHERE c.id = ${chapterId} AND d.user_id = ${req.userId}
+    `;
+    if (docQuery.length === 0) {
+      return res.status(403).json({ error: 'Unauthorized to edit this chapter' });
+    }
+    
+    await sql`UPDATE chapters SET summary = ${summary} WHERE id = ${chapterId}`;
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/documents/:id/tags', authenticate, async (req: any, res) => {
   try {
     const docId = req.params.id;

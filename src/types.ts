@@ -3,6 +3,7 @@ export type ReadingPersona = 'general' | 'student' | 'academic' | 'professional'
 export interface PreprocessOptions {
   removeStopWords: boolean;
   applyStemming: boolean;
+  summaryDetail?: 'brief' | 'detailed' | 'academic';
 }
 
 export interface Chapter {
