@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import sql from './server/db.js';
+import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -240,6 +241,84 @@ app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
     });
     
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Storyboard / Educational Rendering Layer Routes ---
+
+app.post('/api/lessons/generate', authenticate, async (req: any, res) => {
+  try {
+    const { 
+      organization_id, document_id, chapter_id, title, summary, 
+      key_concepts, subject, grade_level, visual_style, narration_style 
+    } = req.body;
+
+    if (!organization_id || !chapter_id) {
+      return res.status(400).json({ error: 'organization_id and chapter_id are required' });
+    }
+
+    const jobId = uuidv4();
+    
+    // Create initial storyboard job entry
+    await sql`
+      INSERT INTO storyboards (
+        id, organization_id, document_id, chapter_id, title, 
+        visual_style, narration_style, grade_level, subject, status
+      ) VALUES (
+        ${jobId}, ${organization_id}, ${document_id}, ${chapter_id}, ${title},
+        ${visual_style}, ${narration_style}, ${grade_level}, ${subject}, 'pending'
+      )
+    `;
+
+    // Start async generation
+    generateStoryboardJob(
+      jobId, organization_id, document_id, chapter_id, title, summary,
+      key_concepts, subject, grade_level, visual_style, narration_style
+    ).catch(console.error);
+
+    res.json({ success: true, jobId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/storyboards/:id', authenticate, async (req: any, res) => {
+  try {
+    const sbId = req.params.id;
+    const sbs = await sql`SELECT * FROM storyboards WHERE id = ${sbId}`;
+    if (sbs.length === 0) return res.status(404).json({ error: 'Storyboard not found' });
+    
+    // Check if the user is authorized for this organization (skipping tight auth for now, or assume organization_id is valid for user)
+    // Could add user-to-organization checks here if orgs were modeled
+    
+    const sb = sbs[0];
+    const scenes = await sql`SELECT * FROM scenes WHERE storyboard_id = ${sbId} ORDER BY scene_number ASC`;
+    
+    res.json({
+      storyboard: sb,
+      scenes: scenes.map(s => ({
+        ...s,
+        labels: s.labels ? JSON.parse(s.labels) : [],
+        educational_metadata: s.educational_metadata ? JSON.parse(s.educational_metadata) : {}
+      }))
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
+  try {
+    const sceneId = req.params.id;
+    
+    // Execute regeneration asynchronously or block? The requirement says async job architecture,
+    // let's do async to keep UI responsive. (or await if it's single scene and fast). 
+    // Usually single scene regeneration takes a few seconds. We'll do async.
+    regenerateScene(sceneId).catch(console.error);
+    
+    res.json({ success: true, message: 'Regeneration started' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

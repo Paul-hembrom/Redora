@@ -82,6 +82,46 @@ export async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS storyboards (
+        id TEXT PRIMARY KEY,
+        organization_id TEXT NOT NULL,
+        document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+        chapter_id TEXT REFERENCES chapters(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        visual_style TEXT,
+        narration_style TEXT,
+        grade_level TEXT,
+        subject TEXT,
+        status TEXT DEFAULT 'pending',
+        progress INTEGER DEFAULT 0,
+        error TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS scenes (
+        id TEXT PRIMARY KEY,
+        storyboard_id TEXT NOT NULL REFERENCES storyboards(id) ON DELETE CASCADE,
+        organization_id TEXT NOT NULL,
+        scene_number INTEGER NOT NULL,
+        narration TEXT,
+        animation_instructions TEXT,
+        camera_directions TEXT,
+        labels TEXT, -- JSON array
+        transition_to_next TEXT,
+        estimated_duration_seconds INTEGER,
+        visual_prompt TEXT,
+        educational_metadata TEXT, -- JSON
+        video_url TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
     console.log('Database schema initialized successfully.');
   } catch (error: any) {
     console.error('Failed to initialize database schema:', error);
