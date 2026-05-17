@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -9,7 +9,6 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool } from '../lib/gemini';
-import ChapterVideos from './ChapterVideos';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -114,6 +113,70 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Failed to generate response.');
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleFetchVideos = async () => {
+    if (isTyping) return;
+    
+    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: "Find educational videos for this chapter." };
+    setMessages(prev => [...prev, userMsg]);
+    setIsTyping(true);
+    setError(null);
+
+    // Save user message to DB
+    if (!chapter.id.startsWith('lib_')) {
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+      }).catch(console.error);
+    }
+
+    try {
+      const response = await fetch('/api/retrieve-videos', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: chapter.title,
+          summary: chapter.summary,
+          subject: 'General Education',
+          grade: 'High School',
+          keyConcepts: []
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch videos');
+      }
+
+      const data = await response.json();
+      
+      const aiMsg: ChatMessage = {
+        id: uuidv4(),
+        role: 'model',
+        text: 'Here are some highly recommended videos for this chapter.',
+        type: 'videos',
+        recommended_videos: data.recommended_videos || []
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+      if (!chapter.id.startsWith('lib_')) {
+        fetch('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+        }).catch(console.error);
+      }
+
+    } catch (err: any) {
+      console.error(err);
+      setError('Could not find recommended videos. Please try again later.');
     } finally {
       setIsTyping(false);
     }
@@ -280,6 +343,9 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             </div>
           )}
           <div className="hidden lg:flex items-center gap-1.5 mr-4 bg-black/40 p-1 rounded-lg border border-white/5">
+            <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Find educational videos">
+              <Video className="w-3.5 h-3.5" /> Videos
+            </button>
             <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Generate practice quiz">
               <Target className="w-3.5 h-3.5" /> Quiz
             </button>
@@ -335,7 +401,6 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
             </div>
-            <ChapterVideos title={chapter.title} summary={chapter.summary} />
           </div>
         </motion.div>
 
@@ -381,6 +446,43 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                     </button>
                   )}
                 </div>
+
+                {msg.recommended_videos && msg.recommended_videos.length > 0 && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.3 }}
+                    className="mt-6 text-left"
+                  >
+                    <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2 mb-4">
+                      Recommended Videos
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {msg.recommended_videos.map((video, vIdx) => (
+                        <div key={vIdx} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden flex flex-col">
+                          <div className="aspect-video bg-black relative">
+                            <iframe 
+                              src={`https://www.youtube.com/embed/${video.video_id}`} 
+                              title={video.title} 
+                              className="w-full h-full absolute inset-0 border-0"
+                              allowFullScreen
+                            />
+                          </div>
+                          <div className="p-3 flex flex-col flex-1">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="text-sm font-medium text-white line-clamp-2" title={video.title}>{video.title}</h4>
+                              <span className="shrink-0 bg-cyan-500/20 text-cyan-400 text-xs px-2 py-0.5 rounded font-medium">
+                                Score: {video.quality_score}
+                              </span>
+                            </div>
+                            <p className="text-xs text-white/50 mb-2 truncate">{video.channel}</p>
+                            <p className="text-xs text-white/70 italic line-clamp-3 flex-1">{video.reason}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
 
                 {msg.relationshipGraph && msg.relationshipGraph.length > 0 && (
                   <motion.div 

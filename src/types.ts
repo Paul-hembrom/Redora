@@ -30,6 +30,7 @@ export interface ChatMessage {
   text: string;
   relationshipGraph?: { source: string; target: string; relation: string }[];
   followUps?: string[];
-  type?: 'text' | 'quiz' | 'glossary' | 'brief';
+  type?: 'text' | 'quiz' | 'glossary' | 'brief' | 'videos';
   actionData?: any;
+  recommended_videos?: any[];
 }
