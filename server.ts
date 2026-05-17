@@ -380,10 +380,12 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
     });
 
     const responseText = response.text || '{}';
+    console.log("Gemini response text:", responseText);
     let parsedData;
     try {
-      parsedData = JSON.parse(responseText);
+      parsedData = JSON.parse(responseText.trim().replace(/^```json/, '').replace(/```$/, ''));
     } catch (e) {
+      console.error("Failed to parse Gemini response:", e);
       return res.status(500).json({ error: 'Failed to parse AI response' });
     }
 

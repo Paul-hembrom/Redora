@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Loader2, Video } from 'lucide-react';
 
 interface RecommendedVideo {
@@ -20,66 +20,94 @@ export default function ChapterVideos({ title, summary }: ChapterVideosProps) {
   const [videos, setVideos] = useState<RecommendedVideo[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hasFetched, setHasFetched] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const fetchVideos = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const response = await fetch('/api/retrieve-videos', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          title,
-          summary,
-          subject: 'General Education',
-          grade: 'High School',
-          keyConcepts: []
-        })
-      });
+  useEffect(() => {
+    let isMounted = true;
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch videos');
-      }
-
-      const data = await response.json();
-      setVideos(data.recommended_videos || []);
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!videos && !loading) {
-    return (
-      <div className="mt-8 border border-white/10 rounded-lg p-6 bg-white/5 flex flex-col items-center justify-center text-center">
-        <Video className="w-8 h-8 text-cyan-400 mb-3" />
-        <h3 className="text-lg font-medium text-white mb-2">Enhance Learning with Video</h3>
-        <p className="text-sm text-white/50 mb-4 max-w-md">Get AI-curated educational YouTube videos tailored to the concepts in this chapter.</p>
-        <button 
-          onClick={fetchVideos}
-          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-sm font-medium transition-colors"
-        >
-          Find Educational Videos
-        </button>
-        {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
-      </div>
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !hasFetched && title) {
+          setHasFetched(true);
+          fetchVideos();
+        }
+      },
+      { rootMargin: '200px' } 
     );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    const fetchVideos = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const response = await fetch('/api/retrieve-videos', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            title,
+            summary,
+            subject: 'General Education',
+            grade: 'High School',
+            keyConcepts: []
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch videos');
+        }
+
+        const data = await response.json();
+        if (isMounted) {
+          setVideos(data.recommended_videos || []);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setError(err.message || 'An error occurred');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    return () => {
+      isMounted = false;
+      observer.disconnect();
+    };
+  }, [title, summary, hasFetched]);
+
+  if (!videos && !loading && !error && hasFetched) {
+    return null;
   }
 
   return (
-    <div className="mt-8 border-t border-white/10 pt-8">
+    <div ref={containerRef} className="mt-8 border-t border-white/10 pt-8">
       <h3 className="text-xl font-medium text-white flex items-center gap-2 mb-6">
         <Video className="w-5 h-5 text-cyan-400" />
         Recommended Videos
       </h3>
 
-      {loading ? (
+      {loading && !videos ? (
         <div className="flex flex-col items-center justify-center py-12 rounded-lg border border-white/5 bg-white/5">
           <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mb-4" />
           <p className="text-white/70">Finding the best educational videos out of 100...</p>
+        </div>
+      ) : error ? (
+        <div className="text-center py-8 border border-white/10 rounded-lg bg-red-500/10 text-red-400 flex flex-col items-center">
+          <p className="mb-4">{error}</p>
+          <button 
+            onClick={() => { setHasFetched(false); setError(''); }}
+            className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded transition"
+          >
+            Retry
+          </button>
         </div>
       ) : videos && videos.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -106,9 +134,13 @@ export default function ChapterVideos({ title, summary }: ChapterVideosProps) {
             </div>
           ))}
         </div>
-      ) : (
+      ) : hasFetched ? (
         <div className="text-center py-8 border border-white/10 rounded-lg bg-white/5 text-white/50">
           No relevant videos found for this chapter.
+        </div>
+      ) : (
+        <div className="flex justify-center items-center py-8 text-white/30 text-sm">
+          Scroll down to discover videos...
         </div>
       )}
     </div>
