@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -9,6 +9,7 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool } from '../lib/gemini';
+import StoryboardScreen from './storyboard/StoryboardScreen';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter }: Props) {
+  const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -343,6 +345,13 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             </div>
           )}
           <div className="hidden lg:flex items-center gap-1.5 mr-4 bg-black/40 p-1 rounded-lg border border-white/5">
+            <button 
+              onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
+              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5", activeTab === 'video' ? 'bg-cyan-500/20 text-cyan-400' : 'text-white/60 hover:text-cyan-400 hover:bg-white/5')}
+              title="Toggle Video Lesson Pipeline"
+            >
+              <Film className="w-3.5 h-3.5" /> Pipeline
+            </button>
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
             </button>
@@ -386,6 +395,12 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
         </div>
       </div>
 
+      {activeTab === 'video' ? (
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative z-0">
+          <StoryboardScreen chapterId={chapter.id} />
+        </div>
+      ) : (
+      <>
       <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 custom-scrollbar relative z-0">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
@@ -585,6 +600,8 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           </p>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

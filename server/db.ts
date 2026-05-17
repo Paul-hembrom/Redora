@@ -55,6 +55,7 @@ export async function initDb() {
     try {
       await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'`;
       await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`;
+      await sql`ALTER TABLE storyboards ADD COLUMN IF NOT EXISTS generation_job_id TEXT`;
     } catch (e) {
       // Ignore if columns already exist or syntax error on older PG versions
     }
@@ -88,6 +89,7 @@ export async function initDb() {
         organization_id TEXT NOT NULL,
         document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
         chapter_id TEXT REFERENCES chapters(id) ON DELETE CASCADE,
+        generation_job_id TEXT,
         title TEXT NOT NULL,
         visual_style TEXT,
         narration_style TEXT,
@@ -119,6 +121,44 @@ export async function initDb() {
         status TEXT DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS generation_jobs (
+        id TEXT PRIMARY KEY,
+        org_id TEXT,
+        document_id TEXT,
+        chapter_id TEXT,
+        status TEXT,
+        progress INTEGER,
+        error_message TEXT,
+        video_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS narration_assets (
+        id TEXT PRIMARY KEY,
+        org_id TEXT,
+        scene_id TEXT,
+        asset_url TEXT,
+        voice_name TEXT,
+        duration_ms INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
+    await sql`
+      CREATE TABLE IF NOT EXISTS visual_metadata (
+        id TEXT PRIMARY KEY,
+        org_id TEXT,
+        scene_id TEXT,
+        image_url TEXT,
+        prompt TEXT,
+        model_used TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `;
 

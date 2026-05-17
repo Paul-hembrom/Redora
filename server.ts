@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import sql from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
+import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -294,7 +295,16 @@ app.get('/api/storyboards/:id', authenticate, async (req: any, res) => {
     // Could add user-to-organization checks here if orgs were modeled
     
     const sb = sbs[0];
-    const scenes = await sql`SELECT * FROM scenes WHERE storyboard_id = ${sbId} ORDER BY scene_number ASC`;
+    const scenes = await sql`
+      SELECT s.*, 
+             v.image_url, v.model_used, 
+             n.asset_url as narration_url
+      FROM scenes s
+      LEFT JOIN visual_metadata v ON v.scene_id = s.id
+      LEFT JOIN narration_assets n ON n.scene_id = s.id
+      WHERE s.storyboard_id = ${sbId} 
+      ORDER BY s.scene_number ASC
+    `;
     
     res.json({
       storyboard: sb,
@@ -309,20 +319,82 @@ app.get('/api/storyboards/:id', authenticate, async (req: any, res) => {
   }
 });
 
-app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
+// --- NEW VIDEO LESSON PIPELINE ROUTES ---
+app.post('/api/chapters/:id/generate-lesson', authenticate, async (req: any, res) => {
   try {
-    const sceneId = req.params.id;
+    const chapterId = req.params.id;
+    const { org_id = 'default_org', document_id = 'doc123' } = req.body;
     
-    // Execute regeneration asynchronously or block? The requirement says async job architecture,
-    // let's do async to keep UI responsive. (or await if it's single scene and fast). 
-    // Usually single scene regeneration takes a few seconds. We'll do async.
-    regenerateScene(sceneId).catch(console.error);
+    const jobId = uuidv4();
+    await sql`
+      INSERT INTO generation_jobs (id, org_id, document_id, chapter_id, status, progress)
+      VALUES (${jobId}, ${org_id}, ${document_id}, ${chapterId}, 'pending', 0)
+    `;
     
-    res.json({ success: true, message: 'Regeneration started' });
+    // Start background processing
+    processVideoLessonJob(jobId, chapterId, org_id, document_id).catch(console.error);
+
+    res.json({ job_id: jobId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.get('/api/chapters/:id/generation-job', authenticate, async (req: any, res) => {
+  try {
+    const jobs = await sql`SELECT * FROM generation_jobs WHERE chapter_id = ${req.params.id} ORDER BY created_at DESC LIMIT 1`;
+    if (!jobs.length) {
+      return res.json({ job: null });
+    }
+    
+    const job = jobs[0];
+    let storyboard = null;
+    let scenes = [];
+    
+    if (job.status === 'completed' || job.progress > 10) {
+      const sbs = await sql`SELECT * FROM storyboards WHERE generation_job_id = ${job.id}`;
+      if (sbs.length) {
+        storyboard = sbs[0];
+        const scns = await sql`
+          SELECT s.*, 
+                 v.image_url, v.model_used, 
+                 n.asset_url as narration_url
+          FROM scenes s
+          LEFT JOIN visual_metadata v ON v.scene_id = s.id
+          LEFT JOIN narration_assets n ON n.scene_id = s.id
+          WHERE s.storyboard_id = ${storyboard.id} 
+          ORDER BY s.scene_number ASC
+        `;
+        scenes = scns;
+      }
+    }
+
+    res.json({ job, storyboard, scenes });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
+  try {
+    const sceneId = req.params.id;
+    
+    // Grab scene
+    const scenes = await sql`SELECT * FROM scenes WHERE id = ${sceneId}`;
+    if (!scenes.length) return res.status(404).json({ error: 'Scene not found' });
+    const scene = scenes[0];
+    
+    // Asynchronously regenerate that particular scene assets
+    processSceneAssets(scene.id, scene.organization_id, scene.visual_prompt, scene.narration, scene.estimated_duration_seconds).catch(console.error);
+    
+    res.json({ status: 'regenerating' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// ----------------------------------------
+
+
 
 // --- Video Retrieval Route ---
 import ytSearch from 'yt-search';
