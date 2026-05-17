@@ -538,7 +538,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                             />
                             <div className="flex justify-end gap-2">
                               <button onClick={cancelEditingSummary} className="px-2 py-1 text-[10px] text-white/40 hover:text-white/80">Cancel</button>
-                              <button onClick={(e) => saveSummary(e, chapter.id, doc.id)} className="px-2 py-1 text-[10px] bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">Save</button>
+                              <button onClick={(e) => saveSummary(e, chapter.id)} className="px-2 py-1 text-[10px] bg-cyan-500/20 text-cyan-400 rounded hover:bg-cyan-500/30">Save</button>
                             </div>
                           </div>
                         ) : (

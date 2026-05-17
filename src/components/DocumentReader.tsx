@@ -54,7 +54,7 @@ export default function DocumentReader({ document }: Props) {
             return (
               <div 
                 key={chapter.id} 
-                ref={el => chapterRefs.current[chapter.id] = el}
+                ref={el => { if (el) chapterRefs.current[chapter.id] = el; }}
                 className="scroll-mt-12 group"
               >
                 <h2 className="text-2xl font-semibold text-white mb-6">Chapter {chapter.chapterNumber}: {chapter.title}</h2>

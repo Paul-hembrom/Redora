@@ -426,24 +426,26 @@ import { GoogleGenAI } from '@google/genai';
 
 app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
   try {
-    const { title, summary, subject, grade, keyConcepts } = req.body;
+    const { title, summary, subject, grade, keyConcepts, class_context } = req.body;
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
     const conceptsStr = Array.isArray(keyConcepts) ? keyConcepts.join(', ') : '';
+
+    const contextPrefix = class_context ? `Class Context: ${class_context}` : `Grade Level: ${grade}`;
 
     const prompt = `
 You are an expert Educational Video Retrieval Engine.
 Your task is to find the best educational YouTube videos for a specific chapter context.
 
+${contextPrefix}
 Chapter Title: ${title}
-Summary: ${summary}
 Subject: ${subject}
-Grade Level: ${grade}
+Summary: ${summary}
 Key Concepts: ${conceptsStr}
 
 Step 1: Extract the core learning intent from the chapter summary.
 Step 2: Break down the learning intent into key concepts (especially visual ones).
-Step 3: Generate 5-10 highly optimized YouTube search queries suitable for the specified grade level (e.g., "Photosynthesis animation middle school").
-Step 4: Predict ideal videos and assign a "quality_score" out of 100 based on expected educational clarity, animation quality, and grade-level match.
+Step 3: Generate 5-10 highly optimized YouTube search queries suitable for the specified class context. If Class Context is provided, strongly prefix or bias the search queries with it (e.g. "${class_context}: Photosynthesis animation").
+Step 4: Predict ideal videos and assign a "quality_score" out of 100 based on expected educational clarity, animation quality, and context match.
 
 Return ONLY valid JSON exactly matching this schema:
 {

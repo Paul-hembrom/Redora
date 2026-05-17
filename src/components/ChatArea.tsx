@@ -11,6 +11,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 
+import { useAuth } from '../contexts/AuthContext';
+
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -25,6 +27,7 @@ interface Props {
 }
 
 export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter }: Props) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -148,7 +151,8 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           summary: chapter.summary,
           subject: 'General Education',
           grade: 'High School',
-          keyConcepts: []
+          keyConcepts: (chapter as any).key_concepts || [],
+          class_context: user?.name,
         })
       });
 
