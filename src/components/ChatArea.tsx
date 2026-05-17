@@ -9,6 +9,7 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool } from '../lib/gemini';
+import ChapterVideos from './ChapterVideos';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -334,6 +335,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
             </div>
+            <ChapterVideos title={chapter.title} summary={chapter.summary} />
           </div>
         </motion.div>
 

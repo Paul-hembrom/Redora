@@ -68,7 +68,7 @@ export default function ChapterVideos({ title, summary }: ChapterVideosProps) {
         }
       } catch (err: any) {
         if (isMounted) {
-          setError(err.message || 'An error occurred');
+          setError('Could not find recommended videos. Please try again later.');
         }
       } finally {
         if (isMounted) {
@@ -97,7 +97,7 @@ export default function ChapterVideos({ title, summary }: ChapterVideosProps) {
       {loading && !videos ? (
         <div className="flex flex-col items-center justify-center py-12 rounded-lg border border-white/5 bg-white/5">
           <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mb-4" />
-          <p className="text-white/70">Finding the best educational videos out of 100...</p>
+          <p className="text-white/70">Finding the best educational videos...</p>
         </div>
       ) : error ? (
         <div className="text-center py-8 border border-white/10 rounded-lg bg-red-500/10 text-red-400 flex flex-col items-center">
