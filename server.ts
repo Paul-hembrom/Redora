@@ -530,7 +530,10 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       role: c.role,
       text: c.text,
       relationshipGraph: c.relationship_graph ? JSON.parse(c.relationship_graph) : undefined,
-      followUps: c.follow_ups ? JSON.parse(c.follow_ups) : undefined
+      followUps: c.follow_ups ? JSON.parse(c.follow_ups) : undefined,
+      type: c.type,
+      actionData: c.action_data ? JSON.parse(c.action_data) : undefined,
+      recommended_videos: c.recommended_videos ? JSON.parse(c.recommended_videos) : undefined
     }));
     res.json(result);
   } catch (err: any) {
@@ -539,10 +542,10 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/chats', authenticate, async (req: any, res) => {
-  const { id, chapterId, role, text, relationshipGraph, followUps } = req.body;
+  const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos } = req.body;
   try {
     await sql`
-      INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups) 
+      INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos) 
       VALUES (
         ${id}, 
         ${chapterId}, 
@@ -550,7 +553,10 @@ app.post('/api/chats', authenticate, async (req: any, res) => {
         ${role}, 
         ${text}, 
         ${relationshipGraph ? JSON.stringify(relationshipGraph) : null}, 
-        ${followUps ? JSON.stringify(followUps) : null}
+        ${followUps ? JSON.stringify(followUps) : null},
+        ${type ? type : null},
+        ${actionData ? JSON.stringify(actionData) : null},
+        ${recommended_videos ? JSON.stringify(recommended_videos) : null}
       )
     `;
     res.json({ success: true });

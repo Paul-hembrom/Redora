@@ -80,9 +80,20 @@ export async function initDb() {
         text TEXT NOT NULL,
         relationship_graph TEXT,
         follow_ups TEXT,
+        type TEXT,
+        action_data TEXT,
+        recommended_videos TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `;
+
+    try {
+      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS type TEXT`;
+      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS action_data TEXT`;
+      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS recommended_videos TEXT`;
+    } catch (e) {
+      // Ignore
+    }
     await sql`
       CREATE TABLE IF NOT EXISTS storyboards (
         id TEXT PRIMARY KEY,
