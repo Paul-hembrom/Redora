@@ -3,6 +3,7 @@ import { Document } from '../types';
 import { BookOpen } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import ChapterVideos from './ChapterVideos';
 
 interface Props {
   document: Document;
@@ -70,6 +71,8 @@ export default function DocumentReader({ document }: Props) {
                   {chapter.content}
                 </div>
                 
+                <ChapterVideos title={chapter.title} summary={chapter.summary || ''} />
+
                 {/* Chapter Navigation Linking */}
                 <div className="mt-12 flex justify-between items-center border-t border-white/5 pt-6 opacity-50 group-hover:opacity-100 transition-opacity">
                   {prevChapter ? (
