@@ -17,6 +17,30 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
 
+// --- Gateway Token Exchange Route ---
+app.get('/auth/token-exchange', (req, res) => {
+  const token = req.query.token as string;
+  if (!token) {
+    return res.status(400).send('Missing token');
+  }
+
+  try {
+    // Verify the token using the existing JWT_SECRET
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod');
+    // If verification succeeds, set the cookie exactly as your existing login does
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+    // Redirect to the home page (the user's workspace will load automatically)
+    res.redirect('/');
+  } catch (err) {
+    return res.status(401).send('Invalid token');
+  }
+});
+
 // --- Auth Middleware ---
 const authenticate = (req: any, res: any, next: any) => {
   const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
