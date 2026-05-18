@@ -397,9 +397,21 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
               </div>
               <div className="flex items-center shrink-0 ml-2">
                 <button 
-                  onClick={(e) => { e.stopPropagation(); onSelectChapter(doc.id, 'read_all'); }}
-                  className="p-1.5 text-white/30 hover:text-cyan-400 hover:bg-white/5 rounded-md transition-all"
-                  title="Read Full Document"
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    if (selectedDocId === doc.id && selectedChapterId === 'read_all') {
+                      onSelectChapter(doc.id, doc.chapters[0]?.id || '');
+                    } else {
+                      onSelectChapter(doc.id, 'read_all');
+                    }
+                  }}
+                  className={cn(
+                    "p-1.5 rounded-md transition-all",
+                    selectedDocId === doc.id && selectedChapterId === 'read_all'
+                      ? "text-cyan-400 bg-white/10"
+                      : "text-white/30 hover:text-cyan-400 hover:bg-white/5"
+                  )}
+                  title={selectedDocId === doc.id && selectedChapterId === 'read_all' ? "Exit Full Document" : "Read Full Document"}
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                 </button>
