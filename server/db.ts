@@ -71,6 +71,16 @@ export async function initDb() {
       );
     `;
 
+    try {
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES chapters(id) ON DELETE CASCADE`;
+    } catch(e) {}
+    try {
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
+    } catch(e) {}
+    try {
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT CHECK (type IN ('part', 'chapter', 'topic')) DEFAULT 'chapter'`;
+    } catch(e) {}
+
     await sql`
       CREATE TABLE IF NOT EXISTS chats (
         id TEXT PRIMARY KEY,
