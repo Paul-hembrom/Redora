@@ -17,6 +17,40 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const QuizQuestion = ({ q, index }: { q: any, index: number }) => {
+  const [showAnswer, setShowAnswer] = useState(false);
+  
+  return (
+    <div className="bg-black/20 p-4 rounded-xl border border-white/5">
+      <p className="font-medium text-white/90 mb-3">{index + 1}. {q.question}</p>
+      <div className="space-y-2">
+        {q.options.map((opt: string, optIdx: number) => {
+          const isCorrect = optIdx === q.answerIndex;
+          const isSelectedCorrect = showAnswer && isCorrect;
+          return (
+            <div key={optIdx} className="flex items-start gap-2">
+              <span className="shrink-0 w-5 h-5 rounded bg-white/10 text-[10px] flex items-center justify-center font-bold">{['A','B','C','D'][optIdx] || optIdx + 1}</span>
+              <span className={isSelectedCorrect ? "text-green-400 font-medium" : "text-white/60"}>
+                {opt} {isSelectedCorrect && '✓'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {!showAnswer ? (
+        <button 
+          onClick={() => setShowAnswer(true)}
+          className="mt-4 text-xs font-medium px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-white/80 transition-colors"
+        >
+          Show Answer
+        </button>
+      ) : (
+        <p className="mt-3 text-xs text-white/50 bg-white/5 p-2 rounded-md"><span className="font-semibold text-white/70">Explanation:</span> {q.explanation}</p>
+      )}
+    </div>
+  );
+};
+
 interface Props {
   chapter: Chapter;
   onClearChats: () => void;
@@ -247,20 +281,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
         <div className="mt-4 space-y-4">
           <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2"><Target className="w-4 h-4" /> Practice Quiz</h3>
           {questions.map((q: any, i: number) => (
-            <div key={i} className="bg-black/20 p-4 rounded-xl border border-white/5">
-              <p className="font-medium text-white/90 mb-3">{i + 1}. {q.question}</p>
-              <div className="space-y-2">
-                {q.options.map((opt: string, optIdx: number) => (
-                  <div key={optIdx} className="flex items-start gap-2">
-                    <span className="shrink-0 w-5 h-5 rounded bg-white/10 text-[10px] flex items-center justify-center font-bold">{['A','B','C','D'][optIdx] || optIdx + 1}</span>
-                    <span className={optIdx === q.answerIndex ? "text-green-400 font-medium" : "text-white/60"}>
-                      {opt} {optIdx === q.answerIndex && '✓'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-3 text-xs text-white/50 bg-white/5 p-2 rounded-md"><span className="font-semibold text-white/70">Explanation:</span> {q.explanation}</p>
-            </div>
+            <QuizQuestion key={i} q={q} index={i} />
           ))}
         </div>
       );
