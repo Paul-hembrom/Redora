@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import sql from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
+import { getUserRoleInOrg } from './server/roles.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -148,8 +149,13 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/documents', authenticate, async (req: any, res) => {
-  const { id, name, chapters, tags } = req.body;
+  const { id, name, chapters, tags, org_id } = req.body;
+  
   try {
+    const orgId = org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     await sql.begin(async (tx: any) => {
       await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${name}, ${tags ? JSON.stringify(tags) : '[]'})`;
       
@@ -173,8 +179,12 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
 
 app.put('/api/chapters/:id', authenticate, async (req: any, res) => {
   const chapterId = req.params.id;
-  const { summary } = req.body;
+  const { summary, org_id } = req.body;
   try {
+    const orgId = org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     // Verify ownership
     const docQuery = await sql`
       SELECT d.id FROM documents d
@@ -194,6 +204,10 @@ app.put('/api/chapters/:id', authenticate, async (req: any, res) => {
 
 app.put('/api/documents/:id/tags', authenticate, async (req: any, res) => {
   try {
+    const orgId = req.body.org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     const docId = req.params.id;
     const { tags } = req.body;
     
@@ -209,6 +223,10 @@ app.put('/api/documents/:id/tags', authenticate, async (req: any, res) => {
 
 app.put('/api/documents/:id/share', authenticate, async (req: any, res) => {
   try {
+    const orgId = req.body.org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     const docId = req.params.id;
     const { isPublic } = req.body;
     
@@ -252,6 +270,10 @@ app.get('/api/shared/:id', async (req: any, res) => {
 
 app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
   try {
+    const orgId = req.body.org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     const docId = req.params.id;
     // Verify ownership
     const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
@@ -275,6 +297,10 @@ app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
 
 app.post('/api/lessons/generate', authenticate, async (req: any, res) => {
   try {
+    const orgId = req.body.organization_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     const { 
       organization_id, document_id, chapter_id, title, summary, 
       key_concepts, subject, grade_level, visual_style, narration_style 
@@ -346,6 +372,10 @@ app.get('/api/storyboards/:id', authenticate, async (req: any, res) => {
 // --- NEW VIDEO LESSON PIPELINE ROUTES ---
 app.post('/api/chapters/:id/generate-lesson', authenticate, async (req: any, res) => {
   try {
+    const orgId = req.body.org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     const chapterId = req.params.id;
     const { org_id = 'default_org', document_id = 'doc123' } = req.body;
     
@@ -401,6 +431,10 @@ app.get('/api/chapters/:id/generation-job', authenticate, async (req: any, res) 
 
 app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
   try {
+    const orgId = req.body.org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     const sceneId = req.params.id;
     
     // Grab scene
@@ -569,6 +603,10 @@ app.post('/api/chats', authenticate, async (req: any, res) => {
 
 app.delete('/api/chats/document/:docId', authenticate, async (req: any, res) => {
   try {
+    const orgId = req.body.org_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
     const docId = req.params.docId;
     // Verify ownership
     const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
