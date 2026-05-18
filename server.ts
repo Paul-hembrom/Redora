@@ -122,24 +122,52 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
     const docIds = docs.map(d => d.id);
     let allChapters: any[] = [];
     if (docIds.length > 0) {
-      allChapters = await sql`SELECT * FROM chapters WHERE document_id IN ${sql(docIds)} ORDER BY chapter_number ASC`;
+      allChapters = await sql`SELECT * FROM chapters WHERE document_id IN ${sql(docIds)}`;
     }
 
     const result = docs.map(doc => {
-      const chapters = allChapters.filter(ch => ch.document_id === doc.id);
+      const flatChapters = allChapters.filter(ch => ch.document_id === doc.id);
+      
+      const chapterMap = new Map();
+      const roots: any[] = [];
+      flatChapters.forEach(ch => {
+        chapterMap.set(ch.id, {
+          id: ch.id,
+          chapterNumber: ch.chapter_number,
+          title: ch.title,
+          summary: ch.summary,
+          content: ch.content,
+          parentId: ch.parent_id,
+          sortOrder: ch.sort_order || 0,
+          type: ch.type || 'chapter',
+          children: []
+        });
+      });
+
+      Array.from(chapterMap.values()).forEach(ch => {
+        if (ch.parentId && chapterMap.has(ch.parentId)) {
+          chapterMap.get(ch.parentId).children.push(ch);
+        } else {
+          roots.push(ch);
+        }
+      });
+
+      const sortTree = (nodes: any[]) => {
+        nodes.sort((a, b) => {
+          if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+          return a.chapterNumber - b.chapterNumber;
+        });
+        nodes.forEach(n => sortTree(n.children));
+      };
+      sortTree(roots);
+
       return {
         id: doc.id,
         name: doc.name,
         uploadDate: doc.upload_date,
         tags: doc.tags ? JSON.parse(doc.tags) : [],
         isPublic: doc.is_public,
-        chapters: chapters.map(ch => ({
-          id: ch.id,
-          chapterNumber: ch.chapter_number,
-          title: ch.title,
-          summary: ch.summary,
-          content: ch.content
-        }))
+        chapters: roots
       };
     });
     res.json(result);
@@ -160,15 +188,28 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
       await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${name}, ${tags ? JSON.stringify(tags) : '[]'})`;
       
       if (chapters && chapters.length > 0) {
-        const chaptersToInsert = chapters.map((ch: any) => ({
-          id: ch.id,
-          document_id: id,
-          chapter_number: ch.chapterNumber,
-          title: ch.title,
-          summary: ch.summary,
-          content: ch.content
-        }));
-        await tx`INSERT INTO chapters ${tx(chaptersToInsert)}`;
+        const flatChapters: any[] = [];
+        const flatten = (nodes: any[], parentId: string | null = null) => {
+          nodes.forEach((ch, idx) => {
+            flatChapters.push({
+              id: ch.id,
+              document_id: id,
+              chapter_number: ch.chapterNumber || (idx + 1),
+              title: ch.title,
+              summary: ch.summary || '',
+              content: ch.content || '',
+              parent_id: parentId || ch.parentId || null,
+              sort_order: ch.sortOrder || idx,
+              type: ch.type || (parentId ? 'topic' : 'chapter')
+            });
+            if (ch.children && ch.children.length > 0) {
+              flatten(ch.children, ch.id);
+            }
+          });
+        };
+        flatten(chapters);
+
+        await tx`INSERT INTO chapters ${tx(flatChapters)}`;
       }
     });
     res.json({ success: true });
@@ -247,7 +288,40 @@ app.get('/api/shared/:id', async (req: any, res) => {
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found or not public' });
     
     const doc = docs[0];
-    const chapters = await sql`SELECT * FROM chapters WHERE document_id = ${docId} ORDER BY chapter_number ASC`;
+    const allChapters = await sql`SELECT * FROM chapters WHERE document_id = ${docId}`;
+    
+    const chapterMap = new Map();
+    const roots: any[] = [];
+    allChapters.forEach(ch => {
+      chapterMap.set(ch.id, {
+        id: ch.id,
+        chapterNumber: ch.chapter_number,
+        title: ch.title,
+        summary: ch.summary,
+        content: ch.content,
+        parentId: ch.parent_id,
+        sortOrder: ch.sort_order || 0,
+        type: ch.type || 'chapter',
+        children: []
+      });
+    });
+
+    Array.from(chapterMap.values()).forEach(ch => {
+      if (ch.parentId && chapterMap.has(ch.parentId)) {
+        chapterMap.get(ch.parentId).children.push(ch);
+      } else {
+        roots.push(ch);
+      }
+    });
+
+    const sortTree = (nodes: any[]) => {
+      nodes.sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        return a.chapterNumber - b.chapterNumber;
+      });
+      nodes.forEach(n => sortTree(n.children));
+    };
+    sortTree(roots);
     
     res.json({
       id: doc.id,
@@ -255,13 +329,7 @@ app.get('/api/shared/:id', async (req: any, res) => {
       uploadDate: doc.upload_date,
       tags: doc.tags ? JSON.parse(doc.tags) : [],
       isPublic: doc.is_public,
-      chapters: chapters.map(ch => ({
-        id: ch.id,
-        chapterNumber: ch.chapter_number,
-        title: ch.title,
-        summary: ch.summary,
-        content: ch.content
-      }))
+      chapters: roots
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

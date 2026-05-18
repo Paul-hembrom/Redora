@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -68,6 +68,9 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
   const [isTyping, setIsTyping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
+  const [isGeneratingFollowUps, setIsGeneratingFollowUps] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -219,6 +222,25 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
       setError('Could not find recommended videos. Please try again later.');
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const handleGenerateFollowUps = async () => {
+    if (followUpQuestions.length > 0) {
+      setShowFollowUpModal(true);
+      return;
+    }
+    setIsGeneratingFollowUps(true);
+    setShowFollowUpModal(true);
+    try {
+      const aiResult = await generateActionTool(chapter.content, 'followup');
+      if (aiResult && aiResult.questions) {
+        setFollowUpQuestions(aiResult.questions);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsGeneratingFollowUps(false);
     }
   };
 
@@ -388,6 +410,9 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             </button>
             <button onClick={() => handleGenerateAction('brief')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-amber-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get an executive briefing">
               <Zap className="w-3.5 h-3.5" /> Briefing
+            </button>
+            <button onClick={handleGenerateFollowUps} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-purple-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get Follow-up Questions">
+              <MessageCircleQuestion className="w-3.5 h-3.5" /> Follow-ups
             </button>
           </div>
           <button
@@ -627,6 +652,54 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
       </div>
       </>
       )}
+
+      <AnimatePresence>
+        {showFollowUpModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#111] border border-white/10 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative flex flex-col max-h-[80vh]"
+            >
+              <div className="flex items-center justify-between mb-4 shrink-0">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <MessageCircleQuestion className="w-5 h-5 text-purple-400" /> Follow-up Questions
+                </h3>
+                <button onClick={() => setShowFollowUpModal(false)} className="text-white/40 hover:text-white px-2 py-1 rounded-md hover:bg-white/10">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-2">
+                {isGeneratingFollowUps ? (
+                  <div className="flex flex-col items-center justify-center py-10 space-y-3">
+                     <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+                     <p className="text-sm text-white/50">Generating curated questions...</p>
+                  </div>
+                ) : (
+                  followUpQuestions.map((q, i) => (
+                     <button
+                        key={i}
+                        onClick={() => {
+                           setShowFollowUpModal(false);
+                           handleSendMessage(q);
+                        }}
+                        className="w-full text-left bg-white/5 hover:bg-white/10 border border-white/5 p-3 rounded-xl text-sm text-white/80 transition-all font-medium hover:border-purple-500/30 line-clamp-2"
+                     >
+                        {q}
+                     </button>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

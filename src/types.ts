@@ -13,6 +13,10 @@ export interface Chapter {
   summary: string;
   content: string;
   isGenerating?: boolean;
+  parentId?: string | null;
+  sortOrder?: number;
+  type?: 'part' | 'chapter' | 'topic';
+  children?: Chapter[];
 }
 
 export interface Document {

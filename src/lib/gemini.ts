@@ -338,7 +338,57 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
   }
 }
 
-export async function generateActionTool(chapterContent: string, toolType: 'quiz' | 'glossary' | 'brief') {
+export async function generateDocumentHierarchy(content: string, retries = 3): Promise<any> {
+  const prompt = `
+You are an expert textbook editor processing a raw document dump.
+Analyze the following text and automatically generate a nested hierarchical structure (Parts -> Chapters -> Topics) for the document.
+The output MUST be a valid JSON matching this structure exactly:
+{
+  "parts": [
+    {
+      "title": "Part 1: Example Part",
+      "chapters": [
+        {
+          "title": "Chapter 1 – Example Chapter",
+          "topics": [
+            { "title": "Topic 1A: Example Topic", "content": "The actual full content extracted and summarized from the raw text for this topic...", "summary": "A short summary" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+DO NOT skip content. Topics hold the actual content text. Ensure all important material from the source text is represented in the topics.
+If the text is too short for parts, you can just return chapters, or if even shorter, just topics. But always maintain the same JSON arrays if you use them.
+
+Source Text:
+${content.substring(0, 35000)}
+  `.trim();
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const nvidiaResponse = await callNvidiaFallback(prompt);
+      const parsed = JSON.parse(nvidiaResponse);
+      return parsed;
+    } catch (error: any) {
+      console.warn(`Attempt ${attempt + 1} failed for hierarchy generation:`, error);
+      if (attempt === retries - 1) {
+        if (error instanceof ApiRateLimitError) throw error;
+        throw new Error(cleanErrorMessage(error));
+      }
+      
+      let delay = Math.pow(2, attempt) * 4000;
+      if (error instanceof ApiRateLimitError) {
+        delay = Math.max(delay, error.retryAfterMs);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+export async function generateActionTool(chapterContent: string, toolType: 'quiz' | 'glossary' | 'brief' | 'followup') {
   let promptText = "";
   let jsonFormatInstructions = "";
 
@@ -351,6 +401,9 @@ export async function generateActionTool(chapterContent: string, toolType: 'quiz
   } else if (toolType === 'brief') {
     promptText = "Generate an executive briefing from this chapter. It must include action items, key arguments, and a short memo-style summary.";
     jsonFormatInstructions = "{ 'summaryMemo': '...', 'actionItems': ['...'], 'keyArguments': ['...'] }";
+  } else if (toolType === 'followup') {
+    promptText = "Generate exactly 10-12 strictly aligned follow-up questions to explore the chapter content further.";
+    jsonFormatInstructions = "{ 'questions': ['Question 1...', 'Question 2...'] }";
   }
 
   const prompt = `
