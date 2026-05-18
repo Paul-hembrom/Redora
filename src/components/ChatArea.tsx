@@ -342,14 +342,14 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#050505] relative w-full max-w-full">
-      <div className="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10">
-        <div className="min-w-0">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between px-4 md:px-8 py-3 lg:py-0 lg:h-16 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10 gap-3 border-b border-white/5">
+        <div className="min-w-0 shrink-0">
           <h2 className="text-sm font-display font-semibold text-white truncate">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full lg:w-auto pb-1 lg:pb-0">
           {onNavigateChapter && (
-            <div className="flex items-center bg-black/40 rounded-lg border border-white/5 mr-2 overflow-hidden">
+            <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 overflow-hidden">
               <button 
                 onClick={() => onNavigateChapter('prev')}
                 disabled={!hasPrevChapter}
@@ -369,24 +369,24 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
               </button>
             </div>
           )}
-          <div className="hidden lg:flex items-center gap-1.5 mr-4 bg-black/40 p-1 rounded-lg border border-white/5">
+          <div className="flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5">
             <button 
               onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
-              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5", activeTab === 'video' ? 'bg-cyan-500/20 text-cyan-400' : 'text-white/60 hover:text-cyan-400 hover:bg-white/5')}
+              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-cyan-400' : 'text-white/60 hover:text-cyan-400 hover:bg-white/5')}
               title="Toggle Video Lesson Pipeline"
             >
               <Film className="w-3.5 h-3.5" /> Pipeline
             </button>
-            <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Find educational videos">
+            <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
             </button>
-            <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Generate practice quiz">
+            <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
               <Target className="w-3.5 h-3.5" /> Quiz
             </button>
-            <button onClick={() => handleGenerateAction('glossary')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-emerald-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Extract key terms">
+            <button onClick={() => handleGenerateAction('glossary')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-emerald-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Extract key terms">
               <BookA className="w-3.5 h-3.5" /> Glossary
             </button>
-            <button onClick={() => handleGenerateAction('brief')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-amber-400 hover:bg-white/5 transition-colors flex items-center gap-1.5" title="Get an executive briefing">
+            <button onClick={() => handleGenerateAction('brief')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-amber-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get an executive briefing">
               <Zap className="w-3.5 h-3.5" /> Briefing
             </button>
           </div>
