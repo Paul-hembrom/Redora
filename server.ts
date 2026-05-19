@@ -76,6 +76,7 @@ async function checkUsageAndLimits(userId: string, type: 'document' | 'video' | 
 // --- Gateway Token Exchange Route ---
 app.get('/auth/token-exchange', async (req, res) => {
   const token = req.query.token as string;
+  const role = req.query.role as string;
   if (!token) {
     return res.status(400).send('Missing token');
   }
@@ -102,6 +103,25 @@ app.get('/auth/token-exchange', async (req, res) => {
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
+    
+    if (role) {
+      res.cookie('sb-role', role, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+    }
+
+    if (decoded.org_id) {
+      res.cookie('sb-org-id', decoded.org_id, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+    }
+
     // Redirect to the home page (the user's workspace will load automatically)
     res.redirect('/');
   } catch (err) {
@@ -123,7 +143,35 @@ const authenticate = (req: any, res: any, next: any) => {
   }
 };
 
+const preventStudentModification = (req: any, res: any, next: any) => {
+  if (req.path.startsWith('/api/') && ['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    const role = req.cookies['sb-role'];
+    if (role === 'student') {
+      const allowedStudentEndpoints = [
+        '/api/auth/logout',
+        '/api/auth/login',
+        '/api/auth/signup',
+        '/api/retrieve-videos',
+        '/api/chats',
+        '/api/nvidia/chat/completions'
+      ];
+      
+      const isTopicsImagesOrLesson = req.path.match(/^\/api\/topics\/[a-zA-Z0-9_\-]+\/(images|start-lesson)$/);
+      
+      if (!allowedStudentEndpoints.includes(req.path) && !isTopicsImagesOrLesson) {
+        return res.status(403).json({ error: 'Students have view-only access.' });
+      }
+    }
+  }
+  next();
+};
+app.use(preventStudentModification);
+
 // --- Auth Routes ---
+app.get('/api/me/role', (req, res) => {
+  res.json({ role: req.cookies['sb-role'] || 'user' });
+});
+
 app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'All fields are required' });
@@ -169,7 +217,8 @@ app.get('/api/auth/me', authenticate, async (req: any, res) => {
     const users = await sql`SELECT id, name, email FROM users WHERE id = ${req.userId}`;
     const user = users[0];
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json({ user });
+    const role = req.cookies['sb-role'] || 'user';
+    res.json({ user: { ...user, role } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

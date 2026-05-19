@@ -6,6 +6,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAuth } from '../contexts/AuthContext';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -70,6 +71,7 @@ const ChapterNode = ({
   copiedSummaryId: string | null;
   handleCopySummary: (e: React.MouseEvent, id: string, summary: string) => void;
 }) => {
+  const { user } = useAuth();
   const [localExpanded, setLocalExpanded] = useState(level === 0 || chapter.type === 'part');
   const paddingLeft = `${level * 0.75 + 1}rem`;
   const hasChildren = chapter.children && chapter.children.length > 0;
@@ -125,7 +127,7 @@ const ChapterNode = ({
 
       {expandedSummaries.has(chapter.id) && (
         <div className="px-8 py-2 text-xs text-white/50 bg-black/10 border-l-2 border-white/5 ml-4 mr-4 mb-2 relative group/summary">
-          {editingSummaryId === chapter.id ? (
+          {editingSummaryId === chapter.id && user?.role !== 'student' ? (
             <div className="flex flex-col gap-2 relative z-10" onClick={(e) => e.stopPropagation()}>
               <textarea
                 value={editingSummaryDraft}
@@ -143,13 +145,15 @@ const ChapterNode = ({
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
-                <button
-                  onClick={(e) => startEditingSummary(e, chapter.id, chapter.summary)}
-                  className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
-                  title="Edit Summary"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                </button>
+                {user?.role !== 'student' && (
+                  <button
+                    onClick={(e) => startEditingSummary(e, chapter.id, chapter.summary)}
+                    className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
+                    title="Edit Summary"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                  </button>
+                )}
                 <button
                   onClick={(e) => handleCopySummary(e, chapter.id, chapter.summary)}
                   className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
@@ -193,6 +197,7 @@ const ChapterNode = ({
 };
 
 export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary }: Props) {
+  const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -414,61 +419,63 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
           </div>
         )}
 
-        <div className="flex gap-2 mb-4">
-          <div 
-            {...getRootProps()} 
-            className={cn(
-              "flex-1 border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden",
-              isDragActive ? "border-cyan-400 bg-cyan-400/10" : "border-white/20 hover:border-cyan-400/60 hover:bg-white/10 bg-white/[0.02]",
-              isUploading ? "opacity-50 cursor-not-allowed pointer-events-none" : "",
-              (uploadError || localError) && "border-red-500/50 bg-red-500/5"
-            )}
-          >
-            {isUploading && (
-              <div className="absolute inset-0 bg-cyan-500/10 animate-pulse" />
-            )}
-            {isUploading && progressPercent !== null && (
-              <div 
-                className="absolute bottom-0 left-0 h-1 bg-cyan-400 transition-all duration-300 ease-out" 
-                style={{ width: `${progressPercent}%` }} 
+        {user?.role !== 'student' && (
+          <div className="flex gap-2 mb-4">
+            <div 
+              {...getRootProps()} 
+              className={cn(
+                "flex-1 border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden",
+                isDragActive ? "border-cyan-400 bg-cyan-400/10" : "border-white/20 hover:border-cyan-400/60 hover:bg-white/10 bg-white/[0.02]",
+                isUploading ? "opacity-50 cursor-not-allowed pointer-events-none" : "",
+                (uploadError || localError) && "border-red-500/50 bg-red-500/5"
+              )}
+            >
+              {isUploading && (
+                <div className="absolute inset-0 bg-cyan-500/10 animate-pulse" />
+              )}
+              {isUploading && progressPercent !== null && (
+                <div 
+                  className="absolute bottom-0 left-0 h-1 bg-cyan-400 transition-all duration-300 ease-out" 
+                  style={{ width: `${progressPercent}%` }} 
+                />
+              )}
+              <input {...getInputProps()} />
+              <UploadCloud className={cn(
+                "w-10 h-10 mx-auto mb-3 transition-all duration-300 transform group-hover:-translate-y-1 group-hover:scale-110",
+                isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/50 group-hover:text-cyan-400"
+              )} />
+              <p className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">
+                {isUploading ? uploadProgress : 'Drag & Drop or Click to Browse'}
+              </p>
+              {!isUploading && (
+                <div className="flex flex-wrap justify-center gap-1.5 mt-4">
+                  {['PDF', 'EPUB', 'DOCX', 'TXT', 'IMG'].map(ext => (
+                    <span key={ext} className="px-2 py-1 rounded bg-white/10 text-white/70 text-[10px] font-bold tracking-wider">
+                      {ext}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <label className="flex flex-col items-center justify-center w-16 border border-white/10 rounded-xl cursor-pointer hover:bg-white/[0.02] hover:border-cyan-500/50 transition-all group">
+              <input 
+                type="file" 
+                accept="image/*" 
+                capture="environment" 
+                className="hidden" 
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    onUpload(Array.from(e.target.files), options);
+                  }
+                }}
+                disabled={isUploading}
               />
-            )}
-            <input {...getInputProps()} />
-            <UploadCloud className={cn(
-              "w-10 h-10 mx-auto mb-3 transition-all duration-300 transform group-hover:-translate-y-1 group-hover:scale-110",
-              isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/50 group-hover:text-cyan-400"
-            )} />
-            <p className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">
-              {isUploading ? uploadProgress : 'Drag & Drop or Click to Browse'}
-            </p>
-            {!isUploading && (
-              <div className="flex flex-wrap justify-center gap-1.5 mt-4">
-                {['PDF', 'EPUB', 'DOCX', 'TXT', 'IMG'].map(ext => (
-                  <span key={ext} className="px-2 py-1 rounded bg-white/10 text-white/70 text-[10px] font-bold tracking-wider">
-                    {ext}
-                  </span>
-                ))}
-              </div>
-            )}
+              <Camera className="w-5 h-5 text-white/50 group-hover:text-cyan-400 transition-colors mb-1" />
+              <span className="text-[10px] text-white/40 group-hover:text-white/60">Photo</span>
+            </label>
           </div>
-          
-          <label className="flex flex-col items-center justify-center w-16 border border-white/10 rounded-xl cursor-pointer hover:bg-white/[0.02] hover:border-cyan-500/50 transition-all group">
-            <input 
-              type="file" 
-              accept="image/*" 
-              capture="environment" 
-              className="hidden" 
-              onChange={(e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  onUpload(Array.from(e.target.files), options);
-                }
-              }}
-              disabled={isUploading}
-            />
-            <Camera className="w-5 h-5 text-white/50 group-hover:text-cyan-400 transition-colors mb-1" />
-            <span className="text-[10px] text-white/40 group-hover:text-white/60">Photo</span>
-          </label>
-        </div>
+        )}
         
         {(uploadError || localError) && (
           <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 font-medium">
@@ -575,13 +582,15 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                 </button>
-                <button 
-                  onClick={(e) => handleShare(e, doc)}
-                  className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}
-                  title={doc.isPublic ? "Copy share link" : "Share document"}
-                >
-                  {copiedShareId === doc.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Share2 className="w-3.5 h-3.5" />}
-                </button>
+                {user?.role !== 'student' && (
+                  <button 
+                    onClick={(e) => handleShare(e, doc)}
+                    className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}
+                    title={doc.isPublic ? "Copy share link" : "Share document"}
+                  >
+                    {copiedShareId === doc.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Share2 className="w-3.5 h-3.5" />}
+                  </button>
+                )}
                 <button 
                   onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
                   className="p-1.5 text-white/30 hover:text-cyan-400 hover:bg-white/5 rounded-md transition-all"
@@ -589,7 +598,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
-                {onClearChats && (
+                {user?.role !== 'student' && onClearChats && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onClearChats(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-yellow-400 hover:bg-white/5 rounded-md transition-all"
@@ -598,7 +607,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     <MessageSquare className="w-3.5 h-3.5" />
                   </button>
                 )}
-                {onDeleteDocument && (
+                {user?.role !== 'student' && onDeleteDocument && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
@@ -617,41 +626,43 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     {doc.tags?.map(tag => (
                       <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/60">
                         {tag}
-                        <button onClick={(e) => { e.stopPropagation(); handleRemoveTag(doc, tag); }} className="hover:text-red-400"><X className="w-3 h-3" /></button>
+                        {user?.role !== 'student' && <button onClick={(e) => { e.stopPropagation(); handleRemoveTag(doc, tag); }} className="hover:text-red-400"><X className="w-3 h-3" /></button>}
                       </span>
                     ))}
                   </div>
-                  {editingTagsFor === doc.id ? (
-                    <div className="flex flex-col gap-2 mt-1">
-                      <input 
-                        type="text" 
-                        value={newTagInput}
-                        onChange={e => setNewTagInput(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddTag(doc);
-                          } else if (e.key === 'Escape') {
-                            setEditingTagsFor(null);
-                          }
-                        }}
-                        placeholder="Type new tag..."
-                        className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-colors"
-                        autoFocus
-                      />
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={(e) => { e.stopPropagation(); handleAddTag(doc); }} className="flex-1 px-2 py-1 bg-cyan-500 hover:bg-cyan-400 text-black rounded text-[10px] font-semibold transition-colors">
-                          Add
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(null); }} className="flex-1 px-2 py-1 bg-white/10 hover:bg-white/20 text-white rounded text-[10px] font-medium transition-colors">
-                          Cancel
-                        </button>
+                  {user?.role !== 'student' && (
+                    editingTagsFor === doc.id ? (
+                      <div className="flex flex-col gap-2 mt-1">
+                        <input 
+                          type="text" 
+                          value={newTagInput}
+                          onChange={e => setNewTagInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddTag(doc);
+                            } else if (e.key === 'Escape') {
+                              setEditingTagsFor(null);
+                            }
+                          }}
+                          placeholder="Type new tag..."
+                          className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-colors"
+                          autoFocus
+                        />
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={(e) => { e.stopPropagation(); handleAddTag(doc); }} className="flex-1 px-2 py-1 bg-cyan-500 hover:bg-cyan-400 text-black rounded text-[10px] font-semibold transition-colors">
+                            Add
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(null); }} className="flex-1 px-2 py-1 bg-white/10 hover:bg-white/20 text-white rounded text-[10px] font-medium transition-colors">
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(doc.id); }} className="text-[10px] text-white/40 hover:text-cyan-400 flex items-center gap-1">
-                      <Tag className="w-3 h-3" /> Add Tag
-                    </button>
+                    ) : (
+                      <button onClick={(e) => { e.stopPropagation(); setEditingTagsFor(doc.id); }} className="text-[10px] text-white/40 hover:text-cyan-400 flex items-center gap-1">
+                        <Tag className="w-3 h-3" /> Add Tag
+                      </button>
+                    )
                   )}
                 </div>
                 

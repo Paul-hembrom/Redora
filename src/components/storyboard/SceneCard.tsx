@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { RefreshCw, PlayCircle, Image as ImageIcon } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Scene {
   id: string;
@@ -17,6 +18,7 @@ interface SceneCardProps {
 }
 
 export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
+  const { user } = useAuth();
   const [isRegenerating, setIsRegenerating] = useState(false);
 
   const handleRegenerate = async () => {
@@ -50,14 +52,16 @@ export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
       <div className="flex-1 p-5 flex flex-col">
         <div className="flex justify-between items-start mb-4">
           <h4 className="text-lg font-semibold text-white/90">Scene {scene.scene_number}</h4>
-          <button 
-            onClick={handleRegenerate}
-            disabled={isRegenerating}
-            className="text-xs flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-md text-white/70 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
-            {isRegenerating ? 'Generating...' : 'Regenerate'}
-          </button>
+          {user?.role !== 'student' && (
+            <button 
+              onClick={handleRegenerate}
+              disabled={isRegenerating}
+              className="text-xs flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-md text-white/70 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+              {isRegenerating ? 'Generating...' : 'Regenerate'}
+            </button>
+          )}
         </div>
 
         <div className="space-y-4 flex-1">

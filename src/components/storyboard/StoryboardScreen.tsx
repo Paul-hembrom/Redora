@@ -3,12 +3,14 @@ import { Film, PlayCircle, Plus } from 'lucide-react';
 import VideoPlayer from './VideoPlayer';
 import ProgressBar from './ProgressBar';
 import SceneCard from './SceneCard';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface StoryboardScreenProps {
   chapterId: string;
 }
 
 export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
+  const { user } = useAuth();
   const [job, setJob] = useState<any>(null);
   const [storyboard, setStoryboard] = useState<any>(null);
   const [scenes, setScenes] = useState<any[]>([]);
@@ -77,12 +79,19 @@ export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
         </div>
         <h3 className="text-xl font-bold text-white mb-2">Generate Video Lesson</h3>
         <p className="text-white/60 mb-8 max-w-md">Transform this chapter into a fully narrated video lesson with cinematic visuals and diagram animations.</p>
-        <button 
-          onClick={handleStartGeneration}
-          className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-cyan-900/50 flex items-center gap-2"
-        >
-          <PlayCircle className="w-5 h-5" /> Start Generation PIPELINE
-        </button>
+        
+        {user?.role === 'student' ? (
+          <div className="px-6 py-3 bg-white/5 text-white/50 rounded-lg text-sm border border-white/10">
+            Waiting for teacher to generate lesson...
+          </div>
+        ) : (
+          <button 
+            onClick={handleStartGeneration}
+            className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-cyan-900/50 flex items-center gap-2"
+          >
+            <PlayCircle className="w-5 h-5" /> Start Generation PIPELINE
+          </button>
+        )}
       </div>
     );
   }
