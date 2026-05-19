@@ -34,7 +34,8 @@ export interface ChatMessage {
   text: string;
   relationshipGraph?: { source: string; target: string; relation: string }[];
   followUps?: string[];
-  type?: 'text' | 'quiz' | 'glossary' | 'brief' | 'videos';
+  type?: 'text' | 'quiz' | 'glossary' | 'brief' | 'videos' | 'images';
   actionData?: any;
   recommended_videos?: any[];
+  images?: { url: string, thumbnail: string, alt: string, source: 'real' | 'generated' }[];
 }

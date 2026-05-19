@@ -10,6 +10,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
+import { ImageSearchButton } from './ImageSearchButton';
+import { ImageCard } from './ImageCard';
 
 import { useAuth } from '../contexts/AuthContext';
 
@@ -155,6 +157,68 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Failed to generate response.');
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleFetchImages = async () => {
+    if (isTyping) return;
+    
+    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: "Find educational images for this chapter." };
+    setMessages(prev => [...prev, userMsg]);
+    setIsTyping(true);
+    setError(null);
+
+    if (!chapter.id.startsWith('lib_')) {
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+      }).catch(console.error);
+    }
+
+    try {
+      const response = await fetch(`/api/topics/${chapter.id}/images`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: chapter.title,
+          summary: chapter.summary,
+          key_concepts: (chapter as any).key_concepts || [],
+          org_context: user?.name || 'General Education'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch images');
+      }
+
+      const data = await response.json();
+      
+      const aiMsg: ChatMessage = {
+        id: uuidv4(),
+        role: 'model',
+        text: 'Here are some helpful images and diagrams for this chapter.',
+        type: 'images',
+        images: data.images || []
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+      if (!chapter.id.startsWith('lib_')) {
+        fetch('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+        }).catch(console.error);
+      }
+
+    } catch (err: any) {
+      console.error(err);
+      setError('Could not find images. Please try again later.');
     } finally {
       setIsTyping(false);
     }
@@ -402,6 +466,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
             </button>
+            <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
             <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
               <Target className="w-3.5 h-3.5" /> Quiz
             </button>
@@ -544,6 +609,24 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                             <p className="text-xs text-white/70 italic line-clamp-3 flex-1">{video.reason}</p>
                           </div>
                         </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {msg.images && msg.images.length > 0 && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.3 }}
+                    className="mt-6 text-left"
+                  >
+                    <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2 mb-4">
+                      Images & Diagrams
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {msg.images.map((img, iIdx) => (
+                        <ImageCard key={iIdx} image={img} />
                       ))}
                     </div>
                   </motion.div>

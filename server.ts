@@ -18,8 +18,63 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
 
+// --- Freemium Usage Check Helper ---
+async function checkUsageAndLimits(userId: string, type: 'document' | 'video' | 'image') {
+  const subs = await sql`SELECT plan, credits_remaining FROM subscriptions WHERE user_id = ${userId}`;
+  const sub = subs[0];
+  const isFree = !sub || sub.plan === 'free';
+  const credits = sub?.credits_remaining || 0;
+
+  let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+  if (usageRows.length === 0) {
+    await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_today, image_searches_today, last_reset_date) VALUES (${userId}, 0, 0, 0, CURRENT_DATE)`;
+    usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+  }
+  const usage = usageRows[0];
+
+  const today = new Date().toISOString().split('T')[0];
+  const resetDate = new Date(usage.last_reset_date).toISOString().split('T')[0];
+  
+  if (today !== resetDate) {
+    const isNewMonth = new Date().getMonth() !== new Date(usage.last_reset_date).getMonth();
+    const booksReset = isNewMonth ? 0 : usage.books_uploaded_this_month;
+    await sql`UPDATE user_usage SET video_generations_today = 0, image_searches_today = 0, books_uploaded_this_month = ${booksReset}, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+    usage.video_generations_today = 0;
+    usage.image_searches_today = 0;
+    usage.books_uploaded_this_month = booksReset;
+  }
+
+  if (isFree) {
+    if (type === 'document' && usage.books_uploaded_this_month >= 4) {
+      throw new Error("Free plan limit reached. Upgrade to Pro to upload unlimited books.");
+    }
+    if (type === 'video' && usage.video_generations_today >= 1) {
+      throw new Error("Free plan limit reached. Upgrade to Pro for more video generations.");
+    }
+    if (type === 'image' && usage.image_searches_today >= 2) {
+      throw new Error("Free plan limit reached. Upgrade to Pro for more image searches.");
+    }
+  } else if (sub && sub.plan !== 'unlimited') {
+    if (credits <= 0) {
+      throw new Error("Out of credits! Please buy more credits to continue.");
+    }
+  }
+
+  if (type === 'document') {
+    await sql`UPDATE user_usage SET books_uploaded_this_month = books_uploaded_this_month + 1 WHERE user_id = ${userId}`;
+  } else if (type === 'video') {
+    await sql`UPDATE user_usage SET video_generations_today = video_generations_today + 1 WHERE user_id = ${userId}`;
+  } else if (type === 'image') {
+    await sql`UPDATE user_usage SET image_searches_today = image_searches_today + 1 WHERE user_id = ${userId}`;
+  }
+
+  if (!isFree && sub && sub.plan !== 'unlimited') {
+     await sql`UPDATE subscriptions SET credits_remaining = credits_remaining - 1 WHERE user_id = ${userId}`;
+  }
+}
+
 // --- Gateway Token Exchange Route ---
-app.get('/auth/token-exchange', (req, res) => {
+app.get('/auth/token-exchange', async (req, res) => {
   const token = req.query.token as string;
   if (!token) {
     return res.status(400).send('Missing token');
@@ -27,7 +82,19 @@ app.get('/auth/token-exchange', (req, res) => {
 
   try {
     // Verify the token using the existing JWT_SECRET
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod') as any;
+    
+    // School Lock Check
+    if (decoded.org_id) {
+       const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${decoded.org_id}`;
+       if (orgs.length > 0 && orgs[0].school_id) {
+          const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${orgs[0].school_id}`;
+          if (subs.length > 0 && subs[0].status === 'locked') {
+             return res.status(403).send('School account suspended');
+          }
+       }
+    }
+
     // If verification succeeds, set the cookie exactly as your existing login does
     res.cookie('token', token, {
       httpOnly: true,
@@ -183,6 +250,8 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     const orgId = org_id || req.query.org_id;
     const userRole = await getUserRoleInOrg(req.userId, orgId);
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
+    await checkUsageAndLimits(req.userId, 'document');
 
     await sql.begin(async (tx: any) => {
       await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${name}, ${tags ? JSON.stringify(tags) : '[]'})`;
@@ -528,6 +597,8 @@ import { GoogleGenAI } from '@google/genai';
 
 app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
   try {
+    await checkUsageAndLimits(req.userId, 'video');
+
     const { title, summary, subject, grade, keyConcepts, class_context } = req.body;
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
     const conceptsStr = Array.isArray(keyConcepts) ? keyConcepts.join(', ') : '';
@@ -619,6 +690,81 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
     parsedData.recommended_videos = groundedVideos;
 
     res.json(parsedData);
+  } catch (err: any) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
+  try {
+    await checkUsageAndLimits(req.userId, 'image');
+
+    const { org_context, title, key_concepts, summary } = req.body;
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    
+    const conceptsStr = Array.isArray(key_concepts) ? key_concepts.join(', ') : '';
+    
+    const prompt = `Generate a concise image search query for an educational diagram about: ${org_context || ''} - ${title}. Key concepts: ${conceptsStr}. Summary: ${summary}. The image should be suitable for the grade level. Return only the query string.`;
+    
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt
+    });
+    
+    const search_query = response.text?.trim() || title;
+
+    const images: any[] = [];
+    const pexelsKey = process.env.IMAGE_SEARCH_API_KEY;
+
+    if (pexelsKey) {
+      try {
+        const pexelsRes = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(search_query)}&per_page=6`, {
+          headers: { Authorization: pexelsKey }
+        });
+        if (pexelsRes.ok) {
+          const data = await pexelsRes.json();
+          if (data.photos && data.photos.length > 0) {
+            data.photos.forEach((photo: any) => {
+              images.push({
+                url: photo.src.original,
+                thumbnail: photo.src.medium,
+                alt: photo.alt || "Educational diagram",
+                source: "real"
+              });
+            });
+          }
+        }
+      } catch (err) {
+         console.error("Pexels fetch error", err);
+      }
+    }
+
+    if (images.length < 2) {
+      const svgPrompt = `Generate a visually appealing, colorful SVG diagram illustrating the concept: ${title}. Key concepts: ${conceptsStr}. Return ONLY valid SVG code. No markdown. No HTML around it. Make sure it uses <svg viewBox="0 0 500 400" xmlns="http://www.w3.org/2000/svg">`;
+      try {
+        const svgRes = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: svgPrompt
+        });
+        let svgCode = svgRes.text?.trim() || "";
+        svgCode = svgCode.replace(/^```(xml|svg|html)?/i, '').replace(/```$/i, '').trim();
+        if (svgCode.startsWith('<svg')) {
+          const base64Svg = "data:image/svg+xml;base64," + Buffer.from(svgCode).toString('base64');
+          images.push({
+            url: base64Svg,
+            thumbnail: base64Svg,
+            alt: `Generated diagram for ${title}`,
+            source: "generated"
+          });
+        }
+      } catch (err) {
+        console.error("SVG generation error", err);
+      }
+    }
+
+    res.json({ images });
+
   } catch (err: any) {
     console.error(err);
     res.status(500).json({ error: err.message });
