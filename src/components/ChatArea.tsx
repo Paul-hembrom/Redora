@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -12,6 +12,7 @@ import { generateChatResponse, generateActionTool } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
 import { ImageCard } from './ImageCard';
+import { InteractiveLesson } from './InteractiveLesson';
 
 import { useAuth } from '../contexts/AuthContext';
 
@@ -73,6 +74,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
   const [isGeneratingFollowUps, setIsGeneratingFollowUps] = useState(false);
+  const [showInteractiveLesson, setShowInteractiveLesson] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -457,8 +459,15 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           )}
           <div className="flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5">
             <button 
+              onClick={() => setShowInteractiveLesson(true)}
+              className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+              title="Start Interactive Lesson"
+            >
+              <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson
+            </button>
+            <button 
               onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
-              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-cyan-400' : 'text-white/60 hover:text-cyan-400 hover:bg-white/5')}
+              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
               title="Toggle Video Lesson Pipeline"
             >
               <Film className="w-3.5 h-3.5" /> Pipeline
@@ -781,6 +790,16 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showInteractiveLesson && (
+          <InteractiveLesson 
+            topicId={chapter.id} 
+            topicTitle={chapter.title} 
+            onClose={() => setShowInteractiveLesson(false)} 
+          />
         )}
       </AnimatePresence>
     </div>

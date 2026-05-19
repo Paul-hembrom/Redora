@@ -771,6 +771,25 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
   }
 });
 
+import { createInteractiveLesson } from './server/lessonOrchestrator';
+
+// --- Interactive Lesson Route ---
+app.post('/api/topics/:id/start-lesson', authenticate, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { orgId } = req.body;
+    
+    // Default orgId if missing, or we can use a dummy
+    const actualOrgId = orgId || req.userId || 'default_org';
+
+    const steps = await createInteractiveLesson(id, actualOrgId);
+    res.json({ steps });
+  } catch (err: any) {
+    console.error("Error starting lesson:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Chat Routes ---
 app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
