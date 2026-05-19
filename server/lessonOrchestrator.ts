@@ -1,3 +1,4 @@
+import { GoogleGenAI, Schema, Type } from "@google/genai";
 import sql from "./db.js";
 import { synthesizeSpeech } from "./synthesizeSpeech.js";
 import { v4 as uuidv4 } from "uuid";
@@ -11,7 +12,7 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
     LIMIT 1
   `;
 
-  let steps = [];
+  let steps: any[] = [];
 
   if (storyboards.length > 0) {
     const storyboardId = storyboards[0].id;
@@ -50,24 +51,6 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
           duration: scene.estimated_duration_seconds || 10
         });
       }
-
-      // Automatically synthesize speech if missing
-      const lastStep = steps[steps.length - 1];
-      if (lastStep && lastStep.narrationText && !lastStep.audioUrl) {
-        try {
-          // Wrap with simple emotive tags
-          const textToSpeak = "[enthusiastic] " + lastStep.narrationText;
-          const url = await synthesizeSpeech(textToSpeak);
-          lastStep.audioUrl = url;
-          // Optimistically cache it in DB for future plays
-          if (scene.id) {
-            await sql`INSERT INTO narration_assets (id, org_id, scene_id, asset_url, voice_name, duration_ms) 
-                      VALUES (${uuidv4()}, ${orgId}, ${scene.id}, ${url}, 'Kore', 10000)`;
-          }
-        } catch (e) {
-          console.error("TTS generation failed:", e);
-        }
-      }
     }
   }
 
@@ -80,18 +63,14 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
     
     // First step: Title & Summary
     const step1Id = uuidv4();
-    const introText = "[enthusiastic] Welcome to today's lesson on " + chapter.title + ". [pause] " + chapter.summary;
-    let audioUrl1 = null;
-    try {
-      audioUrl1 = await synthesizeSpeech(introText);
-    } catch(e) {}
+    const introText = "Welcome to today's lesson on " + chapter.title + ". " + chapter.summary;
     
     steps.push({
       id: step1Id,
       type: 'image',
       caption: chapter.title,
       narrationText: introText,
-      audioUrl: audioUrl1,
+      audioUrl: null,
       duration: 15
     });
 
@@ -110,5 +89,91 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
     });
   }
 
+  // Now, rewrite narration using Gemini for Maya persona
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (apiKey && steps.length > 0) {
+     const ai = new GoogleGenAI({ apiKey });
+     const prompt = `You are "Maya", a friendly, witty science teacher for students. Your personality:
+- Warm and encouraging, like a favorite teacher.
+- Occasionally sprinkle ONE light, topic-relevant pun or joke between major concept explanations (not during complex definitions).
+- Jokes must be age-appropriate, curriculum-relevant, and never distracting.
+- Example: "Mitochondria is the powerhouse of the cell... and if I had a rupee for every time I said that, I'd have enough to buy a real mitochondrion! [short pause] Okay, back to the lesson."
+- When students struggle, say something reassuring.
+- Your tone is conversational, not lecture-style.
+- Use the model's audio tags to match the emotion in each narration segment: Jokes: [laughing] or [playful] before punchline. Encouraging: [enthusiasm] + [warm]. Pauses: [short pause]. Complex: [calm] + [slow].
+
+Here is the lesson plan draft (steps):
+${JSON.stringify(steps.map(s => ({ id: s.id, type: s.type, narrationText: s.narrationText })))}
+
+Rewrite 'narrationText' for each step introducing your personality, occasionally adding a topic-relevant joke, adjusting emotions, and injecting audio tags.
+For each step, return exactly:
+- id: string
+- narrationText: string
+- emotion: string (one of 'neutral', 'smiling', 'thinking', 'excited', 'curious')
+- humor: object ({setup: string, punchline: string, emotion: string}) or null if no humor in this step.`;
+
+     try {
+       const response = await ai.models.generateContent({
+         model: "gemini-3.1-flash-preview",
+         contents: prompt,
+         config: {
+           responseMimeType: "application/json",
+           responseSchema: {
+             type: Type.ARRAY,
+             items: {
+               type: Type.OBJECT,
+               properties: {
+                 id: { type: Type.STRING },
+                 narrationText: { type: Type.STRING },
+                 emotion: { type: Type.STRING },
+                 humor: { 
+                   type: Type.OBJECT, 
+                   nullable: true,
+                   properties: {
+                     setup: { type: Type.STRING },
+                     punchline: { type: Type.STRING },
+                     emotion: { type: Type.STRING }
+                   }
+                 }
+               },
+               required: ["id", "narrationText", "emotion"]
+             }
+           }
+         }
+       });
+       
+       const parsedParts = JSON.parse(response.text);
+       
+       for (const part of parsedParts) {
+         const match = steps.find(s => s.id === part.id);
+         if (match) {
+           match.narrationText = part.narrationText;
+           match.emotion = part.emotion;
+           match.humor = part.humor;
+         }
+       }
+     } catch(e) {
+       console.error("Failed to enrich Maya personality:", e);
+     }
+  }
+
+  // Synthesize speech for any step that needs it (some steps might still have old audioUrls - we'll ignore those if we want to overwrite, but actually we should overwrite to get Maya)
+  for (const step of steps) {
+    if (step.narrationText) {
+      try {
+        const url = await synthesizeSpeech(step.narrationText);
+        step.audioUrl = url;
+        // Optionally save to DB here if desired.
+      } catch(e) {
+         console.error("TTS generation failed:", e);
+      }
+    } else if (step.type === 'question') {
+      try {
+        step.audioUrl = await synthesizeSpeech("[curious] " + step.text);
+      } catch (e) {}
+    }
+  }
+
   return steps;
 }
+

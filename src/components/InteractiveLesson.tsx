@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Play, Pause, MessageCircleQuestion, Send, Loader2, Volume2, Mic } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { v4 as uuidv4 } from 'uuid';
+import { TeacherAvatar } from './TeacherAvatar';
 
 interface LessonStep {
   id: string;
@@ -13,6 +14,8 @@ interface LessonStep {
   caption?: string;
   text?: string; // For question type
   duration?: number;
+  emotion?: 'neutral' | 'smiling' | 'thinking' | 'excited' | 'curious';
+  humor?: { setup: string, punchline: string, emotion: string } | null;
 }
 
 interface InteractiveLessonProps {
@@ -32,8 +35,11 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   const [chatInput, setChatInput] = useState('');
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
+  const [chatAudioPlaying, setChatAudioPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const chatAudioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -106,6 +112,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   const handleAskQuestionToggle = () => {
     if (isAsking) {
       setIsAsking(false);
+      if (chatAudioRef.current) chatAudioRef.current.pause();
       playCurrentStep();
     } else {
       pauseCurrentStep();
@@ -162,6 +169,24 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
        });
 
        setIsChatLoading(false);
+       
+       // Play TTS for AI response
+       try {
+         const ttsRes = await fetch(`/api/tts`, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ text: aiResult.response })
+         });
+         if (ttsRes.ok) {
+           const ttsData = await ttsRes.json();
+           if (ttsData.audioUrl && chatAudioRef.current) {
+             chatAudioRef.current.src = ttsData.audioUrl;
+             chatAudioRef.current.play().catch(e => console.error("Chat TTS play failed", e));
+           }
+         }
+       } catch (err) {
+         console.error("Failed to fetch TTS for Chat AI", err);
+       }
     } catch(err) {
        console.error(err);
        setIsChatLoading(false);
@@ -186,6 +211,13 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
       <audio 
         ref={audioRef} 
         onEnded={handleAudioEnded}
+        onPlay={() => setIsAudioPlaying(true)}
+        onPause={() => setIsAudioPlaying(false)}
+      />
+      <audio 
+        ref={chatAudioRef}
+        onPlay={() => setChatAudioPlaying(true)}
+        onPause={() => setChatAudioPlaying(false)}
       />
       
       {/* Top Header */}
@@ -194,6 +226,35 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
          <button onClick={onClose} className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition">
            <X className="w-5 h-5"/>
          </button>
+      </div>
+
+      {/* Teacher Avatar */}
+      <div className="absolute top-20 right-6 z-40 pointer-events-none flex flex-col items-center">
+        {currentStep?.humor && !isAsking && (
+           <motion.div 
+             initial={{ opacity: 0, scale: 0 }}
+             animate={{ opacity: 1, scale: 1 }}
+             exit={{ opacity: 0 }}
+             className="text-2xl mb-2"
+           >
+             ✨🎉
+           </motion.div>
+        )}
+        <TeacherAvatar 
+          emotion={isAsking ? (chatAudioPlaying ? 'smiling' : 'curious') : (currentStep?.emotion || 'neutral')} 
+          isSpeaking={isAsking ? chatAudioPlaying : isAudioPlaying} 
+          className="w-32 h-32 md:w-40 md:h-40 pointer-events-auto"
+        />
+        {currentStep?.humor && !isAsking && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-2 bg-cyan-900/80 backdrop-blur-md rounded-xl p-3 border border-cyan-500/50 shadow-xl max-w-[200px]"
+          >
+            <p className="text-white text-xs font-semibold">Maya</p>
+            <p className="text-white/80 text-[10px] mt-1 italic">{currentStep.humor.setup}</p>
+          </motion.div>
+        )}
       </div>
 
       {/* Progress Bar */}

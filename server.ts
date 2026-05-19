@@ -820,6 +820,22 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
   }
 });
 
+import { synthesizeSpeech } from './server/synthesizeSpeech.js';
+
+app.post('/api/tts', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: "missing text" });
+    }
+    const audioUrl = await synthesizeSpeech(text);
+    res.json({ audioUrl });
+  } catch (err: any) {
+    console.error("TTS generation failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 import { createInteractiveLesson } from './server/lessonOrchestrator.js';
 
 // --- Interactive Lesson Route ---
@@ -986,6 +1002,8 @@ async function startServer() {
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
   // --- Vite Middleware ---
+  app.use(express.static(path.join(process.cwd(), 'public')));
+  
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

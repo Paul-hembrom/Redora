@@ -16,6 +16,7 @@ export async function synthesizeSpeech(text: string): Promise<string> {
     model: "gemini-3.1-flash-tts-preview",
     contents: [{ parts: [{ text }] }],
     config: {
+      systemInstruction: "A friendly, approachable science teacher with a warm smile in their voice, occasionally playful when making jokes, always patient and clear during explanations.",
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: {
