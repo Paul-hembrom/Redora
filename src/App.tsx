@@ -312,6 +312,26 @@ export default function App() {
     }
   };
 
+  const flattenChapters = (chapters: any[] = []): any[] => {
+    let result: any[] = [];
+    chapters.forEach(ch => {
+      result.push(ch);
+      if (ch.children) result = result.concat(flattenChapters(ch.children));
+    });
+    return result;
+  };
+
+  const updateChapterInTree = (chapters: any[], id: string, updater: (ch: any) => any): any[] => {
+    return chapters.map(ch => {
+      if (ch.id === id) {
+        return updater(ch);
+      } else if (ch.children) {
+        return { ...ch, children: updateChapterInTree(ch.children, id, updater) };
+      }
+      return ch;
+    });
+  };
+
   const handleUpdateSummary = async (chapterId: string, summary: string) => {
     try {
       const res = await fetch(`/api/chapters/${chapterId}`, {
@@ -321,9 +341,10 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Failed to update summary');
       setDocuments(prev => prev.map(d => {
-        const hasChap = d.chapters.some(c => c.id === chapterId);
+        const flat = flattenChapters(d.chapters);
+        const hasChap = flat.some(c => c.id === chapterId);
         if (!hasChap) return d;
-        const nextChap = d.chapters.map(c => c.id === chapterId ? { ...c, summary } : c);
+        const nextChap = updateChapterInTree(d.chapters, chapterId, ch => ({ ...ch, summary }));
         return { ...d, chapters: nextChap };
       }));
     } catch (err) {
@@ -332,7 +353,7 @@ export default function App() {
   };
 
   const selectedDoc = documents.find(d => d.id === selectedDocId);
-  const selectedChapter = selectedDoc?.chapters.find(c => c.id === selectedChapterId);
+  const selectedChapter = selectedDoc ? flattenChapters(selectedDoc.chapters).find(c => c.id === selectedChapterId) : undefined;
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#050505] text-white font-sans overflow-hidden">
@@ -428,7 +449,7 @@ export default function App() {
             if (isLibraryChatActive && librarySelection.size > 1) {
               const selectedDocs = documents.filter(d => librarySelection.has(d.id));
               const sortedIds = selectedDocs.map(d => d.id).sort();
-              const contentStr = selectedDocs.map(d => `--- DOCUMENT: ${d.name} ---\n\n` + d.chapters.map(c => `Chapter ${c.chapterNumber} - ${c.title}:\n${c.content}`).join('\n\n')).join('\n\n\n');
+              const contentStr = selectedDocs.map(d => `--- DOCUMENT: ${d.name} ---\n\n` + flattenChapters(d.chapters).map((c: any) => `${c.title}:\n${c.content}`).join('\n\n')).join('\n\n\n');
               
               activeChapter = {
                 id: `lib_${sortedIds.join('_')}`,
@@ -448,16 +469,16 @@ export default function App() {
             let onNavigateChapter = undefined;
 
             if (selectedDoc && activeChapter && activeChapter.id !== `lib_${Array.from(librarySelection).sort().join('_')}`) {
-              const chapters = selectedDoc.chapters;
-              const currentIndex = chapters.findIndex(c => c.id === activeChapter.id);
+              const flatChaptersList = flattenChapters(selectedDoc.chapters);
+              const currentIndex = flatChaptersList.findIndex(c => c.id === activeChapter.id);
               if (currentIndex > 0) hasPrevChapter = true;
-              if (currentIndex >= 0 && currentIndex < chapters.length - 1) hasNextChapter = true;
+              if (currentIndex >= 0 && currentIndex < flatChaptersList.length - 1) hasNextChapter = true;
               
               onNavigateChapter = (direction: 'prev' | 'next') => {
                 if (direction === 'prev' && hasPrevChapter) {
-                  setSelectedChapterId(chapters[currentIndex - 1].id);
+                  setSelectedChapterId(flatChaptersList[currentIndex - 1].id);
                 } else if (direction === 'next' && hasNextChapter) {
-                  setSelectedChapterId(chapters[currentIndex + 1].id);
+                  setSelectedChapterId(flatChaptersList[currentIndex + 1].id);
                 }
               };
             }

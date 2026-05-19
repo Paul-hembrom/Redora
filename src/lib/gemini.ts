@@ -347,11 +347,13 @@ The output MUST be a valid JSON matching this structure exactly:
   "parts": [
     {
       "title": "Part 1: Example Part",
+      "summary": "Brief summary of what this entire part covers.",
       "chapters": [
         {
           "title": "Chapter 1 – Example Chapter",
+          "summary": "Brief summary of this chapter.",
           "topics": [
-            { "title": "Topic 1A: Example Topic", "content": "The actual full content extracted and summarized from the raw text for this topic...", "summary": "A short summary" }
+            { "title": "Topic 1A: Example Topic", "content": "The actual full textual content extracted directly from the raw text for this topic.", "summary": "A short summary of this specific topic." }
           ]
         }
       ]
@@ -360,6 +362,7 @@ The output MUST be a valid JSON matching this structure exactly:
 }
 
 DO NOT skip content. Topics hold the actual content text. Ensure all important material from the source text is represented in the topics.
+Every single part, chapter, and topic MUST have a "summary".
 If the text is too short for parts, you can just return chapters, or if even shorter, just topics. But always maintain the same JSON arrays if you use them.
 
 Source Text:

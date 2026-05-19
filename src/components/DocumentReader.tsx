@@ -18,6 +18,22 @@ export default function DocumentReader({ document }: Props) {
     }
   };
 
+  const flattenChapters = (chapters: any[] = []): any[] => {
+    const list: any[] = [];
+    const traverse = (nodes: any[]) => {
+      nodes.forEach(node => {
+        list.push(node);
+        if (node.children && node.children.length > 0) {
+          traverse(node.children);
+        }
+      });
+    };
+    traverse(chapters);
+    return list;
+  };
+
+  const flatChapters = flattenChapters(document.chapters);
+
   return (
     <div className="flex-1 flex flex-col md:flex-row h-full w-full bg-[#050505]">
       {/* Table of Contents - Sidebar */}
@@ -26,14 +42,14 @@ export default function DocumentReader({ document }: Props) {
           <BookOpen className="w-4 h-4" /> Table of Contents
         </h3>
         <ul className="space-y-2">
-          {document.chapters.map(chapter => (
-            <li key={chapter.id}>
+          {flatChapters.map((chapter) => (
+            <li key={chapter.id} style={{ paddingLeft: chapter.type === 'topic' ? '1.5rem' : chapter.type === 'chapter' ? '0.75rem' : '0' }}>
               <button
                 onClick={() => scrollToChapter(chapter.id)}
                 className="text-left text-sm text-cyan-400 hover:text-cyan-300 w-full truncate transition-colors"
                 title={chapter.title}
               >
-                {chapter.chapterNumber}. {chapter.title}
+                {chapter.title}
               </button>
             </li>
           ))}
@@ -47,9 +63,9 @@ export default function DocumentReader({ document }: Props) {
             <h1 className="text-3xl font-display font-bold text-white mb-4">{document.name}</h1>
           </div>
           
-          {document.chapters.map((chapter, index) => {
-            const prevChapter = index > 0 ? document.chapters[index - 1] : null;
-            const nextChapter = index < document.chapters.length - 1 ? document.chapters[index + 1] : null;
+          {flatChapters.map((chapter, index) => {
+            const prevChapter = index > 0 ? flatChapters[index - 1] : null;
+            const nextChapter = index < flatChapters.length - 1 ? flatChapters[index + 1] : null;
 
             return (
               <div 
@@ -57,7 +73,9 @@ export default function DocumentReader({ document }: Props) {
                 ref={el => { if (el) chapterRefs.current[chapter.id] = el; }}
                 className="scroll-mt-12 group"
               >
-                <h2 className="text-2xl font-semibold text-white mb-6">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
+                <h2 className="text-2xl font-semibold text-white mb-6">
+                  {chapter.title}
+                </h2>
                 {chapter.summary && (
                   <div className="bg-white/5 border-l-4 border-cyan-500/50 p-4 mb-8 rounded-r-lg">
                     <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400 mb-2">Summary</h4>
