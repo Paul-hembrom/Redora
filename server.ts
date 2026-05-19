@@ -820,7 +820,7 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
   }
 });
 
-import { createInteractiveLesson } from './server/lessonOrchestrator';
+import { createInteractiveLesson } from './server/lessonOrchestrator.js';
 
 // --- Interactive Lesson Route ---
 app.post('/api/topics/:id/start-lesson', authenticate, async (req: any, res) => {

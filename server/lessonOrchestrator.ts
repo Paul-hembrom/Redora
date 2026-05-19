@@ -1,5 +1,5 @@
-import sql from "./db";
-import { synthesizeSpeech } from "./synthesizeSpeech";
+import sql from "./db.js";
+import { synthesizeSpeech } from "./synthesizeSpeech.js";
 import { v4 as uuidv4 } from "uuid";
 
 export async function createInteractiveLesson(topicId: string, orgId: string) {
