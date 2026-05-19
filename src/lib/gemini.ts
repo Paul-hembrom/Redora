@@ -347,13 +347,13 @@ The output MUST be a valid JSON matching this structure exactly:
   "parts": [
     {
       "title": "Part 1: Example Part",
-      "summary": "Brief summary of what this entire part covers.",
+      "summary": "A highly detailed, comprehensive paragraph summarizing the entire part (at least 3-4 sentences).",
       "chapters": [
         {
           "title": "Chapter 1 – Example Chapter",
-          "summary": "Brief summary of this chapter.",
+          "summary": "A highly detailed, thorough paragraph summarizing the chapter, capturing main ideas, entities, and arguments.",
           "topics": [
-            { "title": "Topic 1A: Example Topic", "content": "The actual full textual content extracted directly from the raw text for this topic.", "summary": "A short summary of this specific topic." }
+            { "title": "Topic 1A: Example Topic", "content": "The actual full original textual content for this topic. Do not omit any sentences. Copy it exactly.", "summary": "A very detailed summary of this specific topic in multiple sentences." }
           ]
         }
       ]
@@ -361,9 +361,11 @@ The output MUST be a valid JSON matching this structure exactly:
   ]
 }
 
-DO NOT skip content. Topics hold the actual content text. Ensure all important material from the source text is represented in the topics.
-Every single part, chapter, and topic MUST have a "summary".
-If the text is too short for parts, you can just return chapters, or if even shorter, just topics. But always maintain the same JSON arrays if you use them.
+CRITICAL RULES:
+1. "content" fields MUST contain the actual full, verbatim text from the source without skipping, truncating, or summarizing.
+2. "summary" fields MUST be comprehensive, high-quality, long summaries (multiple sentences emphasizing key learning points).
+3. If the text is short, you can just return chapters, or just topics. Maintain the JSON array structure.
+4. Ensure absolutely ZERO content from the source text is lost. Every paragraph must end up in a topic's "content" field.
 
 Source Text:
 ${content.substring(0, 35000)}

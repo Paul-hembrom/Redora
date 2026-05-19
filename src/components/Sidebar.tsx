@@ -78,9 +78,7 @@ const ChapterNode = ({
     <div className="flex flex-col">
       <button
         onClick={() => {
-          if (hasChildren) {
-            setLocalExpanded(!localExpanded);
-          } else if (!chapter.isGenerating) {
+          if (!chapter.isGenerating) {
             onSelectChapter(docId, chapter.id);
           }
         }}
@@ -97,7 +95,12 @@ const ChapterNode = ({
       >
         <div className="flex items-center gap-2 truncate">
           {hasChildren ? (
-            localExpanded ? <ChevronDown className="w-3.5 h-3.5 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+            <span 
+              onClick={(e) => { e.stopPropagation(); setLocalExpanded(!localExpanded); }}
+              className="p-1 hover:bg-white/10 rounded cursor-pointer shrink-0"
+            >
+              {localExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            </span>
           ) : (
             <span className={cn(
               "w-1.5 h-1.5 rounded-full shrink-0 ml-1",

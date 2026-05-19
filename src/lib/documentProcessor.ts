@@ -111,19 +111,14 @@ export async function extractTextFromFile(file: File, onProgress?: (msg: string)
 }
 
 export function splitIntoChapters(text: string): string[] {
+  const maxChunkSize = 25000;
   const chapterRegex = /\n(?=(?:Chapter|Section|Part)\s+[0-9IVX]+)/gi;
-  const splits = text.split(chapterRegex).filter(s => s.trim().length > 100);
+  const originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 100);
   
-  if (splits.length > 1) {
-    return splits;
-  }
-  
-  // Fallback: Split by paragraphs, accumulating up to a max chunk size
-  const maxChunkSize = 15000;
-  let parts = text.split(/\n\s*\n/);
+  let parts = originalSplits.length > 1 ? originalSplits : text.split(/\n\s*\n/);
   
   // If double newlines didn't yield enough parts, try single newlines
-  if (parts.length < 5) {
+  if (parts.length < 5 && originalSplits.length <= 1) {
     parts = text.split('\n');
   }
 
@@ -232,7 +227,7 @@ export async function processDocument(
                        chapterNumber: tIdx + 1,
                        title: topic.title || `Topic ${tIdx + 1}`,
                        summary: topic.summary || '',
-                       content: topic.content || chunk.substring(0, 15000),
+                       content: topic.content || chunk,
                        isGenerating: false,
                        parentId: chapId,
                        sortOrder: sortCounter++,
@@ -266,7 +261,7 @@ export async function processDocument(
                    chapterNumber: tIdx + 1,
                    title: topic.title || `Topic ${tIdx + 1}`,
                    summary: topic.summary || '',
-                   content: topic.content || chunk.substring(0, 15000),
+                   content: topic.content || chunk,
                    isGenerating: false,
                    parentId: chapId,
                    sortOrder: sortCounter++,
