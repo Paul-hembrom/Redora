@@ -228,6 +228,12 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   };
 
   useEffect(() => {
+    const handleOpenPricing = () => setShowPricing(true);
+    window.addEventListener('open-pricing', handleOpenPricing);
+    return () => window.removeEventListener('open-pricing', handleOpenPricing);
+  }, []);
+
+  useEffect(() => {
     if (showSettings) {
       fetchUsage();
     }
@@ -551,8 +557,13 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
         )}
         
         {(uploadError || localError) && (
-          <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 font-medium">
-            {uploadError || localError}
+          <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 font-medium whitespace-pre-wrap flex flex-col gap-2">
+            <div>{uploadError || localError}</div>
+            {((uploadError && uploadError.includes('Upgrade')) || (localError && localError.includes('Upgrade'))) && (
+               <button onClick={() => setShowPricing(true)} className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-white rounded w-full border border-red-500/30 transition-colors">
+                 Upgrade Plan
+               </button>
+            )}
           </div>
         )}
       </div>

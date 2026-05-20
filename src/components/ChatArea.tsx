@@ -703,10 +703,20 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="max-w-4xl mx-auto w-full p-5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-start gap-3 shadow-sm"
+            className="max-w-4xl mx-auto w-full p-5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex flex-col items-start gap-3 shadow-sm"
           >
-            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-            <p className="font-medium">{error}</p>
+            <div className="flex gap-3 items-start w-full">
+              <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+              <p className="font-medium">{error}</p>
+            </div>
+            {error.includes("Upgrade") && (
+              <button 
+                onClick={() => window.dispatchEvent(new CustomEvent('open-pricing'))}
+                className="mt-1 ml-8 px-4 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-white rounded text-xs border border-red-500/30 transition-colors font-medium cursor-pointer"
+              >
+                Upgrade Plan
+              </button>
+            )}
           </motion.div>
         )}
         
