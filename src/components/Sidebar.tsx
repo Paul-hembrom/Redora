@@ -213,6 +213,19 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   
   const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null);
   const [editingSummaryDraft, setEditingSummaryDraft] = useState('');
+  
+  const [userUsage, setUserUsage] = useState<any>(null);
+
+  useEffect(() => {
+    if (showSettings) {
+      fetch('/api/user/usage')
+        .then(res => res.json())
+        .then(data => {
+          if (!data.error) setUserUsage(data);
+        })
+        .catch(err => console.error("Could not fetch usage", err));
+    }
+  }, [showSettings]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (files) => {
@@ -416,6 +429,41 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 <span className="group-hover:text-white transition-colors">Apply Stemming</span>
               </label>
             </div>
+            {userUsage && (
+              <div className="space-y-3 pt-3 border-t border-white/5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-white/40 block uppercase tracking-wider text-[10px]">Subscription</label>
+                  <span className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-[9px] uppercase font-bold tracking-widest">{userUsage.plan}</span>
+                </div>
+                
+                <div className="space-y-2 text-[10px] text-white/50">
+                  <div className="flex justify-between">
+                    <span>Books:</span>
+                    <span>{userUsage.usage.books_uploaded_this_month} / {userUsage.limits.document === 'unlimited' ? '∞' : userUsage.limits.document}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Video Gen:</span>
+                    <span>{userUsage.usage.video_generations_this_month} / {userUsage.limits.video === 'unlimited' ? '∞' : userUsage.limits.video}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Images:</span>
+                    <span>{userUsage.usage.image_searches_this_month} / {userUsage.limits.image === 'unlimited' ? '∞' : userUsage.limits.image}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Interactive:</span>
+                    <span>{userUsage.usage.interactive_lessons_this_month} / {userUsage.limits.interactive === 'unlimited' ? '∞' : userUsage.limits.interactive}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Chat (Daily):</span>
+                    <span>{userUsage.usage.chat_messages_today} / {userUsage.plan === 'free' || userUsage.plan === 'Starter' ? 10 : '∞'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>YouTube searches:</span>
+                    <span>{userUsage.usage.youtube_searches_today} / {userUsage.limits.youtube === 'unlimited' ? '∞' : userUsage.limits.youtube} today</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

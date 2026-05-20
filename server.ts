@@ -19,58 +19,159 @@ app.use(cors());
 app.use(cookieParser());
 
 // --- Freemium Usage Check Helper ---
-async function checkUsageAndLimits(userId: string, type: 'document' | 'video' | 'image') {
+async function checkUsageAndLimits(userId: string, type: 'document' | 'video' | 'image' | 'interactive' | 'youtube') {
   const subs = await sql`SELECT plan, credits_remaining FROM subscriptions WHERE user_id = ${userId}`;
-  const sub = subs[0];
-  const isFree = !sub || sub.plan === 'free';
-  const credits = sub?.credits_remaining || 0;
+  let plan = 'free';
+  if (subs.length > 0 && subs[0].plan) {
+    plan = subs[0].plan;
+  }
+  const isFree = plan === 'free' || plan === 'Starter';
+  const isPro = plan === 'pro' || plan === 'Pro' || plan === 'lifetime' || plan === 'Growth' || plan === 'Enterprise' || plan === 'unlimited';
 
   let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
   if (usageRows.length === 0) {
-    await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_today, image_searches_today, last_reset_date) VALUES (${userId}, 0, 0, 0, CURRENT_DATE)`;
+    await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
     usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
   }
   const usage = usageRows[0];
 
-  const today = new Date().toISOString().split('T')[0];
-  const resetDate = new Date(usage.last_reset_date).toISOString().split('T')[0];
+  const todayDate = new Date();
+  const resetDate = new Date(usage.last_reset_date);
+  const dailyResetDate = usage.last_daily_reset_date ? new Date(usage.last_daily_reset_date) : new Date(0);
   
-  if (today !== resetDate) {
-    const isNewMonth = new Date().getMonth() !== new Date(usage.last_reset_date).getMonth();
-    const booksReset = isNewMonth ? 0 : usage.books_uploaded_this_month;
-    await sql`UPDATE user_usage SET video_generations_today = 0, image_searches_today = 0, books_uploaded_this_month = ${booksReset}, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
-    usage.video_generations_today = 0;
-    usage.image_searches_today = 0;
-    usage.books_uploaded_this_month = booksReset;
+  if (todayDate.getMonth() !== resetDate.getMonth() || todayDate.getFullYear() !== resetDate.getFullYear()) {
+    await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+    usage.video_generations_this_month = 0;
+    usage.image_searches_this_month = 0;
+    usage.interactive_lessons_this_month = 0;
+    usage.books_uploaded_this_month = 0;
   }
 
-  if (isFree) {
-    if (type === 'document' && usage.books_uploaded_this_month >= 4) {
-      throw new Error("Free plan limit reached. Upgrade to Pro to upload unlimited books.");
-    }
-    if (type === 'video' && usage.video_generations_today >= 1) {
-      throw new Error("Free plan limit reached. Upgrade to Pro for more video generations.");
-    }
-    if (type === 'image' && usage.image_searches_today >= 2) {
-      throw new Error("Free plan limit reached. Upgrade to Pro for more image searches.");
-    }
-  } else if (sub && sub.plan !== 'unlimited') {
-    if (credits <= 0) {
-      throw new Error("Out of credits! Please buy more credits to continue.");
-    }
+  if (todayDate.getDate() !== dailyResetDate.getDate() || todayDate.getMonth() !== dailyResetDate.getMonth() || todayDate.getFullYear() !== dailyResetDate.getFullYear()) {
+    await sql`UPDATE user_usage SET youtube_searches_today = 0, last_daily_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+    usage.youtube_searches_today = 0;
+  }
+
+  // Free Tier Limits: books 4/mo, video 2/mo, images 20/mo, interactive 10/mo, youtube 10/day
+  // Pro Tier Limits: books unlimited, video 10/mo, images 50/mo, interactive 30/mo, youtube 50/day
+  // Assuming Pro means 'unlimited' or the named Pro tiers for this individual user
+  
+  let limits = {
+     document: isPro ? Infinity : 4,
+     video: isPro ? 10 : 2,
+     image: isPro ? 50 : 20,
+     interactive: isPro ? 30 : 10,
+     youtube: isPro ? 50 : 10
+  };
+
+  if (plan === 'unlimited') {
+      limits = { document: Infinity, video: Infinity, image: Infinity, interactive: Infinity, youtube: Infinity };
+  }
+
+  if (type === 'document' && usage.books_uploaded_this_month >= limits.document) {
+      throw new Error(`Monthly limit reached for Document Uploads (${limits.document}). Upgrade your plan.`);
+  }
+  if (type === 'video' && usage.video_generations_this_month >= limits.video) {
+      throw new Error(`Monthly limit reached for Video Generations (${limits.video}). Upgrade your plan.`);
+  }
+  if (type === 'image' && usage.image_searches_this_month >= limits.image) {
+      throw new Error(`Monthly limit reached for Image Searches (${limits.image}). Upgrade your plan.`);
+  }
+  if (type === 'interactive' && usage.interactive_lessons_this_month >= limits.interactive) {
+      throw new Error(`Monthly limit reached for Interactive Lessons (${limits.interactive}). Upgrade your plan.`);
+  }
+  if (type === 'youtube' && usage.youtube_searches_today >= limits.youtube) {
+      throw new Error(`Daily video search limit reached. Upgrade to Pro for 50 searches/day.`);
   }
 
   if (type === 'document') {
     await sql`UPDATE user_usage SET books_uploaded_this_month = books_uploaded_this_month + 1 WHERE user_id = ${userId}`;
   } else if (type === 'video') {
-    await sql`UPDATE user_usage SET video_generations_today = video_generations_today + 1 WHERE user_id = ${userId}`;
+    await sql`UPDATE user_usage SET video_generations_this_month = video_generations_this_month + 1 WHERE user_id = ${userId}`;
   } else if (type === 'image') {
-    await sql`UPDATE user_usage SET image_searches_today = image_searches_today + 1 WHERE user_id = ${userId}`;
+    await sql`UPDATE user_usage SET image_searches_this_month = image_searches_this_month + 1 WHERE user_id = ${userId}`;
+  } else if (type === 'interactive') {
+    await sql`UPDATE user_usage SET interactive_lessons_this_month = interactive_lessons_this_month + 1 WHERE user_id = ${userId}`;
+  } else if (type === 'youtube') {
+    await sql`UPDATE user_usage SET youtube_searches_today = youtube_searches_today + 1 WHERE user_id = ${userId}`;
+  }
+}
+
+export class SubscriptionLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SubscriptionLimitError";
+  }
+}
+
+async function enforceSchoolLimits(userId: string, type: 'video' | 'image' | 'interactive', requestedOrgId?: string): Promise<boolean> {
+  let schoolId = null;
+  if (requestedOrgId && requestedOrgId !== 'demo' && requestedOrgId !== 'default_org') {
+    const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${requestedOrgId}`;
+    if (orgs.length > 0) schoolId = orgs[0].school_id;
+  }
+  if (!schoolId) {
+    const userOrgs = await sql`SELECT o.school_id FROM organizations o JOIN organization_users ou ON o.id = ou.organization_id WHERE ou.user_id = ${userId} LIMIT 1`;
+    if (userOrgs.length > 0) schoolId = userOrgs[0].school_id;
+  }
+  
+  if (!schoolId) return false; // not part of a school
+
+  const subs = await sql`SELECT plan FROM school_subscriptions WHERE school_id = ${schoolId}`;
+  const plan = subs.length > 0 ? (subs[0].plan || 'Starter') : 'Starter';
+
+  let usages = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+  if (usages.length === 0) {
+    await sql`INSERT INTO school_usage (school_id, videos_generated_this_month, image_searches_this_month, interactive_lessons_this_month, billing_period_start) VALUES (${schoolId}, 0, 0, 0, CURRENT_DATE)`;
+    usages = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+  }
+  let usage = usages[0];
+
+  const today = new Date();
+  const bpStart = new Date(usage.billing_period_start);
+  if (today.getMonth() !== bpStart.getMonth() || today.getFullYear() !== bpStart.getFullYear()) {
+    await sql`UPDATE school_usage 
+              SET videos_generated_this_month = 0, 
+                  image_searches_this_month = 0, 
+                  interactive_lessons_this_month = 0, 
+                  billing_period_start = CURRENT_DATE 
+              WHERE school_id = ${schoolId}`;
+    usage.videos_generated_this_month = 0;
+    usage.image_searches_this_month = 0;
+    usage.interactive_lessons_this_month = 0;
   }
 
-  if (!isFree && sub && sub.plan !== 'unlimited') {
-     await sql`UPDATE subscriptions SET credits_remaining = credits_remaining - 1 WHERE user_id = ${userId}`;
+  let limit = 0;
+  let currentUsage = 0;
+  let errorMsg = '';
+
+  if (type === 'video') {
+    currentUsage = usage.videos_generated_this_month;
+    limit = plan === 'Enterprise' ? 50 : (plan === 'Growth' ? 25 : 10);
+    errorMsg = 'Monthly video limit reached. Upgrade your plan.';
+  } else if (type === 'image') {
+    currentUsage = usage.image_searches_this_month;
+    limit = plan === 'Enterprise' ? Infinity : (plan === 'Growth' ? 50 : 20);
+    errorMsg = 'Monthly image limit reached. Upgrade your plan.';
+  } else if (type === 'interactive') {
+    currentUsage = usage.interactive_lessons_this_month;
+    limit = plan === 'Enterprise' ? 30 : (plan === 'Growth' ? 10 : 5);
+    errorMsg = 'Monthly interactive lesson limit reached. Upgrade your plan.';
   }
+
+  if (currentUsage >= limit) {
+    throw new SubscriptionLimitError(errorMsg);
+  }
+
+  if (type === 'video') {
+    await sql`UPDATE school_usage SET videos_generated_this_month = videos_generated_this_month + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'image') {
+    await sql`UPDATE school_usage SET image_searches_this_month = image_searches_this_month + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'interactive') {
+    await sql`UPDATE school_usage SET interactive_lessons_this_month = interactive_lessons_this_month + 1 WHERE school_id = ${schoolId}`;
+  }
+  
+  return true;
 }
 
 // --- Gateway Token Exchange Route ---
@@ -562,6 +663,22 @@ app.post('/api/chapters/:id/generate-lesson', authenticate, async (req: any, res
     const userRole = await getUserRoleInOrg(req.userId, orgId);
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
 
+    let isSchool = false;
+    try {
+      isSchool = await enforceSchoolLimits(req.userId, 'video', orgId);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
+      throw e;
+    }
+
+    if (!isSchool) {
+      try {
+        await checkUsageAndLimits(req.userId, 'video');
+      } catch (e: any) {
+        return res.status(403).json({ error: e.message });
+      }
+    }
+
     const chapterId = req.params.id;
     const { org_id = 'default_org', document_id = 'doc123' } = req.body;
     
@@ -646,7 +763,21 @@ import { GoogleGenAI } from '@google/genai';
 
 app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
   try {
-    await checkUsageAndLimits(req.userId, 'video');
+    let isSchool = false;
+    try {
+      isSchool = await enforceSchoolLimits(req.userId, 'video', req.body.org_id || req.query.org_id);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
+      throw e;
+    }
+
+    if (!isSchool) {
+      try {
+        await checkUsageAndLimits(req.userId, 'youtube');
+      } catch (e: any) {
+        return res.status(403).json({ error: e.message });
+      }
+    }
 
     const { title, summary, subject, grade, keyConcepts, class_context } = req.body;
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
@@ -747,7 +878,21 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
 
 app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
   try {
-    await checkUsageAndLimits(req.userId, 'image');
+    let isSchool = false;
+    try {
+      isSchool = await enforceSchoolLimits(req.userId, 'image', req.body.org_id || req.body.org_context || req.query.org_id);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
+      throw e;
+    }
+
+    if (!isSchool) {
+      try {
+        await checkUsageAndLimits(req.userId, 'image');
+      } catch (e: any) {
+        return res.status(403).json({ error: e.message });
+      }
+    }
 
     const { org_context, title, key_concepts, summary } = req.body;
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
@@ -847,10 +992,154 @@ app.post('/api/topics/:id/start-lesson', authenticate, async (req: any, res) => 
     // Default orgId if missing, or we can use a dummy
     const actualOrgId = orgId || req.userId || 'default_org';
 
+    let isSchool = false;
+    try {
+      isSchool = await enforceSchoolLimits(req.userId, 'interactive', actualOrgId);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
+      throw e;
+    }
+
+    if (!isSchool) {
+      try {
+        await checkUsageAndLimits(req.userId, 'interactive');
+      } catch (e: any) {
+        return res.status(403).json({ error: e.message });
+      }
+    }
+
     const steps = await createInteractiveLesson(id, actualOrgId);
     res.json({ steps });
   } catch (err: any) {
     console.error("Error starting lesson:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/user/usage', authenticate, async (req: any, res) => {
+  try {
+    const userId = req.userId;
+    const subs = await sql`SELECT plan FROM subscriptions WHERE user_id = ${userId}`;
+    let plan = 'free';
+    if (subs.length > 0 && subs[0].plan) {
+      plan = subs[0].plan;
+    }
+    const isPro = plan === 'pro' || plan === 'Pro' || plan === 'lifetime' || plan === 'Growth' || plan === 'Enterprise' || plan === 'unlimited';
+
+    let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+    if (usageRows.length === 0) {
+      await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
+      usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+    }
+    const usage = usageRows[0];
+
+    const todayDate = new Date();
+    const resetDate = new Date(usage.last_reset_date);
+    const dailyResetDate = usage.last_daily_reset_date ? new Date(usage.last_daily_reset_date) : new Date(0);
+    
+    if (todayDate.getMonth() !== resetDate.getMonth() || todayDate.getFullYear() !== resetDate.getFullYear()) {
+      await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+      usage.video_generations_this_month = 0;
+      usage.image_searches_this_month = 0;
+      usage.interactive_lessons_this_month = 0;
+      usage.books_uploaded_this_month = 0;
+    }
+
+    if (todayDate.getDate() !== dailyResetDate.getDate() || todayDate.getMonth() !== dailyResetDate.getMonth() || todayDate.getFullYear() !== dailyResetDate.getFullYear()) {
+      await sql`UPDATE user_usage SET youtube_searches_today = 0, last_daily_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+      usage.youtube_searches_today = 0;
+    }
+
+    let limits = {
+       document: isPro ? 'unlimited' : 4,
+       video: isPro ? 10 : 2,
+       image: isPro ? 50 : 20,
+       interactive: isPro ? 30 : 10,
+       youtube: isPro ? 50 : 10
+    };
+
+    if (plan === 'unlimited') {
+        limits = { document: 'unlimited', video: 'unlimited', image: 'unlimited', interactive: 'unlimited', youtube: 'unlimited' };
+    }
+
+    res.json({
+      plan,
+      usage: {
+        books_uploaded_this_month: usage.books_uploaded_this_month,
+        video_generations_this_month: usage.video_generations_this_month,
+        image_searches_this_month: usage.image_searches_this_month,
+        interactive_lessons_this_month: usage.interactive_lessons_this_month,
+        chat_messages_today: 0, // placeholder
+        youtube_searches_today: usage.youtube_searches_today || 0
+      },
+      limits: limits
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- School Usage Route ---
+app.get('/api/school/usage', authenticate, async (req: any, res) => {
+  try {
+    let schoolId = null;
+    const orgId = req.query.orgId;
+    
+    if (orgId && orgId !== 'demo' && orgId !== 'default_org') {
+      const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${orgId}`;
+      if (orgs.length > 0) schoolId = orgs[0].school_id;
+    }
+    if (!schoolId) {
+      const userOrgs = await sql`SELECT o.school_id FROM organizations o JOIN organization_users ou ON o.id = ou.organization_id WHERE ou.user_id = ${req.userId} LIMIT 1`;
+      if (userOrgs.length > 0) schoolId = userOrgs[0].school_id;
+    }
+    
+    if (!schoolId) {
+      return res.json({ error: 'No school associated with this account' });
+    }
+
+    const subs = await sql`SELECT plan FROM school_subscriptions WHERE school_id = ${schoolId}`;
+    const plan = subs.length > 0 ? (subs[0].plan || 'Starter') : 'Starter';
+
+    let usages = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+    if (usages.length === 0) {
+      await sql`INSERT INTO school_usage (school_id, videos_generated_this_month, image_searches_this_month, interactive_lessons_this_month, billing_period_start) VALUES (${schoolId}, 0, 0, 0, CURRENT_DATE)`;
+      usages = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+    }
+    let usage = usages[0];
+
+    const today = new Date();
+    const bpStart = new Date(usage.billing_period_start);
+    if (today.getMonth() !== bpStart.getMonth() || today.getFullYear() !== bpStart.getFullYear()) {
+      await sql`UPDATE school_usage 
+                SET videos_generated_this_month = 0, 
+                    image_searches_this_month = 0, 
+                    interactive_lessons_this_month = 0, 
+                    billing_period_start = CURRENT_DATE 
+                WHERE school_id = ${schoolId}`;
+      usage.videos_generated_this_month = 0;
+      usage.image_searches_this_month = 0;
+      usage.interactive_lessons_this_month = 0;
+    }
+
+    const videoLimit = plan === 'Enterprise' ? 50 : (plan === 'Growth' ? 25 : 10);
+    const imageLimit = plan === 'Enterprise' ? 'unlimited' : (plan === 'Growth' ? 50 : 20);
+    const interactiveLimit = plan === 'Enterprise' ? 30 : (plan === 'Growth' ? 10 : 5);
+
+    res.json({
+      plan,
+      usage: {
+        videos_generated_this_month: usage.videos_generated_this_month,
+        image_searches_this_month: usage.image_searches_this_month,
+        interactive_lessons_this_month: usage.interactive_lessons_this_month
+      },
+      limits: {
+        videos: videoLimit,
+        images: imageLimit,
+        interactive: interactiveLimit
+      }
+    });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

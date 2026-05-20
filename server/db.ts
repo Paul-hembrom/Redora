@@ -183,6 +183,27 @@ export async function initDb() {
       );
     `;
 
+    await sql`
+      CREATE TABLE IF NOT EXISTS user_usage (
+        user_id TEXT PRIMARY KEY,
+        books_uploaded_this_month INTEGER DEFAULT 0,
+        video_generations_this_month INTEGER DEFAULT 0,
+        image_searches_this_month INTEGER DEFAULT 0,
+        interactive_lessons_this_month INTEGER DEFAULT 0,
+        video_generations_today INTEGER DEFAULT 0,
+        image_searches_today INTEGER DEFAULT 0,
+        last_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
+    try {
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
+    } catch(e) {}
+
     console.log('Database schema initialized successfully.');
   } catch (error: any) {
     console.error('Failed to initialize database schema:', error);
