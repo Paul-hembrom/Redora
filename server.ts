@@ -1287,6 +1287,25 @@ app.post('/api/nvidia/chat/completions', authenticate, async (req: any, res) => 
   }
 });
 
+// --- Mock Upgrade Route ---
+app.post('/api/upgrade', authenticate, async (req: any, res) => {
+  try {
+    const { plan } = req.body;
+    
+    // Upsert the new plan
+    const existingSub = await sql`SELECT user_id FROM subscriptions WHERE user_id = ${req.userId}`;
+    if (existingSub.length > 0) {
+      await sql`UPDATE subscriptions SET plan = ${plan} WHERE user_id = ${req.userId}`;
+    } else {
+      await sql`INSERT INTO subscriptions (user_id, plan, credits_remaining) VALUES (${req.userId}, ${plan}, 0)`;
+    }
+    
+    res.json({ success: true, plan });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 async function startServer() {
   const PORT = parseInt(process.env.PORT || '3000', 10);
 

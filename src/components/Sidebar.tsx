@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
+import PricingModal from './PricingModal';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -215,15 +216,20 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   const [editingSummaryDraft, setEditingSummaryDraft] = useState('');
   
   const [userUsage, setUserUsage] = useState<any>(null);
+  const [showPricing, setShowPricing] = useState(false);
+
+  const fetchUsage = () => {
+    fetch('/api/user/usage')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.error) setUserUsage(data);
+      })
+      .catch(err => console.error("Could not fetch usage", err));
+  };
 
   useEffect(() => {
     if (showSettings) {
-      fetch('/api/user/usage')
-        .then(res => res.json())
-        .then(data => {
-          if (!data.error) setUserUsage(data);
-        })
-        .catch(err => console.error("Could not fetch usage", err));
+      fetchUsage();
     }
   }, [showSettings]);
 
@@ -436,7 +442,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                   <span className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-[9px] uppercase font-bold tracking-widest">{userUsage.plan || 'Free'}</span>
                 </div>
                 
-                <div className="space-y-2 text-[10px] text-white/50">
+                <div className="space-y-2 text-[10px] text-white/50 mb-3">
                   <div className="flex justify-between">
                     <span>Books:</span>
                     <span>{userUsage.usage.books_uploaded_this_month} / {userUsage.limits?.document === 'unlimited' ? '∞' : (userUsage.limits?.document || 0)}</span>
@@ -462,9 +468,28 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     <span>{userUsage.usage.youtube_searches_today} / {userUsage.limits?.youtube === 'unlimited' ? '∞' : (userUsage.limits?.youtube || 0)} today</span>
                   </div>
                 </div>
+
+                <button 
+                  onClick={() => setShowPricing(true)}
+                  className="w-full py-1.5 bg-white/5 hover:bg-white/10 text-white transition-colors rounded-md text-xs flex items-center justify-center gap-1 border border-white/10"
+                >
+                  <Sparkles className="w-3 h-3 text-cyan-400" />
+                  Upgrade Plan
+                </button>
               </div>
             )}
           </div>
+        )}
+
+        {showPricing && (
+           <PricingModal 
+             currentPlan={userUsage?.plan || 'Free'} 
+             onClose={() => setShowPricing(false)} 
+             onUpgradeComplete={() => {
+               setShowPricing(false);
+               fetchUsage();
+             }} 
+           />
         )}
 
         {user?.role !== 'student' && (
