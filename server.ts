@@ -1050,7 +1050,7 @@ app.get('/api/user/usage', authenticate, async (req: any, res) => {
       usage.youtube_searches_today = 0;
     }
 
-    let limits = {
+    let limits: any = {
        document: isPro ? 'unlimited' : 4,
        video: isPro ? 10 : 2,
        image: isPro ? 50 : 20,
