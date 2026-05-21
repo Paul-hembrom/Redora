@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Play, Pause, MessageCircleQuestion, Send, Loader2, Volume2, Mic } from 'lucide-react';
+import { X, Play, Pause, MessageCircleQuestion, Send, Loader2, Volume2, Mic, ArrowLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { TeacherAvatar } from './TeacherAvatar';
@@ -36,6 +37,12 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   const [chatHistory, setChatHistory] = useState<{role: string, text: string}[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  
+  // Voice input state
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
 
   const [chatAudioPlaying, setChatAudioPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -120,12 +127,80 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
     }
   };
 
-  const submitQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
 
-    const userMsg = chatInput.trim();
-    const userMsgObj = { role: 'user', text: userMsg };
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setIsTranscribing(true);
+        stream.getTracks().forEach(track => track.stop());
+        
+        try {
+          const formData = new FormData();
+          formData.append('audio', audioBlob, 'audio.webm');
+          
+          const token = localStorage.getItem('token');
+          const res = await fetch('/api/stt/transcribe', {
+            method: 'POST',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            body: formData,
+          });
+          
+          if (!res.ok) throw new Error('Transcription failed');
+          
+          const data = await res.json();
+          if (data.text) {
+            setChatInput(data.text);
+            // Simulate form submission
+            setTimeout(() => {
+              submitQuestionWithText(data.text);
+            }, 100);
+          }
+        } catch (err) {
+          console.error("Transcription error:", err);
+          alert("Sorry, couldn't understand that. Please try again or type your question.");
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone access denied:", err);
+      alert("Could not access microphone. Please check permissions.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const submitQuestionWithText = async (textToSubmit: string) => {
+    if (!textToSubmit.trim()) return;
+
+    const userMsgObj = { role: 'user', text: textToSubmit };
     setChatInput('');
     setChatHistory(prev => [...prev, userMsgObj]);
     setIsChatLoading(true);
@@ -141,7 +216,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
           body: JSON.stringify({ 
              id: uuidv4(),
              role: 'user',
-             text: userMsg,
+             text: textToSubmit,
              chapterId: topicId
           })
        });
@@ -150,7 +225,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
        
        // Import standard generateChatResponse from lib
        const { generateChatResponse } = await import('../lib/gemini');
-       const aiResult = await generateChatResponse(userMsg, contentContext, chatHistory as any, { tone: 'Enthusiastic', complexity: 'Intermediate' } as any);
+       const aiResult = await generateChatResponse(textToSubmit, contentContext, chatHistory as any, { tone: 'Enthusiastic', complexity: 'Intermediate' } as any);
 
        setChatHistory(prev => [...prev, { role: 'model', text: aiResult.response }]);
        
@@ -177,37 +252,51 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ text: aiResult.response })
          });
+         
          if (ttsRes.ok) {
-           const ttsData = await ttsRes.json();
-           if (ttsData.audioUrl && chatAudioRef.current) {
-             chatAudioRef.current.src = ttsData.audioUrl;
-             chatAudioRef.current.play().catch(e => console.error("Chat TTS play failed", e));
+           const { audioUrl } = await ttsRes.json();
+           if (chatAudioRef.current) {
+             chatAudioRef.current.src = audioUrl;
+             chatAudioRef.current.play().catch(console.error);
+             setChatAudioPlaying(true);
            }
          }
        } catch (err) {
-         console.error("Failed to fetch TTS for Chat AI", err);
+         console.error("TTS play error", err);
        }
-    } catch(err) {
-       console.error(err);
-       setIsChatLoading(false);
+    } catch (err) {
+      console.error(err);
+      setIsChatLoading(false);
     }
   };
 
+  const submitQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    await submitQuestionWithText(chatInput.trim());
+  };
+
   if (isLoading) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/95 backdrop-blur-md">
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-zinc-950/95 backdrop-blur-md">
+         <div className="absolute top-6 left-6 z-10">
+           <button onClick={onClose} className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition flex items-center gap-2 font-medium">
+             <ArrowLeft className="w-5 h-5"/> Back
+           </button>
+         </div>
          <div className="text-center">
             <Loader2 className="w-10 h-10 animate-spin text-cyan-400 mx-auto mb-4" />
             <p className="text-white/60 font-medium">Preparing your interactive lesson...</p>
          </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
   const currentStep = steps[currentStepIndex];
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col font-sans">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black flex flex-col font-sans">
       <audio 
         ref={audioRef} 
         onEnded={handleAudioEnded}
@@ -221,11 +310,18 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
       />
       
       {/* Top Header */}
-      <div className="h-16 flex items-center justify-between px-6 bg-gradient-to-b from-black/80 to-transparent absolute top-0 left-0 right-0 z-10">
-         <h2 className="text-white font-semibold text-lg drop-shadow-md">{topicTitle}</h2>
-         <button onClick={onClose} className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition">
-           <X className="w-5 h-5"/>
-         </button>
+      <div className="h-20 flex items-center justify-between px-4 md:px-8 bg-gradient-to-b from-black/90 to-transparent absolute top-0 left-0 right-0 z-50 pointer-events-none">
+         <div className="pointer-events-auto">
+           <button onClick={onClose} className="px-5 py-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all flex items-center gap-2 font-medium backdrop-blur-md border border-white/10 shadow-lg">
+             <ArrowLeft className="w-5 h-5"/> Back to Topic
+           </button>
+         </div>
+         <h2 className="text-white font-semibold text-lg md:text-xl drop-shadow-md hidden md:block px-4 py-2 bg-black/40 backdrop-blur rounded-full border border-white/5">{topicTitle}</h2>
+         <div className="pointer-events-auto">
+           <button onClick={onClose} className="p-3 bg-red-500/80 hover:bg-red-500 rounded-full text-white transition-all shadow-lg shadow-red-500/20 backdrop-blur-md" title="Close Lesson">
+             <X className="w-6 h-6"/>
+           </button>
+         </div>
       </div>
 
       {/* Teacher Avatar */}
@@ -334,9 +430,9 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
       {!isAsking && (
         <button 
           onClick={(e) => { e.stopPropagation(); handleAskQuestionToggle(); }}
-          className="absolute bottom-8 right-8 w-16 h-16 bg-white hover:bg-zinc-200 text-black rounded-full shadow-2xl flex items-center justify-center z-20 group transition-transform hover:scale-105"
+          className="absolute bottom-10 md:bottom-12 right-8 md:right-12 w-20 h-20 md:w-24 md:h-24 bg-white hover:bg-zinc-200 text-black rounded-full shadow-[0_10px_40px_rgba(255,255,255,0.3)] flex items-center justify-center z-20 group transition-transform hover:scale-105"
         >
-          <Mic className="w-7 h-7 group-hover:text-cyan-600 transition-colors" />
+          <Mic className="w-8 h-8 md:w-10 md:h-10 group-hover:text-cyan-600 transition-colors shadow-sm" />
         </button>
       )}
 
@@ -348,51 +444,74 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="absolute bottom-0 left-0 right-0 h-[60vh] bg-zinc-900 border-t border-white/10 rounded-t-3xl shadow-[0_-20px_50px_rgba(0,0,0,0.5)] z-30 flex flex-col"
+            className="absolute bottom-0 left-0 right-0 h-[65vh] md:h-[50vh] bg-zinc-900 border-t border-white/10 rounded-t-3xl shadow-[0_-20px_50px_rgba(0,0,0,0.5)] z-30 flex flex-col"
           >
-             <div className="flex items-center justify-between p-4 border-b border-white/10">
-               <h3 className="text-white font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4 text-cyan-400"/> Ask AI Tutor</h3>
-               <button onClick={handleAskQuestionToggle} className="text-white/60 hover:text-white px-4 py-2 bg-white/5 rounded-lg text-sm transition font-medium">
+             <div className="flex items-center justify-between p-4 md:p-6 border-b border-white/10 bg-zinc-900 shadow-sm z-10">
+               <h3 className="text-white font-semibold flex items-center gap-2 text-lg"><Sparkles className="w-5 h-5 text-cyan-400"/> Ask AI Tutor</h3>
+               <button onClick={handleAskQuestionToggle} className="text-white/80 hover:text-white px-5 py-3 bg-white/10 rounded-xl text-md transition font-medium backdrop-blur border border-white/5 shadow-sm">
                  Resume Lesson
                </button>
              </div>
              
-             <div className="flex-1 overflow-y-auto p-6 space-y-4">
+             <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 bg-zinc-900/50">
                 {chatHistory.length === 0 && (
                   <div className="text-center text-white/40 mt-10">
-                    <MessageCircleQuestion className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                    <p>Have a question about what we're learning?</p>
+                    <MessageCircleQuestion className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                    <p className="text-lg md:text-xl font-medium">Have a question about what we're learning?</p>
                   </div>
                 )}
                 {chatHistory.map((msg, i) => (
                   <div key={i} className={cn("flex w-full", msg.role === 'user' ? "justify-end" : "justify-start")}>
-                    <div className={cn("max-w-[80%] rounded-2xl px-5 py-3", msg.role === 'user' ? "bg-cyan-500 text-black rounded-br-sm" : "bg-zinc-800 text-white rounded-bl-sm border border-white/5")}>
+                    <div className={cn("max-w-[85%] rounded-3xl px-6 py-4 text-base md:text-lg shadow-md", msg.role === 'user' ? "bg-cyan-500 text-black rounded-br-sm" : "bg-zinc-800 text-white rounded-bl-sm border border-white/5")}>
                       {msg.text}
                     </div>
                   </div>
                 ))}
                 {isChatLoading && (
                   <div className="flex w-full justify-start">
-                    <div className="bg-zinc-800 rounded-2xl px-5 py-4 rounded-bl-sm border border-white/5 flex gap-2">
-                      <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div className="bg-zinc-800 rounded-3xl px-6 py-5 rounded-bl-sm border border-white/5 flex gap-2 shadow-md">
+                      <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                     </div>
                   </div>
                 )}
              </div>
 
-             <div className="p-4 bg-zinc-950 border-t border-white/5">
-                <form onSubmit={submitQuestion} className="flex gap-2">
-                  <input 
-                    type="text" 
-                    value={chatInput}
-                    onChange={e => setChatInput(e.target.value)}
-                    placeholder="Type your question..."
-                    className="flex-1 bg-zinc-900 border border-white/10 rounded-full px-6 py-3 text-white placeholder-white/30 focus:outline-none focus:border-cyan-500"
-                  />
-                  <button type="submit" disabled={!chatInput.trim() || isChatLoading} className="w-12 h-12 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 disabled:bg-cyan-500 text-black rounded-full flex items-center justify-center transition-colors">
-                    <Send className="w-5 h-5 -ml-0.5" />
+             <div className="p-4 md:p-6 bg-zinc-950 border-t border-white/5 z-10 pb-8 md:pb-8">
+                <form onSubmit={submitQuestion} className="flex gap-2 max-w-4xl mx-auto w-full items-center">
+                  <div className="relative flex-1">
+                    <input 
+                      type="text" 
+                      value={chatInput}
+                      onChange={e => setChatInput(e.target.value)}
+                      placeholder={isTranscribing ? "Transcribing..." : isRecording ? "Listening..." : "Type your question..."}
+                      disabled={isRecording || isTranscribing}
+                      className={cn(
+                        "w-full bg-zinc-900 border border-white/10 rounded-full pl-6 pr-14 py-4 text-white placeholder-white/40 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-lg shadow-inner disabled:opacity-70",
+                        isRecording && "border-red-500 bg-red-500/5 ring-1 ring-red-500"
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={toggleRecording}
+                      className={cn(
+                        "absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full transition-all focus:outline-none flex items-center justify-center",
+                        isRecording ? "text-red-500 hover:bg-white/5" : "text-white/60 hover:text-white hover:bg-white/5",
+                        isTranscribing && "opacity-50 cursor-not-allowed"
+                      )}
+                      disabled={isTranscribing}
+                      title={isRecording ? "Stop recording" : "Record audio using voice"}
+                    >
+                      {isRecording ? (
+                        <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-red-500 animate-pulse" />
+                      ) : (
+                        <Mic className="w-5 h-5 md:w-6 md:h-6" />
+                      )}
+                    </button>
+                  </div>
+                  <button type="submit" disabled={!chatInput.trim() || isChatLoading || isRecording || isTranscribing} className="w-14 h-14 md:w-16 md:h-16 shrink-0 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:bg-cyan-500 text-black rounded-full flex items-center justify-center transition-colors shadow-lg">
+                    <Send className="w-6 h-6 md:w-7 md:h-7 -ml-1 text-black" />
                   </button>
                 </form>
              </div>
@@ -400,7 +519,8 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
         )}
       </AnimatePresence>
 
-    </div>
+    </div>,
+    document.body
   );
 }
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -223,6 +223,32 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
       setError('Could not find images. Please try again later.');
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const handleGenerateVideoLesson = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/chapters/${chapter.id}/generate-lesson`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ org_id: 'default' })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to start video generation.');
+        return;
+      }
+      
+      // Successfully started, switch to video tab
+      setActiveTab('video');
+    } catch (err: any) {
+      console.error(err);
+      setError('An error occurred while starting video generation.');
     }
   };
 
@@ -471,6 +497,13 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
               title="Toggle Video Lesson Pipeline"
             >
               <Film className="w-3.5 h-3.5" /> Pipeline
+            </button>
+            <button 
+              onClick={handleGenerateVideoLesson} 
+              className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
+              title="Generate AI video lesson"
+            >
+              <Wand2 className="w-3.5 h-3.5" /> Generate Video
             </button>
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos

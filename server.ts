@@ -1,4 +1,5 @@
 import express from 'express';
+import multer from 'multer';
 import path from 'path';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -977,6 +978,46 @@ app.post('/api/tts', async (req, res) => {
     res.json({ audioUrl });
   } catch (err: any) {
     console.error("TTS generation failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const upload = multer();
+
+app.post('/api/stt/transcribe', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Missing audio file" });
+    }
+
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Missing ELEVENLABS_API_KEY" });
+    }
+
+    const formData = new FormData();
+    const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+    formData.append('file', blob, 'audio.webm');
+    formData.append('model_id', 'scribe_v1');
+
+    const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey
+      },
+      body: formData as any
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("ElevenLabs STT error:", errText);
+      return res.status(response.status).json({ error: "Transcription failed" });
+    }
+
+    const data = await response.json();
+    res.json({ text: data.text });
+  } catch (err: any) {
+    console.error("STT transcription exception:", err);
     res.status(500).json({ error: err.message });
   }
 });
