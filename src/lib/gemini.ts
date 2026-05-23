@@ -315,10 +315,10 @@ Output JSON format:
 
   const prompt = `
 Provided Content:
-${chapterContent.substring(0, 25000)} // Ensure within limits
+${chapterContent.substring(0, 25000)}
 
 Chat History:
-${formattedHistory.substring(0, 5000)} // Limit history
+${formattedHistory.substring(0, 5000)}
 
 User Query: ${query}
 
@@ -415,7 +415,7 @@ export async function generateActionTool(chapterContent: string, toolType: 'quiz
 Task: ${promptText}
 
 Chapter Content:
-${chapterContent.substring(0, 25000)} // Ensure within limits
+${chapterContent.substring(0, 25000)}
 
 IMPORTANT: You must return ONLY a valid JSON object exactly matching this structure: ${jsonFormatInstructions}. No markdown formatting, no explanation.
   `.trim();

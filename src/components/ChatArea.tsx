@@ -322,6 +322,12 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
       setShowFollowUpModal(true);
       return;
     }
+    
+    if (!chapter.content || chapter.content.trim() === '') {
+      setError("This topic does not have enough content to generate follow-ups.");
+      return;
+    }
+
     setIsGeneratingFollowUps(true);
     setShowFollowUpModal(true);
     try {
@@ -339,6 +345,11 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
   const handleGenerateAction = async (toolType: 'quiz' | 'glossary' | 'brief') => {
     if (isTyping) return;
     
+    if (!chapter.content || chapter.content.trim() === '') {
+      setError("This topic does not have enough content to generate actions.");
+      return;
+    }
+
     let text = "";
     if (toolType === 'quiz') text = "Generate a multiple-choice Quiz.";
     else if (toolType === 'glossary') text = "Generate a Glossary of Key Terms.";
