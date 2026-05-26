@@ -1211,12 +1211,12 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       id: c.id,
       role: c.role,
       text: c.text,
-      relationshipGraph: c.relationship_graph ? JSON.parse(c.relationship_graph) : undefined,
-      followUps: c.follow_ups ? JSON.parse(c.follow_ups) : undefined,
+      relationshipGraph: c.relationship_graph ? (typeof c.relationship_graph === 'string' ? JSON.parse(c.relationship_graph) : c.relationship_graph) : undefined,
+      followUps: c.follow_ups ? (typeof c.follow_ups === 'string' ? JSON.parse(c.follow_ups) : c.follow_ups) : undefined,
       type: c.type,
-      actionData: c.action_data ? JSON.parse(c.action_data) : undefined,
-      recommended_videos: c.recommended_videos ? JSON.parse(c.recommended_videos) : undefined,
-      images: c.images ? JSON.parse(c.images) : undefined,
+      actionData: c.action_data ? (typeof c.action_data === 'string' ? JSON.parse(c.action_data) : c.action_data) : undefined,
+      recommended_videos: c.recommended_videos ? (typeof c.recommended_videos === 'string' ? JSON.parse(c.recommended_videos) : c.recommended_videos) : undefined,
+      images: c.images ? (typeof c.images === 'string' ? JSON.parse(c.images) : c.images) : undefined,
       reactions: c.reactions || undefined
     }));
     res.json(result);
