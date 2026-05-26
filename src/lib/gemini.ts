@@ -82,7 +82,7 @@ async function getGenAI() {
       apiKey: GEMINI_KEY,
       httpOptions: {
         retryOptions: {
-          attempts: 3
+          attempts: 5
         }
       }
     });

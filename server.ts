@@ -767,7 +767,7 @@ app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
       apiKey: process.env.GEMINI_API_KEY || '',
       httpOptions: {
         retryOptions: {
-          attempts: 3
+          attempts: 5
         }
       }
     });
@@ -889,7 +889,7 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
       apiKey: process.env.GEMINI_API_KEY || '',
       httpOptions: {
         retryOptions: {
-          attempts: 3
+          attempts: 5
         }
       }
     });
