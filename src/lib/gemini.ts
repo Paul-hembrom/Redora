@@ -34,6 +34,7 @@ async function callDeepSeek(
   prompt: string,
   systemInstruction?: string,
   responseFormat?: 'json_object' | 'text',
+  maxTokens?: number,
 ): Promise<string> {
   const messages: any[] = [];
   if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
@@ -43,7 +44,7 @@ async function callDeepSeek(
     model: 'deepseek-v4-flash',
     messages,
     temperature: 0.2,
-    max_tokens: 4096,
+    max_tokens: maxTokens ?? 4096,
   };
   if (responseFormat === 'json_object') {
     body.response_format = { type: 'json_object' };
@@ -309,9 +310,10 @@ async function callLLM(
   prompt: string,
   systemInstruction?: string,
   responseFormat?: 'json_object' | 'text',
+  maxTokens?: number,
 ): Promise<string> {
   if (hasKey(DEEPSEEK_KEY)) {
-    try { return await callDeepSeek(prompt, systemInstruction, responseFormat); } catch (e) { console.warn('DeepSeek failed, falling back to NVIDIA', e); }
+    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens); } catch (e) { console.warn('DeepSeek failed, falling back to NVIDIA', e); }
   }
   if (hasKey(GEMINI_KEY)) {
     try { return await callGeminiFlashLite(prompt, systemInstruction); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
@@ -359,7 +361,7 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object');
+      const raw = await callLLM(prompt, undefined, 'json_object', 8192);
       const parsed = JSON.parse(raw);
       
       const result: { [chapterNumber: number]: { title: string, summary: string } } = {};
@@ -434,7 +436,7 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object');
+      const raw = await callLLM(prompt, undefined, 'json_object', 8192);
       const parsed = JSON.parse(raw);
       let summaryObj = parsed.summary;
       if (Array.isArray(summaryObj)) {
@@ -573,7 +575,7 @@ ${content.substring(0, 35000)}
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object');
+      const raw = await callLLM(prompt, undefined, 'json_object', 8192);
       const parsed = JSON.parse(raw);
       return parsed;
     } catch (error: any) {
