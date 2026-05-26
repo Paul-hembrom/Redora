@@ -965,29 +965,6 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
       }
     }
 
-    if (images.length < 2) {
-      const svgPrompt = `Generate a visually appealing, colorful SVG diagram illustrating the concept: ${title}. Key concepts: ${conceptsStr}. Return ONLY valid SVG code. No markdown. No HTML around it. Make sure it uses <svg viewBox="0 0 500 400" xmlns="http://www.w3.org/2000/svg">`;
-      try {
-        const svgRes = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: svgPrompt
-        });
-        let svgCode = svgRes.text?.trim() || "";
-        svgCode = svgCode.replace(/^```(xml|svg|html)?/i, '').replace(/```$/i, '').trim();
-        if (svgCode.startsWith('<svg')) {
-          const base64Svg = "data:image/svg+xml;base64," + Buffer.from(svgCode).toString('base64');
-          images.push({
-            url: base64Svg,
-            thumbnail: base64Svg,
-            alt: `Generated diagram for ${title}`,
-            source: "generated"
-          });
-        }
-      } catch (err) {
-        console.error("SVG generation error", err);
-      }
-    }
-
     res.json({ images });
 
   } catch (err: any) {
@@ -1227,6 +1204,7 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
     try {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
+      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
     } catch(e) {}
     const chats = await sql`SELECT * FROM chats WHERE chapter_id = ${req.params.chapterId} AND user_id = ${req.userId} ORDER BY created_at ASC`;
     const result = chats.map(c => ({
@@ -1238,6 +1216,7 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       type: c.type,
       actionData: c.action_data ? JSON.parse(c.action_data) : undefined,
       recommended_videos: c.recommended_videos ? JSON.parse(c.recommended_videos) : undefined,
+      images: c.images ? JSON.parse(c.images) : undefined,
       reactions: c.reactions || undefined
     }));
     res.json(result);
@@ -1270,10 +1249,10 @@ app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/chats', authenticate, async (req: any, res) => {
-  const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos } = req.body;
+  const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos, images } = req.body;
   try {
     await sql`
-      INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos) 
+      INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos, images) 
       VALUES (
         ${id}, 
         ${chapterId}, 
@@ -1284,7 +1263,8 @@ app.post('/api/chats', authenticate, async (req: any, res) => {
         ${followUps ? JSON.stringify(followUps) : null},
         ${type ? type : null},
         ${actionData ? JSON.stringify(actionData) : null},
-        ${recommended_videos ? JSON.stringify(recommended_videos) : null}
+        ${recommended_videos ? JSON.stringify(recommended_videos) : null},
+        ${images ? JSON.stringify(images) : null}
       )
     `;
     res.json({ success: true });

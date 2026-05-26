@@ -8,7 +8,8 @@ ALTER TABLE documents
 ALTER TABLE chats 
   ADD COLUMN IF NOT EXISTS type TEXT,
   ADD COLUMN IF NOT EXISTS action_data TEXT,
-  ADD COLUMN IF NOT EXISTS recommended_videos TEXT;
+  ADD COLUMN IF NOT EXISTS recommended_videos TEXT,
+  ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
 
 -- 2. Create Video Generation Tables
 CREATE TABLE IF NOT EXISTS generation_jobs (

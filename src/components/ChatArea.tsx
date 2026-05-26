@@ -291,14 +291,31 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
       }
 
       const data = await response.json();
+      const imagesArray = data.images || [];
       
-      const aiMsg: ChatMessage = {
-        id: uuidv4(),
-        role: 'model',
-        text: 'Here are some helpful images and diagrams for this chapter.',
-        type: 'images',
-        images: data.images || []
-      };
+      let aiMsg: ChatMessage;
+      
+      if (imagesArray.length === 0) {
+        aiMsg = {
+          id: uuidv4(),
+          role: 'model',
+          text: `I couldn't find any images for this topic. Would you like me to find related videos instead?`,
+          type: 'text' // We can just make it text, and user can click the video button.
+        };
+        // We'll append a button using Markdown or provide a UI element.
+        // Or simply text "I couldn't find any images for this topic. Click 'Videos' below to find related videos instead."
+        // The instructions ask for "a friendly message: 'I couldn't find any images for this topic. Would you like me to find related videos instead?' with a clickable link to trigger the video search."
+        aiMsg.text = "I couldn't find any images for this topic. Would you like me to find related videos instead?";
+        aiMsg.type = "image_fallback"; // Let's use a custom type so we can render a clickable link button.
+      } else {
+        aiMsg = {
+          id: uuidv4(),
+          role: 'model',
+          text: 'Here are some helpful images and diagrams for this chapter.',
+          type: 'images',
+          images: imagesArray
+        };
+      }
 
       setMessages(prev => [...prev, aiMsg]);
 
@@ -704,12 +721,22 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                     : "bg-transparent text-white/80 hover:bg-white/[0.02]"
                 )}>
                   <div className="prose prose-invert prose-sm max-w-none font-light leading-relaxed break-words">
-                    {msg.type && msg.type !== 'text' ? (
+                    {msg.type && msg.type !== 'text' && msg.type !== 'image_fallback' ? (
                       <p className="text-xs font-semibold uppercase tracking-wider opacity-50 mb-2">{msg.text}</p>
                     ) : (
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
                     )}
                   </div>
+                  {msg.type === 'image_fallback' && (
+                    <div className="mt-4">
+                      <button 
+                        onClick={handleFetchVideos}
+                        className="text-xs font-medium px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors flex items-center gap-2 border border-white/10"
+                      >
+                        <Video className="w-4 h-4" /> Find Related Videos
+                      </button>
+                    </div>
+                  )}
                   {renderActionData(msg)}
                   {msg.role === 'model' && (
                     <button
