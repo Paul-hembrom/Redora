@@ -78,7 +78,14 @@ let _genai: any = null;
 async function getGenAI() {
   if (!_genai) {
     const { GoogleGenAI } = await import('@google/genai');
-    _genai = new GoogleGenAI({ apiKey: GEMINI_KEY });
+    _genai = new GoogleGenAI({
+      apiKey: GEMINI_KEY,
+      httpOptions: {
+        retryOptions: {
+          attempts: 3
+        }
+      }
+    });
   }
   return _genai;
 }

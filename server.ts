@@ -757,7 +757,14 @@ app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
     }
 
     const { title, summary, subject, grade, keyConcepts, class_context } = req.body;
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    const ai = new GoogleGenAI({ 
+      apiKey: process.env.GEMINI_API_KEY || '',
+      httpOptions: {
+        retryOptions: {
+          attempts: 3
+        }
+      }
+    });
     const conceptsStr = Array.isArray(keyConcepts) ? keyConcepts.join(', ') : '';
 
     const contextPrefix = class_context ? `Class Context: ${class_context}` : `Grade Level: ${grade}`;
@@ -872,7 +879,14 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
     }
 
     const { org_context, title, key_concepts, summary } = req.body;
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+    const ai = new GoogleGenAI({ 
+      apiKey: process.env.GEMINI_API_KEY || '',
+      httpOptions: {
+        retryOptions: {
+          attempts: 3
+        }
+      }
+    });
     
     const conceptsStr = Array.isArray(key_concepts) ? key_concepts.join(', ') : '';
     
