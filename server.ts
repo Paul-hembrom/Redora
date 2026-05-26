@@ -111,6 +111,12 @@ async function enforceSchoolLimits(userId: string, type: 'video' | 'image' | 'in
     return true;
   }
   
+  // Validate UUID format to avoid database errors
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(requestedOrgId)) {
+    return true; // Not a valid UUID – treat as personal user
+  }
+
   try {
     let schoolId = null;
     let role = null;
@@ -864,7 +870,7 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
   try {
     let isSchool = false;
     try {
-      isSchool = await enforceSchoolLimits(req.userId, 'image', req.body.org_id || req.body.org_context || req.query.org_id);
+      isSchool = await enforceSchoolLimits(req.userId, 'image', req.body.org_id || req.query.org_id);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
