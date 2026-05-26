@@ -1,5 +1,8 @@
 import { ChatMessage, ReadingPersona } from '../types';
 
+// ──────────────────────────────────────────────
+// 1. Error & helpers (unchanged)
+// ──────────────────────────────────────────────
 export class ApiRateLimitError extends Error {
   public retryAfterMs: number;
   constructor(message: string, retryAfterMs: number) {
@@ -13,8 +16,171 @@ function cleanErrorMessage(error: any): string {
   return error?.message || 'An unknown error occurred.';
 }
 
+// ──────────────────────────────────────────────
+// 2. Env helpers – centralise API keys
+// ──────────────────────────────────────────────
+const DEEPSEEK_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
+const GEMINI_KEY   = import.meta.env.VITE_GEMINI_API_KEY   as string;
+const EL_KEY       = import.meta.env.VITE_ELEVENLABS_API_KEY as string;
+
+function hasKey(key: string | undefined): key is string {
+  return typeof key === 'string' && key.length > 0;
+}
+
+// ──────────────────────────────────────────────
+// 3. DeepSeek V4‑Flash (OpenAI‑compatible)
+// ──────────────────────────────────────────────
+async function callDeepSeek(
+  prompt: string,
+  systemInstruction?: string,
+  responseFormat?: 'json_object' | 'text',
+): Promise<string> {
+  const messages: any[] = [];
+  if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
+  messages.push({ role: 'user', content: prompt });
+
+  const body: any = {
+    model: 'deepseek-v4-flash',
+    messages,
+    temperature: 0.2,
+    max_tokens: 4096,
+  };
+  if (responseFormat === 'json_object') {
+    body.response_format = { type: 'json_object' };
+  }
+
+  const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${DEEPSEEK_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    if (res.status === 429) throw new ApiRateLimitError('DeepSeek rate limit', 5000);
+    const errText = await res.text();
+    throw new Error(`DeepSeek API Error: ${errText}`);
+  }
+
+  const data = await res.json();
+  let content = data.choices[0].message.content;
+  // Strip markdown fences if present
+  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+  return content;
+}
+
+// ──────────────────────────────────────────────
+// 4. Gemini (Flash‑Lite, TTS, Veo) via @google/genai
+// ──────────────────────────────────────────────
+let _genai: any = null;
+async function getGenAI() {
+  if (!_genai) {
+    const { GoogleGenAI } = await import('@google/genai');
+    _genai = new GoogleGenAI({ apiKey: GEMINI_KEY });
+  }
+  return _genai;
+}
+
+/** Gemini Flash‑Lite for chat / structured output */
+async function callGeminiFlashLite(
+  prompt: string,
+  systemInstruction?: string,
+): Promise<string> {
+  const ai = await getGenAI();
+  const parts: any[] = [{ text: prompt }];
+  const config: any = { temperature: 0.2, maxOutputTokens: 4096 };
+  if (systemInstruction) config.systemInstruction = systemInstruction;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite-preview',
+    contents: [{ role: 'user', parts }],
+    config,
+  });
+
+  let text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  text = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+  return text;
+}
+
+/** Gemini TTS – returns a base64 WAV data URL */
+async function callGeminiTTS(
+  text: string,
+  voiceName: string = 'Kore',
+): Promise<string> {
+  const ai = await getGenAI();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-tts-preview',
+    contents: [{ role: 'user', parts: [{ text }] }],
+    config: {
+      speechConfig: {
+        prebuiltVoiceConfig: { voiceName },
+      },
+      responseModalities: ['AUDIO'],
+    },
+  });
+
+  const part = response.candidates?.[0]?.content?.parts?.[0];
+  if (!part?.inlineData) throw new Error('TTS generation returned no audio');
+  const { data: rawData, mimeType } = part.inlineData;
+
+  // Gemini returns raw PCM; we convert to WAV for browser playback
+  const wavBase64 = pcmToWavBase64(rawData, mimeType);
+  return `data:audio/wav;base64,${wavBase64}`;
+}
+
+/** Veo 3.1 Lite video generation (async polling) */
+async function callVeo31Lite(
+  prompt: string,
+  aspectRatio: '16:9' | '9:16' = '16:9',
+): Promise<string> {
+  const ai = await getGenAI();
+  let operation = await ai.models.generateVideos({
+    model: 'veo-3.1-lite-generate-preview',
+    prompt,
+    config: { aspectRatio },
+  });
+
+  while (!operation.done) {
+    await new Promise(r => setTimeout(r, 10_000));
+    operation = await ai.operations.getVideosOperation({ operation });
+  }
+
+  const video = operation.response?.generatedVideos?.[0]?.video;
+  if (!video) throw new Error('Veo generation returned no video');
+  return video.uri; // downloadable URI
+}
+
+// ──────────────────────────────────────────────
+// 5. ElevenLabs Scribe STT
+// ──────────────────────────────────────────────
+async function callElevenLabsSTT(audioBlob: Blob): Promise<string> {
+  const form = new FormData();
+  form.append('file', audioBlob, 'recording.webm');
+  form.append('model_id', 'scribe_v2');
+
+  const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+    method: 'POST',
+    headers: { 'xi-api-key': EL_KEY },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`ElevenLabs STT Error: ${errText}`);
+  }
+
+  const data = await res.json();
+  return data.text ?? '';
+}
+
+// ──────────────────────────────────────────────
+// 6. NVIDIA / HuggingFace fallbacks (your existing code, untouched)
+//    Keep callNvidiaFallback, callNvidiaVisionFallback exactly as before.
+//    (They are called only when paid APIs fail or keys are missing.)
+// ──────────────────────────────────────────────
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
-  // Use optional HF Space or local proxy to avoid CORS
   const baseUrl = import.meta.env.VITE_BACKEND_URL || "";
   const messages = [];
   if (systemInstruction) {
@@ -129,16 +295,42 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
   return data.choices[0].message.content;
 }
 
-export async function generateBatchChapterMetadata(chaptersData: { content: string, chapterNumber: number }[], retries = 3, summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed'): Promise<{ [chapterNumber: number]: { title: string, summary: string } }> {
-  const chaptersText = chaptersData.map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 9000)}`).join('\n\n');
-  
-  let instructions = "";
+// ──────────────────────────────────────────────
+// 7. Unified callers – try paid API first, fall back to NVIDIA
+// ──────────────────────────────────────────────
+async function callLLM(
+  prompt: string,
+  systemInstruction?: string,
+  responseFormat?: 'json_object' | 'text',
+): Promise<string> {
+  if (hasKey(DEEPSEEK_KEY)) {
+    try { return await callDeepSeek(prompt, systemInstruction, responseFormat); } catch (e) { console.warn('DeepSeek failed, falling back to NVIDIA', e); }
+  }
+  if (hasKey(GEMINI_KEY)) {
+    try { return await callGeminiFlashLite(prompt, systemInstruction); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
+  }
+  return callNvidiaFallback(prompt, systemInstruction);
+}
+
+// ──────────────────────────────────────────────
+// 8. Public functions (updated to use the new stack)
+// ──────────────────────────────────────────────
+
+export async function generateBatchChapterMetadata(
+  chaptersData: { content: string; chapterNumber: number }[],
+  retries = 3,
+  summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed',
+): Promise<{ [chapterNumber: number]: { title: string; summary: string } }> {
+  const chaptersText = chaptersData
+    .map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 9000)}`)
+    .join('\n\n');
+
+  let instructions = '';
   if (summaryDetail === 'brief') {
-    instructions = "Provide a very brief summary (2-3 short bullet points) highlighting only the most critical takeaway.";
+    instructions = 'Provide a very brief summary (2-3 short bullet points) highlighting only the most critical takeaway.';
   } else if (summaryDetail === 'academic') {
     instructions = "Provide a comprehensive and academic summary. Start with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing academic depth, underlying theories, specific methodologies, and core arguments. Do not provide superficial descriptions.";
   } else {
-    // detailed
     instructions = "Provide a detailed summary. Start with a short overview paragraph, then 4-6 descriptive bullet points capturing key concepts, events, logic, and arguments.";
   }
 
@@ -160,8 +352,9 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const nvidiaResponse = await callNvidiaFallback(prompt);
-      const parsed = JSON.parse(nvidiaResponse);
+      const raw = await callLLM(prompt, undefined, 'json_object');
+      const parsed = JSON.parse(raw);
+      
       const result: { [chapterNumber: number]: { title: string, summary: string } } = {};
       
       for (const key in parsed) {
@@ -202,7 +395,7 @@ No markdown formatting, no explanation.
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-  throw new Error("Failed to generate metadata after multiple attempts.");
+  throw new Error('Failed to generate metadata after multiple attempts.');
 }
 
 export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3, summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed'): Promise<{title: string, summary: string}> {
@@ -234,8 +427,8 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const nvidiaResponse = await callNvidiaFallback(prompt);
-      const parsed = JSON.parse(nvidiaResponse);
+      const raw = await callLLM(prompt, undefined, 'json_object');
+      const parsed = JSON.parse(raw);
       let summaryObj = parsed.summary;
       if (Array.isArray(summaryObj)) {
         summaryObj = summaryObj.join("\n- ");
@@ -326,8 +519,8 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
   `.trim();
 
   try {
-    const nvidiaResponse = await callNvidiaFallback(prompt, systemInstruction);
-    return JSON.parse(nvidiaResponse) as {
+    const raw = await callLLM(prompt, systemInstruction, 'json_object');
+    return JSON.parse(raw) as {
       response: string;
       followUpQuestions: string[];
       relationshipGraph: { source: string; target: string; relation: string }[];
@@ -373,8 +566,8 @@ ${content.substring(0, 35000)}
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const nvidiaResponse = await callNvidiaFallback(prompt);
-      const parsed = JSON.parse(nvidiaResponse);
+      const raw = await callLLM(prompt, undefined, 'json_object');
+      const parsed = JSON.parse(raw);
       return parsed;
     } catch (error: any) {
       console.warn(`Attempt ${attempt + 1} failed for hierarchy generation:`, error);
@@ -421,10 +614,74 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
   `.trim();
 
   try {
-    const nvidiaResponse = await callNvidiaFallback(prompt);
-    return JSON.parse(nvidiaResponse);
+    const raw = await callLLM(prompt, undefined, 'json_object');
+    return JSON.parse(raw);
   } catch (error: any) {
     if (error instanceof ApiRateLimitError) throw error;
     throw new Error(cleanErrorMessage(error));
   }
+}
+
+// ──────────────────────────────────────────────
+// 9. NEW public functions (TTS, STT, Video)
+// ──────────────────────────────────────────────
+export async function synthesizeSpeech(text: string, voiceName?: string): Promise<string> {
+  if (!hasKey(GEMINI_KEY)) throw new Error('Gemini API key required for TTS');
+  return callGeminiTTS(text, voiceName);
+}
+
+export async function transcribeSpeech(audioBlob: Blob): Promise<string> {
+  if (!hasKey(EL_KEY)) throw new Error('ElevenLabs API key required for STT');
+  return callElevenLabsSTT(audioBlob);
+}
+
+export async function generateTopicVideo(
+  prompt: string,
+  aspectRatio: '16:9' | '9:16' = '16:9',
+): Promise<string> {
+  if (!hasKey(GEMINI_KEY)) throw new Error('Gemini API key required for Veo');
+  return callVeo31Lite(prompt, aspectRatio);
+}
+
+// ──────────────────────────────────────────────
+// 10. PCM → WAV helper (for Gemini TTS)
+// ──────────────────────────────────────────────
+function pcmToWavBase64(rawBase64: string, mimeType: string): string {
+  const sampleRate = 24000; // Gemini default
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+
+  const rawBytes = Uint8Array.from(atob(rawBase64), c => c.charCodeAt(0));
+  const dataSize = rawBytes.length;
+  const headerSize = 44;
+  const buffer = new ArrayBuffer(headerSize + dataSize);
+  const view = new DataView(buffer);
+
+  // RIFF header
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);           // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  const wavBytes = new Uint8Array(buffer);
+  wavBytes.set(rawBytes, headerSize);
+
+  let binary = '';
+  for (let i = 0; i < wavBytes.length; i++) binary += String.fromCharCode(wavBytes[i]);
+  return btoa(binary);
+}
+
+function writeString(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
 }
