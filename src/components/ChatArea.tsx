@@ -63,6 +63,63 @@ interface Props {
   hasNextChapter?: boolean;
 }
 
+const EMOJIS = ['👍', '👎', '❤️', '😂', '😮', '🔖'];
+
+function YouTubeVideo({ video }: { video: { title: string, video_id: string } }) {
+  const [captions, setCaptions] = useState<any[] | null>(null);
+  const [showCC, setShowCC] = useState(false);
+  const [loadingCC, setLoadingCC] = useState(false);
+
+  const toggleCC = async () => {
+    if (!showCC && !captions) {
+      setLoadingCC(true);
+      try {
+        const res = await fetch(`/api/youtube/${video.video_id}/captions`);
+        if (res.ok) {
+          const data = await res.json();
+          setCaptions(data);
+        }
+      } catch (err) {
+        console.error('Failed to load captions', err);
+      } finally {
+        setLoadingCC(false);
+      }
+    }
+    setShowCC(!showCC);
+  };
+
+  return (
+    <div className="bg-black/20 rounded-xl overflow-hidden border border-white/5 flex flex-col hover:border-cyan-500/30 transition-colors shadow-xl relative aspect-video flex-shrink-0 min-w-[280px]">
+      <div className="aspect-video bg-black relative">
+        <iframe 
+          src={`https://www.youtube.com/embed/${video.video_id}`} 
+          title={video.title} 
+          className="w-full h-full absolute inset-0 border-0"
+          allowFullScreen
+        />
+        <button 
+          onClick={toggleCC}
+          className={cn(
+            "absolute top-2 right-2 p-1.5 rounded text-xs font-bold transition-colors z-10 shadow-lg backdrop-blur-md border",
+            showCC ? "bg-cyan-500 text-white border-cyan-400" : "bg-black/60 text-white/70 border-white/20 hover:text-white hover:bg-black/80"
+          )}
+        >
+          {loadingCC ? '...' : 'CC'}
+        </button>
+      </div>
+      {showCC && captions && (
+        <div className="bg-black/90 p-3 max-h-[150px] overflow-y-auto w-full text-xs text-white/80 border-t border-white/10 custom-scrollbar absolute bottom-0 left-0 z-20">
+          {captions.length > 0 ? captions.map((c, i) => (
+            <span key={i} className="mr-1">{c.text}</span>
+          )) : (
+            <p className="opacity-50 italic">No captions available.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter }: Props) {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
@@ -114,6 +171,41 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleReact = async (messageId: string, emoji: string) => {
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId) {
+        const currentReactions = msg.reactions || {};
+        const emojiUsers = currentReactions[emoji] || [];
+        const isReacted = user && emojiUsers.includes(user.id);
+        const newReactions = { ...currentReactions };
+        if (isReacted) {
+          newReactions[emoji] = emojiUsers.filter(id => id !== user?.id);
+        } else {
+          newReactions[emoji] = [...emojiUsers, user?.id || ''];
+        }
+        return { ...msg, reactions: newReactions };
+      }
+      return msg;
+    }));
+
+    if (!chapter.id.startsWith('lib_')) {
+      try {
+        const res = await fetch(`/api/chats/${messageId}/react`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emoji })
+        });
+        if (!res.ok) throw new Error('Failed to react');
+        const data = await res.json();
+        if (data.reactions) {
+          setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: data.reactions } : msg));
+        }
+      } catch (err) {
+        console.error('Reaction error:', err);
+      }
+    }
   };
 
   const handleSendMessage = async (text: string) => {
@@ -630,6 +722,21 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                   )}
                 </div>
 
+                <div className={cn("flex flex-wrap gap-1.5 mt-1", msg.role === 'user' ? "justify-end" : "justify-start")}>
+                  {EMOJIS.map(emoji => {
+                    const count = msg.reactions?.[emoji]?.length || 0;
+                    const isReacted = user && msg.reactions?.[emoji]?.includes(user.id);
+                    if (count === 0) return (
+                      <button key={emoji} onClick={() => handleReact(msg.id, emoji)} className="opacity-0 group-hover:opacity-100 transition-opacity text-sm p-1 hover:scale-125 focus:opacity-100 grayscale hover:grayscale-0">{emoji}</button>
+                    );
+                    return (
+                      <button key={emoji} onClick={() => handleReact(msg.id, emoji)} className={cn("flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-colors", isReacted ? "bg-cyan-500/20 border-cyan-500/30 text-cyan-400" : "bg-white/5 border-white/10 text-white/70 hover:bg-white/10")}>
+                        <span>{emoji}</span><span className="text-[10px]">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {msg.recommended_videos && msg.recommended_videos.length > 0 && (
                   <motion.div 
                     initial={{ opacity: 0 }}
@@ -643,14 +750,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {msg.recommended_videos.map((video, vIdx) => (
                         <div key={vIdx} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden flex flex-col">
-                          <div className="aspect-video bg-black relative">
-                            <iframe 
-                              src={`https://www.youtube.com/embed/${video.video_id}`} 
-                              title={video.title} 
-                              className="w-full h-full absolute inset-0 border-0"
-                              allowFullScreen
-                            />
-                          </div>
+                          <YouTubeVideo video={video} />
                           <div className="p-3 flex flex-col flex-1">
                             <div className="flex justify-between items-start mb-2">
                               <h4 className="text-sm font-medium text-white line-clamp-2" title={video.title}>{video.title}</h4>

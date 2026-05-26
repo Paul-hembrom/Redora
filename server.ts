@@ -715,6 +715,26 @@ app.get('/api/chapters/:id/generation-job', authenticate, async (req: any, res) 
   }
 });
 
+app.patch('/api/scenes/:id', authenticate, async (req: any, res) => {
+  try {
+    const sceneId = req.params.id;
+    const { narration, visual_prompt } = req.body;
+    const scenes = await sql`SELECT * FROM scenes WHERE id = ${sceneId}`;
+    if (!scenes.length) return res.status(404).json({ error: 'Scene not found' });
+    
+    // update only provided fields
+    if (narration !== undefined) {
+      await sql`UPDATE scenes SET narration = ${narration} WHERE id = ${sceneId}`;
+    }
+    if (visual_prompt !== undefined) {
+      await sql`UPDATE scenes SET visual_prompt = ${visual_prompt} WHERE id = ${sceneId}`;
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
   try {
     const orgId = req.body.org_id || req.query.org_id;
@@ -743,6 +763,20 @@ app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
 // --- Video Retrieval Route ---
 import ytSearch from 'yt-search';
 import { GoogleGenAI } from '@google/genai';
+import { getSubtitles } from 'youtube-captions-scraper';
+
+app.get('/api/youtube/:videoId/captions', authenticate, async (req: any, res) => {
+  try {
+    const { videoId } = req.params;
+    const captions = await getSubtitles({
+      videoID: videoId,
+      lang: 'en'
+    });
+    res.json(captions);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
   try {
@@ -1191,6 +1225,9 @@ app.get('/api/school/usage', authenticate, async (req: any, res) => {
 // --- Chat Routes ---
 app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
+    try {
+      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
+    } catch(e) {}
     const chats = await sql`SELECT * FROM chats WHERE chapter_id = ${req.params.chapterId} AND user_id = ${req.userId} ORDER BY created_at ASC`;
     const result = chats.map(c => ({
       id: c.id,
@@ -1200,9 +1237,33 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       followUps: c.follow_ups ? JSON.parse(c.follow_ups) : undefined,
       type: c.type,
       actionData: c.action_data ? JSON.parse(c.action_data) : undefined,
-      recommended_videos: c.recommended_videos ? JSON.parse(c.recommended_videos) : undefined
+      recommended_videos: c.recommended_videos ? JSON.parse(c.recommended_videos) : undefined,
+      reactions: c.reactions || undefined
     }));
     res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
+  const { messageId } = req.params;
+  const { emoji } = req.body;
+  if (!['👍', '👎', '❤️', '😂', '😮', '🔖'].includes(emoji)) {
+    return res.status(400).json({ error: 'Invalid emoji' });
+  }
+  try {
+    const chatsRecord = await sql`SELECT reactions FROM chats WHERE id = ${messageId}`;
+    if (chatsRecord.length === 0) return res.status(404).json({ error: 'Message not found' });
+    let reactions = chatsRecord[0].reactions || {};
+    reactions[emoji] = reactions[emoji] || [];
+    if (reactions[emoji].includes(req.userId)) {
+      reactions[emoji] = reactions[emoji].filter((id: string) => id !== req.userId);
+    } else {
+      reactions[emoji].push(req.userId);
+    }
+    await sql`UPDATE chats SET reactions = ${reactions} WHERE id = ${messageId}`;
+    res.json({ success: true, reactions });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { RefreshCw, PlayCircle, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { cn } from '../../lib/utils';
 
 interface Scene {
   id: string;
@@ -20,12 +21,40 @@ interface SceneCardProps {
 export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
   const { user } = useAuth();
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [editingField, setEditingField] = useState<'narration' | 'visual_prompt' | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const handleRegenerate = async () => {
     setIsRegenerating(true);
     await onRegenerate(scene.id);
-    // Ideally parent handles state update via polling or websocket.
     setTimeout(() => setIsRegenerating(false), 2000); 
+  };
+
+  const startInlineEdit = (field: 'narration' | 'visual_prompt', value: string) => {
+    if (user?.role === 'student' || isRegenerating) return;
+    setEditingField(field);
+    setEditValue(value);
+  };
+
+  const saveInlineEdit = async () => {
+    if (!editingField || !editValue.trim() || editValue === scene[editingField]) {
+      setEditingField(null);
+      return;
+    }
+    const fieldToSave = editingField;
+    const valueToSave = editValue;
+    setEditingField(null);
+    scene[fieldToSave] = valueToSave;
+
+    try {
+      await fetch(`/api/scenes/${scene.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [fieldToSave]: valueToSave })
+      });
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return (
@@ -67,16 +96,46 @@ export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
         <div className="space-y-4 flex-1">
           <div>
             <p className="text-xs uppercase tracking-widest text-cyan-500 font-semibold mb-1 hidden">Narration</p>
-            <p className="text-sm font-serif leading-relaxed text-white/80 italic border-l-2 border-cyan-500/30 pl-3">
-              "{scene.narration}"
-            </p>
+            {editingField === 'narration' ? (
+              <textarea 
+                className="w-full bg-black/40 border border-cyan-500/50 rounded-md p-2 text-sm font-serif text-white outline-none resize-none"
+                autoFocus 
+                rows={3}
+                value={editValue} 
+                onChange={(e) => setEditValue(e.target.value)} 
+                onBlur={saveInlineEdit}
+              />
+            ) : (
+              <p 
+                className={cn("text-sm font-serif leading-relaxed text-white/80 italic border-l-2 border-cyan-500/30 pl-3", user?.role !== 'student' && "cursor-pointer hover:bg-white/5 rounded-r-md transition-colors")}
+                onClick={() => startInlineEdit('narration', scene.narration)}
+                title={user?.role !== 'student' ? "Click to edit narration" : ""}
+              >
+                "{scene.narration}"
+              </p>
+            )}
           </div>
           
           <div>
             <p className="text-[10px] uppercase tracking-widest text-white/40 font-semibold mb-1">Visual Prompt</p>
-            <p className="text-xs text-white/60 leading-normal">
-              {scene.visual_prompt}
-            </p>
+            {editingField === 'visual_prompt' ? (
+              <textarea 
+                className="w-full bg-black/40 border border-cyan-500/50 rounded-md p-2 text-xs text-white outline-none resize-none"
+                autoFocus 
+                rows={2}
+                value={editValue} 
+                onChange={(e) => setEditValue(e.target.value)} 
+                onBlur={saveInlineEdit}
+              />
+            ) : (
+              <p 
+                className={cn("text-xs text-white/60 leading-normal", user?.role !== 'student' && "cursor-pointer hover:bg-white/5 rounded-md p-1 -m-1 transition-colors")}
+                onClick={() => startInlineEdit('visual_prompt', scene.visual_prompt)}
+                title={user?.role !== 'student' ? "Click to edit prompt" : ""}
+              >
+                {scene.visual_prompt}
+              </p>
+            )}
           </div>
         </div>
 

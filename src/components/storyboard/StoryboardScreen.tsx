@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Film, PlayCircle, Plus } from 'lucide-react';
+import { Film, PlayCircle, Plus, Download } from 'lucide-react';
 import VideoPlayer from './VideoPlayer';
 import ProgressBar from './ProgressBar';
 import SceneCard from './SceneCard';
 import { useAuth } from '../../contexts/AuthContext';
+import JSZip from 'jszip';
 
 interface StoryboardScreenProps {
   chapterId: string;
@@ -98,13 +99,70 @@ export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
 
   const isProcessing = job.status === 'pending' || job.status === 'processing' || job.status === 'generating';
 
+  const [isDownloading, setIsDownloading] = useState(false);
+  const handleDownloadAssets = async () => {
+    setIsDownloading(true);
+    try {
+      const zip = new JSZip();
+      let index = 1;
+
+      for (const scene of scenes) {
+        if (scene.image_url && !scene.image_url.startsWith('file://')) {
+          try {
+            const res = await fetch(scene.image_url);
+            const blob = await res.blob();
+            zip.file(`scene_${index}_visual.jpg`, blob);
+          } catch (e) {
+            console.error('Failed to grab image', e);
+          }
+        }
+        if (scene.narration_url && !scene.narration_url.startsWith('file://')) {
+          try {
+            const res = await fetch(scene.narration_url);
+            const blob = await res.blob();
+            zip.file(`scene_${index}_audio.mp3`, blob);
+          } catch (e) {
+            console.error('Failed to grab audio', e);
+          }
+        }
+        index++;
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `storyboard_assets_${chapterId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-5xl mx-auto py-8">
-      <div className="mb-8 border-b border-white/10 pb-6">
-        <h2 className="text-3xl font-bold text-white tracking-tight mb-2">Video Lesson</h2>
-        <div className="flex items-center gap-3 text-sm text-white/50">
-          <span className="px-2 py-1 bg-white/5 rounded">Status: {job.status}</span>
+      <div className="mb-8 border-b border-white/10 pb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-white tracking-tight mb-2">Video Lesson</h2>
+          <div className="flex items-center gap-3 text-sm text-white/50">
+            <span className="px-2 py-1 bg-white/5 rounded">Status: {job.status}</span>
+          </div>
         </div>
+        {!isProcessing && scenes.length > 0 && (
+          <button 
+            onClick={handleDownloadAssets}
+            disabled={isDownloading}
+            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-sm transition-colors border border-white/10"
+          >
+            <Download className={`w-4 h-4 ${isDownloading ? 'animate-bounce' : ''}`} />
+            {isDownloading ? 'Packaging...' : 'Download Assets'}
+          </button>
+        )}
       </div>
 
       {isProcessing && (

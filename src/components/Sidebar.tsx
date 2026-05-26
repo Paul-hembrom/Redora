@@ -214,8 +214,54 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   
   const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null);
   const [editingSummaryDraft, setEditingSummaryDraft] = useState('');
+
+  useEffect(() => {
+    if (editingSummaryId) {
+      const timeout = setTimeout(() => {
+        try {
+          localStorage.setItem(`summary_draft_${editingSummaryId}`, editingSummaryDraft);
+        } catch(e) {}
+      }, 5000);
+      return () => clearTimeout(timeout);
+    }
+  }, [editingSummaryId, editingSummaryDraft]);
   
   const [userUsage, setUserUsage] = useState<any>(null);
+
+// ... later in the file ...
+
+  const startEditingSummary = (e: React.MouseEvent, chapterId: string, currentSummary: string) => {
+    e.stopPropagation();
+    setEditingSummaryId(chapterId);
+    let drafted = currentSummary;
+    try {
+      const saved = localStorage.getItem(`summary_draft_${chapterId}`);
+      if (saved) drafted = saved;
+    } catch(e) {}
+    setEditingSummaryDraft(drafted);
+    setExpandedSummaries(prev => {
+      const next = new Set(prev);
+      next.add(chapterId);
+      return next;
+    });
+  };
+
+  const saveSummary = async (e: React.MouseEvent, chapterId: string) => {
+    e.stopPropagation();
+    if (editingSummaryDraft.trim()) {
+       await onUpdateSummary?.(chapterId, editingSummaryDraft);
+       try { localStorage.removeItem(`summary_draft_${chapterId}`); } catch(e) {}
+    }
+    setEditingSummaryId(null);
+  };
+
+  const cancelEditingSummary = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (editingSummaryId) {
+      try { localStorage.removeItem(`summary_draft_${editingSummaryId}`); } catch(e) {}
+    }
+    setEditingSummaryId(null);
+  };
   const [showPricing, setShowPricing] = useState(false);
 
   const fetchUsage = () => {
@@ -308,29 +354,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     setExpandedSummaries(newSet);
   };
 
-  const startEditingSummary = (e: React.MouseEvent, chapterId: string, currentSummary: string) => {
-    e.stopPropagation();
-    setEditingSummaryId(chapterId);
-    setEditingSummaryDraft(currentSummary);
-    setExpandedSummaries(prev => {
-      const next = new Set(prev);
-      next.add(chapterId);
-      return next;
-    });
-  };
-
-  const saveSummary = async (e: React.MouseEvent, chapterId: string) => {
-    e.stopPropagation();
-    if (editingSummaryDraft.trim()) {
-       await onUpdateSummary?.(chapterId, editingSummaryDraft);
-    }
-    setEditingSummaryId(null);
-  };
-
-  const cancelEditingSummary = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingSummaryId(null);
-  };
+// Removed duplicates
 
   const handleCopySummary = (e: React.MouseEvent, id: string, text: string) => {
     e.stopPropagation();

@@ -38,4 +38,5 @@ export interface ChatMessage {
   actionData?: any;
   recommended_videos?: any[];
   images?: { url: string, thumbnail: string, alt: string, source: 'real' | 'generated' }[];
+  reactions?: Record<string, string[]>;
 }
