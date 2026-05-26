@@ -106,73 +106,43 @@ export class SubscriptionLimitError extends Error {
 }
 
 async function enforceSchoolLimits(userId: string, type: 'video' | 'image' | 'interactive', requestedOrgId?: string): Promise<boolean> {
-  let schoolId = null;
-  if (requestedOrgId && requestedOrgId !== 'demo' && requestedOrgId !== 'default_org') {
+  // Normal users (no org_id) - immediately return true with no database query
+  if (!requestedOrgId || requestedOrgId === 'demo' || requestedOrgId === 'default_org') {
+    return true;
+  }
+  
+  try {
+    let schoolId = null;
+    let role = null;
+
     const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${requestedOrgId}`;
-    if (orgs.length > 0) schoolId = orgs[0].school_id;
-  }
-  if (!schoolId) {
-    const userOrgs = await sql`SELECT o.school_id FROM organizations o JOIN organization_users ou ON o.id = ou.organization_id WHERE ou.user_id = ${userId} LIMIT 1`;
-    if (userOrgs.length > 0) schoolId = userOrgs[0].school_id;
-  }
-  
-  if (!schoolId) return false; // not part of a school
+    if (orgs.length > 0) {
+      schoolId = orgs[0].school_id;
+    }
 
-  const subs = await sql`SELECT plan FROM school_subscriptions WHERE school_id = ${schoolId}`;
-  const plan = subs.length > 0 ? (subs[0].plan || 'Starter') : 'Starter';
+    // 1. Query organization_members to get the user's role
+    const members = await sql`SELECT role FROM organization_members WHERE organization_id = ${requestedOrgId} AND user_id = ${userId} LIMIT 1`;
+    if (members.length > 0) {
+      role = members[0].role;
+    }
 
-  let usages = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
-  if (usages.length === 0) {
-    await sql`INSERT INTO school_usage (school_id, videos_generated_this_month, image_searches_this_month, interactive_lessons_this_month, billing_period_start) VALUES (${schoolId}, 0, 0, 0, CURRENT_DATE)`;
-    usages = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+    if (schoolId) {
+      // 2. If school is locked, throw error
+      const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${schoolId}`;
+      if (subs.length > 0 && subs[0].status === 'locked') {
+        throw new SubscriptionLimitError('School account suspended');
+      }
+    }
+    
+    // 3. Otherwise, return true
+    return true;
+  } catch (err: any) {
+    if (err.name === 'SubscriptionLimitError') throw err;
+    if (err.message && err.message.includes('does not exist')) {
+      return true; // Missing tables, fallback safely
+    }
+    throw err;
   }
-  let usage = usages[0];
-
-  const today = new Date();
-  const bpStart = new Date(usage.billing_period_start);
-  if (today.getMonth() !== bpStart.getMonth() || today.getFullYear() !== bpStart.getFullYear()) {
-    await sql`UPDATE school_usage 
-              SET videos_generated_this_month = 0, 
-                  image_searches_this_month = 0, 
-                  interactive_lessons_this_month = 0, 
-                  billing_period_start = CURRENT_DATE 
-              WHERE school_id = ${schoolId}`;
-    usage.videos_generated_this_month = 0;
-    usage.image_searches_this_month = 0;
-    usage.interactive_lessons_this_month = 0;
-  }
-
-  let limit = 0;
-  let currentUsage = 0;
-  let errorMsg = '';
-
-  if (type === 'video') {
-    currentUsage = usage.videos_generated_this_month;
-    limit = plan === 'Enterprise' ? 50 : (plan === 'Growth' ? 25 : 10);
-    errorMsg = 'Monthly video limit reached. Upgrade your plan.';
-  } else if (type === 'image') {
-    currentUsage = usage.image_searches_this_month;
-    limit = plan === 'Enterprise' ? Infinity : (plan === 'Growth' ? 50 : 20);
-    errorMsg = 'Monthly image limit reached. Upgrade your plan.';
-  } else if (type === 'interactive') {
-    currentUsage = usage.interactive_lessons_this_month;
-    limit = plan === 'Enterprise' ? 30 : (plan === 'Growth' ? 10 : 5);
-    errorMsg = 'Monthly interactive lesson limit reached. Upgrade your plan.';
-  }
-
-  if (currentUsage >= limit) {
-    throw new SubscriptionLimitError(errorMsg);
-  }
-
-  if (type === 'video') {
-    await sql`UPDATE school_usage SET videos_generated_this_month = videos_generated_this_month + 1 WHERE school_id = ${schoolId}`;
-  } else if (type === 'image') {
-    await sql`UPDATE school_usage SET image_searches_this_month = image_searches_this_month + 1 WHERE school_id = ${schoolId}`;
-  } else if (type === 'interactive') {
-    await sql`UPDATE school_usage SET interactive_lessons_this_month = interactive_lessons_this_month + 1 WHERE school_id = ${schoolId}`;
-  }
-  
-  return true;
 }
 
 // --- Gateway Token Exchange Route ---
@@ -189,12 +159,18 @@ app.get('/auth/token-exchange', async (req, res) => {
     
     // School Lock Check
     if (decoded.org_id) {
-       const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${decoded.org_id}`;
-       if (orgs.length > 0 && orgs[0].school_id) {
-          const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${orgs[0].school_id}`;
-          if (subs.length > 0 && subs[0].status === 'locked') {
-             return res.status(403).send('School account suspended');
-          }
+       try {
+         const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${decoded.org_id}`;
+         if (orgs.length > 0 && orgs[0].school_id) {
+            const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${orgs[0].school_id}`;
+            if (subs.length > 0 && subs[0].status === 'locked') {
+               return res.status(403).send('School account suspended');
+            }
+         }
+       } catch (err: any) {
+         if (err.message && !err.message.includes('does not exist')) {
+           console.error('Error during school lock check:', err);
+         }
        }
     }
 
@@ -1126,13 +1102,20 @@ app.get('/api/school/usage', authenticate, async (req: any, res) => {
     let schoolId = null;
     const orgId = req.query.orgId;
     
-    if (orgId && orgId !== 'demo' && orgId !== 'default_org') {
-      const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${orgId}`;
-      if (orgs.length > 0) schoolId = orgs[0].school_id;
-    }
-    if (!schoolId) {
-      const userOrgs = await sql`SELECT o.school_id FROM organizations o JOIN organization_users ou ON o.id = ou.organization_id WHERE ou.user_id = ${req.userId} LIMIT 1`;
-      if (userOrgs.length > 0) schoolId = userOrgs[0].school_id;
+    try {
+      if (orgId && orgId !== 'demo' && orgId !== 'default_org') {
+        const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${orgId}`;
+        if (orgs.length > 0) schoolId = orgs[0].school_id;
+      }
+      if (!schoolId) {
+        const userOrgs = await sql`SELECT o.school_id FROM organizations o JOIN organization_members ou ON o.id = ou.organization_id WHERE ou.user_id = ${req.userId} LIMIT 1`;
+        if (userOrgs.length > 0) schoolId = userOrgs[0].school_id;
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes('does not exist')) {
+        return res.json({ error: 'No school associated with this account (tables missing)' });
+      }
+      throw err;
     }
     
     if (!schoolId) {
