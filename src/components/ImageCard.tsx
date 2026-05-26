@@ -35,20 +35,20 @@ export function ImageCard({ image }: ImageCardProps) {
 
       {isOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
           onClick={() => setIsOpen(false)}
         >
-          <div className="relative max-w-5xl max-h-[90vh] w-full flex items-center justify-center">
-            <button 
-              className="absolute -top-12 right-0 p-2 text-white/50 hover:text-white transition-colors"
-              onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
-            >
-              <X className="w-8 h-8" />
-            </button>
+          <button 
+            className="absolute top-6 right-6 p-3 text-white/70 hover:text-white transition-colors z-[60] bg-black/40 hover:bg-black/60 rounded-full border border-white/10"
+            onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center">
             <img 
               src={image.url} 
               alt={image.alt} 
-              className="w-full h-full object-contain rounded-lg shadow-2xl"
+              className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             />
           </div>
