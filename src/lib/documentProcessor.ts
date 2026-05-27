@@ -30,13 +30,13 @@ const STOP_WORDS = new Set([
 /** Maximum characters per chunk sent to the AI hierarchy API. */
 const MAX_CHUNK_SIZE = 25_000;
 
-/** Maximum concurrent AI hierarchy API calls at any time. */
+/** Maximum concurrent AI hierarchy API calls (used only for fallback single calls) */
 const MAX_CONCURRENCY = 3;
 
-/** Maximum number of retry attempts for rate-limited API calls. */
+/** Maximum number of retry attempts for rate-limited or transient errors. */
 const MAX_RETRIES = 4;
 
-/** Base delay (ms) for exponential backoff on rate-limit errors. */
+/** Base delay (ms) for exponential backoff. */
 const BACKOFF_BASE_MS = 5_000;
 
 // ---------------------------------------------------------------------------
@@ -64,7 +64,6 @@ export function preprocessText(text: string, options: PreprocessOptions): string
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
-// A minimal p-limit equivalent so we don't need an extra dependency.
 // ---------------------------------------------------------------------------
 function createConcurrencyLimit(concurrency: number) {
   let active = 0;
@@ -93,8 +92,18 @@ function createConcurrencyLimit(concurrency: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Bug fix #6 — retry wrapper with exponential backoff for ApiRateLimitError
+// Retry wrapper – now covers transient errors (rate limit + 503/network)
 // ---------------------------------------------------------------------------
+function isTransientError(err: unknown): boolean {
+  if (err instanceof ApiRateLimitError) return true;
+  // Check for common HTTP transient error codes
+  if (err instanceof Error && err.message) {
+    const msg = err.message;
+    return /\b(?:503|429|502|504)\b/.test(msg) || /service unavailable/i.test(msg);
+  }
+  return false;
+}
+
 async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries = MAX_RETRIES,
@@ -104,41 +113,25 @@ async function withRetry<T>(
     try {
       return await fn();
     } catch (err) {
-      const isRateLimit = err instanceof ApiRateLimitError;
-      if (!isRateLimit || attempt === maxRetries) throw err;
+      if (!isTransientError(err) || attempt === maxRetries) throw err;
 
-      // Use server-supplied retry-after when available, else exponential backoff.
       const delay =
-        (err as ApiRateLimitError).retryAfterMs ??
-        baseDelayMs * Math.pow(2, attempt);
+        err instanceof ApiRateLimitError && (err as ApiRateLimitError).retryAfterMs
+          ? (err as ApiRateLimitError).retryAfterMs
+          : baseDelayMs * Math.pow(2, attempt);
       console.warn(
-        `[documentProcessor] Rate limit hit — retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`,
+        `[documentProcessor] Transient error – retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`,
       );
       await new Promise(r => setTimeout(r, delay));
     }
   }
-  // TypeScript requires this but it is unreachable.
+  // Unreachable but required by TS
   throw new Error('withRetry: unreachable');
 }
 
 // ---------------------------------------------------------------------------
 // File text extraction
 // ---------------------------------------------------------------------------
-
-/**
- * Extracts plain text from a supported file type.
- *
- * Bug fix #1 — for PDFs the raw File/Blob is handed directly to pdf.js so the
- * browser never materialises a 500 MB ArrayBuffer in the JS heap.  For smaller
- * binary formats (docx, epub, images) we still read the buffer on demand inside
- * each branch rather than eagerly at the top of the function.
- *
- * Bug fix #2 — PDF text is accumulated into a string[] and yielded as discrete
- * page strings rather than one ever-growing concatenated string.
- *
- * Bug fix #7 — EPUB spine iteration now uses the correct epubjs API
- * (`spine.spineItems`) instead of the non-existent `spine.length` / `spine.get(i)`.
- */
 export async function extractTextFromFile(
   file: File,
   onProgress?: (msg: string) => void,
@@ -146,7 +139,7 @@ export async function extractTextFromFile(
   const extension = file.name.split('.').pop()?.toLowerCase();
 
   // ------------------------------------------------------------------
-  // Plain text — safe to read fully; typically tiny.
+  // Plain text
   // ------------------------------------------------------------------
   if (extension === 'txt') {
     const buf = await file.arrayBuffer();
@@ -154,7 +147,7 @@ export async function extractTextFromFile(
   }
 
   // ------------------------------------------------------------------
-  // EPUB — Bug fix #7: use spineItems instead of spine.length/spine.get
+  // EPUB – using correct spineItems API
   // ------------------------------------------------------------------
   if (extension === 'epub') {
     if (onProgress) onProgress('Parsing EPUB…');
@@ -163,7 +156,6 @@ export async function extractTextFromFile(
     await book.ready;
 
     let text = '';
-    // epubjs v0.3+: spine.spineItems is the correct array of spine items.
     const spineItems: any[] = (book.spine as any).spineItems ?? [];
 
     for (let i = 0; i < spineItems.length; i++) {
@@ -189,7 +181,7 @@ export async function extractTextFromFile(
   }
 
   // ------------------------------------------------------------------
-  // Images — read buffer on demand
+  // Images
   // ------------------------------------------------------------------
   if (['jpg', 'jpeg', 'png', 'webp'].includes(extension ?? '')) {
     if (onProgress) onProgress('Extracting text from image using AI…');
@@ -202,16 +194,7 @@ export async function extractTextFromFile(
   }
 
   // ------------------------------------------------------------------
-  // PDF — Bug fix #1 + Bug fix #2
-  //
-  // Pass the raw File (a Blob) directly to pdf.js so the browser can
-  // stream pages from disk instead of loading 500 MB into the heap.
-  //
-  // Pages are extracted in batches of 10 and immediately pushed onto a
-  // string[] rather than concatenated into an ever-growing string.
-  // The caller (processDocument) receives the joined result, but the
-  // per-page strings are freed by GC as we go rather than all being
-  // alive simultaneously.
+  // PDF – streaming via blob URL to avoid huge ArrayBuffer
   // ------------------------------------------------------------------
   if (extension === 'pdf') {
     const extractPdf = async (workerSrc?: string): Promise<string> => {
@@ -219,19 +202,14 @@ export async function extractTextFromFile(
         pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
       }
 
-      // Bug fix #1: pass the File (Blob) via `url` so pdf.js uses its
-      // own range-request / streaming loader instead of a pre-loaded buffer.
       const fileUrl = URL.createObjectURL(file);
       let pdf: pdfjsLib.PDFDocumentProxy;
       try {
         pdf = await pdfjsLib.getDocument(fileUrl).promise;
       } finally {
-        // Revoke immediately after pdf.js has opened the document.
         URL.revokeObjectURL(fileUrl);
       }
 
-      // Bug fix #2: collect page strings; join once at the end so the
-      // intermediate array can be GC'd in slices rather than never freed.
       const pageTexts: string[] = new Array(pdf.numPages);
       const batchSize = 10;
 
@@ -243,14 +221,13 @@ export async function extractTextFromFile(
 
         const batchPromises: Promise<void>[] = [];
         for (let j = i; j <= end; j++) {
-          const pageIndex = j - 1; // zero-based index into pageTexts
+          const pageIndex = j - 1;
           batchPromises.push(
             pdf.getPage(j).then(async page => {
               const content = await page.getTextContent();
               pageTexts[pageIndex] = content.items
                 .map((item: any) => item.str)
                 .join(' ');
-              // Release the page from pdf.js internal cache to free memory.
               page.cleanup();
             }),
           );
@@ -278,76 +255,81 @@ export async function extractTextFromFile(
 }
 
 // ---------------------------------------------------------------------------
-// Chapter / chunk splitting
+// Chapter / chunk splitting – improved to avoid single‑line chunks
 // ---------------------------------------------------------------------------
 export function splitIntoChapters(text: string): string[] {
+  // Try common chapter/section headers first.
   const chapterRegex = /\n(?=(?:Chapter|Section|Part)\s+[0-9IVX]+)/gi;
   const originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 100);
 
   let parts = originalSplits.length > 1 ? originalSplits : text.split(/\n\s*\n/);
 
-  // Fall back to single newlines when double-newline splits yield too few parts.
+  // If we still have too few parts, don't split on every newline – just do fixed‑size chunks.
   if (parts.length < 5 && originalSplits.length <= 1) {
-    parts = text.split('\n');
+    parts = []; // fall back to fixed‑size slicing below
   }
 
   const chunks: string[] = [];
   let currentChunk = '';
 
-  for (const part of parts) {
-    if (part.length > MAX_CHUNK_SIZE) {
-      // Flush current chunk first, then hard-slice the oversized part.
-      if (currentChunk) {
+  // If we have meaningful parts, merge them respecting MAX_CHUNK_SIZE.
+  if (parts.length > 0) {
+    for (const part of parts) {
+      if (part.length > MAX_CHUNK_SIZE) {
+        if (currentChunk) {
+          chunks.push(currentChunk);
+          currentChunk = '';
+        }
+        for (let i = 0; i < part.length; i += MAX_CHUNK_SIZE) {
+          chunks.push(part.slice(i, i + MAX_CHUNK_SIZE));
+        }
+      } else if (
+        currentChunk.length + part.length > MAX_CHUNK_SIZE &&
+        currentChunk.length > 0
+      ) {
         chunks.push(currentChunk);
-        currentChunk = '';
+        currentChunk = part;
+      } else {
+        currentChunk += (currentChunk ? '\n' : '') + part;
       }
-      for (let i = 0; i < part.length; i += MAX_CHUNK_SIZE) {
-        chunks.push(part.slice(i, i + MAX_CHUNK_SIZE));
-      }
-    } else if (
-      currentChunk.length + part.length > MAX_CHUNK_SIZE &&
-      currentChunk.length > 0
-    ) {
-      chunks.push(currentChunk);
-      currentChunk = part;
-    } else {
-      currentChunk += (currentChunk ? '\n' : '') + part;
     }
-  }
-
-  if (currentChunk) chunks.push(currentChunk);
-
-  // Absolute fallback — should never be reached but guarantees non-empty output.
-  if (chunks.length === 0) {
+    if (currentChunk) chunks.push(currentChunk);
+  } else {
+    // No structural breaks – just slice by MAX_CHUNK_SIZE.
     for (let i = 0; i < text.length; i += MAX_CHUNK_SIZE) {
       chunks.push(text.slice(i, i + MAX_CHUNK_SIZE));
     }
+  }
+
+  // Guarantee non‑empty output.
+  if (chunks.length === 0) {
+    chunks.push(text);
   }
 
   return chunks;
 }
 
 // ---------------------------------------------------------------------------
-// Hierarchy parsing helpers
+// Hierarchy parsing – now assigns content correctly to chapters
 // ---------------------------------------------------------------------------
 
 /**
- * Parses a single hierarchy object returned by the AI and pushes the resulting
- * Chapter records onto `allChapters`.
- *
- * Bug fix #5 — added the missing top-level `hierarchy.topics` branch so
- * documents whose AI response only contains topics are no longer silently
- * dropped.  Also removed the dead `rootArr` variable.
+ * Parses a single hierarchy object returned by the AI and pushes Chapter records.
+ * Content is placed on the chapter level; topics and parts get empty content
+ * to avoid duplication and oversized summaries.
  */
 function parseHierarchyIntoChapters(
   hierarchy: any,
   chunk: string,
   allChapters: Chapter[],
-  sortCounter: { value: number },
+  baseSortOrder: number, // guaranteed unique across chunks
+  chunkIndex: number,
 ): void {
   if (!hierarchy || typeof hierarchy !== 'object') {
     throw new Error('Invalid hierarchy format');
   }
+
+  let localCounter = baseSortOrder;
 
   if (hierarchy.parts && Array.isArray(hierarchy.parts)) {
     hierarchy.parts.forEach((part: any, pIdx: number) => {
@@ -357,10 +339,10 @@ function parseHierarchyIntoChapters(
         chapterNumber: pIdx + 1,
         title: part.title || `Part ${pIdx + 1}`,
         summary: part.summary || '',
-        content: '',
+        content: '', // parts are structural only
         isGenerating: false,
         parentId: null,
-        sortOrder: sortCounter.value++,
+        sortOrder: localCounter++,
         type: 'part',
         children: [],
       });
@@ -373,10 +355,10 @@ function parseHierarchyIntoChapters(
             chapterNumber: cIdx + 1,
             title: chap.title || `Chapter ${cIdx + 1}`,
             summary: chap.summary || '',
-            content: '',
+            content: chunk, // full chunk for the chapter (contains all its topics)
             isGenerating: false,
             parentId: partId,
-            sortOrder: sortCounter.value++,
+            sortOrder: localCounter++,
             type: 'chapter',
             children: [],
           });
@@ -388,10 +370,10 @@ function parseHierarchyIntoChapters(
                 chapterNumber: tIdx + 1,
                 title: topic.title || `Topic ${tIdx + 1}`,
                 summary: topic.summary || '',
-                content: topic.content || chunk,
+                content: '', // topics inherit context from parent chapter
                 isGenerating: false,
                 parentId: chapId,
-                sortOrder: sortCounter.value++,
+                sortOrder: localCounter++,
                 type: 'topic',
                 children: [],
               });
@@ -411,10 +393,10 @@ function parseHierarchyIntoChapters(
         chapterNumber: cIdx + 1,
         title: chap.title || `Chapter ${cIdx + 1}`,
         summary: chap.summary || '',
-        content: '',
+        content: chunk, // chapter owns the text
         isGenerating: false,
         parentId: null,
-        sortOrder: sortCounter.value++,
+        sortOrder: localCounter++,
         type: 'chapter',
         children: [],
       });
@@ -426,10 +408,10 @@ function parseHierarchyIntoChapters(
             chapterNumber: tIdx + 1,
             title: topic.title || `Topic ${tIdx + 1}`,
             summary: topic.summary || '',
-            content: topic.content || chunk,
+            content: '', // content resides in parent chapter
             isGenerating: false,
             parentId: chapId,
-            sortOrder: sortCounter.value++,
+            sortOrder: localCounter++,
             type: 'topic',
             children: [],
           });
@@ -439,7 +421,8 @@ function parseHierarchyIntoChapters(
     return;
   }
 
-  // Bug fix #5 — previously missing top-level topics branch.
+  // Top‑level topics (rare) – assign empty content to avoid duplication;
+  // the caller may later inject the chunk.
   if (hierarchy.topics && Array.isArray(hierarchy.topics)) {
     hierarchy.topics.forEach((topic: any, tIdx: number) => {
       allChapters.push({
@@ -447,10 +430,10 @@ function parseHierarchyIntoChapters(
         chapterNumber: tIdx + 1,
         title: topic.title || `Topic ${tIdx + 1}`,
         summary: topic.summary || '',
-        content: topic.content || chunk,
+        content: '', // cannot reliably split the chunk
         isGenerating: false,
         parentId: null,
-        sortOrder: sortCounter.value++,
+        sortOrder: localCounter++,
         type: 'topic',
         children: [],
       });
@@ -458,31 +441,12 @@ function parseHierarchyIntoChapters(
     return;
   }
 
-  // If the AI returned something valid but without any recognised keys,
-  // treat the whole chunk as a single unnamed section.
   throw new Error('Hierarchy contained no parts, chapters, or topics');
 }
 
 // ---------------------------------------------------------------------------
 // Main document processing pipeline
 // ---------------------------------------------------------------------------
-
-/**
- * Full pipeline: extract → preprocess → split → AI hierarchy → tree.
- *
- * Bug fix #1 + #2 — PDF memory usage: see extractTextFromFile.
- * Bug fix #3 — AI calls are now concurrency-limited (MAX_CONCURRENCY = 3)
- *              and dispatched in parallel rather than sequentially.
- * Bug fix #4 — the chapterMap rebuild no longer resets children arrays;
- *              parentId links are used correctly to build the tree.
- * Bug fix #5 — top-level topics branch added (see parseHierarchyIntoChapters).
- * Bug fix #6 — ApiRateLimitError triggers exponential backoff + retry via
- *              withRetry() instead of silently producing fallback sections.
- * Bug fix #8 — generateBatchChapterMetadata is now used when processing many
- *              chunks to reduce total API round-trips.
- * Bug fix #9 — onChapterDone callback is now invoked after each chapter is
- *              finalised.
- */
 export async function processDocument(
   file: File,
   options: PreprocessOptions,
@@ -492,45 +456,33 @@ export async function processDocument(
     onChapterDone?: (index: number, title: string, summary: string) => void;
   },
 ): Promise<Chapter[]> {
-  // Step 1 — extract raw text (streaming-safe for large PDFs).
+  // Step 1 – extract raw text (streaming‑safe for PDFs)
   onProgress('Extracting text…');
   const rawText = await extractTextFromFile(file, onProgress);
 
-  // Step 2 — optional NLP preprocessing.
+  // Step 2 – optional preprocessing
   onProgress('Preprocessing text…');
   const processedText = preprocessText(rawText, options);
 
-  // Step 3 — split into ≤25k-char chunks.
+  // Step 3 – split into ≤25k‑char chunks
   onProgress('Detecting structure…');
   const chunks = splitIntoChapters(processedText);
   onProgress(`Split into ${chunks.length} chunk(s). Analysing with AI…`);
 
-  // Step 4 — run AI hierarchy extraction on all chunks concurrently,
-  //           limited to MAX_CONCURRENCY simultaneous requests.
-  //           Bug fix #3: use concurrency limiter instead of sequential awaits.
-  const limit = createConcurrencyLimit(MAX_CONCURRENCY);
   const allChapters: Chapter[] = [];
-  const sortCounter = { value: 0 };
 
-  // We use a shared mutex-like object so that concurrent callbacks write
-  // into allChapters in order of sortCounter rather than race order.
-  // Each job captures its own chunk index for progress reporting.
-  const jobs = chunks.map((chunk, i) =>
-    limit(async () => {
-      const percent = Math.round(((i + 1) / chunks.length) * 100);
-      onProgress(
-        `AI analysis: chunk ${i + 1} of ${chunks.length} (${percent}%)…`,
-      );
-
-      let hierarchy: any = null;
-
-      // Bug fix #6: retry on rate-limit errors with exponential backoff.
-      try {
-        hierarchy = await withRetry(() => generateDocumentHierarchy(chunk, 3));
-      } catch (err) {
-        console.error(`[documentProcessor] Chunk ${i + 1} AI analysis failed:`, err);
-        // Graceful fallback — keep the raw chunk as an unnamed section.
-        const fallbackChapter: Chapter = {
+  // Step 4 – Use batch API when possible; fall back to individual calls.
+  if (chunks.length > 1) {
+    // BATCH PATH
+    onProgress(`Requesting structure for all ${chunks.length} chunks in one batch…`);
+    let hierarchies: any[];
+    try {
+      hierarchies = await withRetry(() => generateBatchChapterMetadata(chunks, 3));
+    } catch (err) {
+      console.error('[documentProcessor] Batch AI call failed:', err);
+      // Fallback: treat each chunk as a single unnamed section.
+      chunks.forEach((chunk, i) => {
+        const fallback: Chapter = {
           id: uuidv4(),
           chapterNumber: i + 1,
           title: `Section ${i + 1}`,
@@ -538,24 +490,26 @@ export async function processDocument(
           content: chunk,
           isGenerating: false,
           parentId: null,
-          sortOrder: sortCounter.value++,
-          type: 'topic',
+          sortOrder: i * 10000,
+          type: 'chapter',
           children: [],
         };
-        allChapters.push(fallbackChapter);
+        allChapters.push(fallback);
+        callbacks?.onChapterDone?.(i, fallback.title, fallback.summary);
+      });
+      return allChapters; // return flat list; caller may still build a tree
+    }
 
-        // Bug fix #9: fire onChapterDone even for fallback sections.
-        callbacks?.onChapterDone?.(i, fallbackChapter.title, fallbackChapter.summary);
-        return;
-      }
-
-      // Parse the AI response into Chapter records.
+    // Parse each hierarchy in order, assigning unique sort orders.
+    chunks.forEach((chunk, i) => {
+      const baseSort = i * 10000; // large enough gap to avoid collisions
       const chaptersBefore = allChapters.length;
       try {
-        parseHierarchyIntoChapters(hierarchy, chunk, allChapters, sortCounter);
+        parseHierarchyIntoChapters(hierarchies[i], chunk, allChapters, baseSort, i);
       } catch (parseErr) {
-        console.error(`[documentProcessor] Chunk ${i + 1} hierarchy parse error:`, parseErr);
-        allChapters.push({
+        console.error(`[documentProcessor] Chunk ${i + 1} parse error:`, parseErr);
+        // fallback for this chunk
+        const fallback: Chapter = {
           id: uuidv4(),
           chapterNumber: i + 1,
           title: `Section ${i + 1}`,
@@ -563,33 +517,78 @@ export async function processDocument(
           content: chunk,
           isGenerating: false,
           parentId: null,
-          sortOrder: sortCounter.value++,
-          type: 'topic',
+          sortOrder: baseSort,
+          type: 'chapter',
           children: [],
-        });
+        };
+        allChapters.push(fallback);
       }
 
-      // Bug fix #9: call onChapterDone for each top-level chapter added by
-      // this chunk (the ones that have no parentId are the top-level items).
+      // Fire onChapterDone for new top‑level items from this chunk
       const newChapters = allChapters.slice(chaptersBefore);
       newChapters
         .filter(ch => ch.parentId === null)
         .forEach((ch, idx) => {
           callbacks?.onChapterDone?.(chaptersBefore + idx, ch.title, ch.summary);
         });
-    }),
-  );
+    });
+  } else {
+    // SINGLE CHUNK PATH (chunks.length === 1 or 0)
+    // Use concurrency limiter (only one job) but keep the flow consistent.
+    const limit = createConcurrencyLimit(MAX_CONCURRENCY);
+    const chunk = chunks[0] || '';
 
-  await Promise.all(jobs);
+    await limit(async () => {
+      let hierarchy: any;
+      try {
+        hierarchy = await withRetry(() => generateDocumentHierarchy(chunk, 3));
+      } catch (err) {
+        console.error('[documentProcessor] Single chunk AI analysis failed:', err);
+        allChapters.push({
+          id: uuidv4(),
+          chapterNumber: 1,
+          title: 'Section 1',
+          summary: 'Structure extraction failed',
+          content: chunk,
+          isGenerating: false,
+          parentId: null,
+          sortOrder: 0,
+          type: 'chapter',
+          children: [],
+        });
+        callbacks?.onChapterDone?.(0, 'Section 1', 'Structure extraction failed');
+        return;
+      }
 
-  // Step 5 — build the chapter tree from the flat allChapters list.
-  //
-  // Bug fix #4: we no longer do `{ ...ch, children: [] }` which would wipe
-  // out any children already attached.  Instead we build a fresh map and
-  // wire up parent→child links using the parentId stored on each Chapter.
+      try {
+        parseHierarchyIntoChapters(hierarchy, chunk, allChapters, 0, 0);
+      } catch (parseErr) {
+        console.error('[documentProcessor] Single chunk parse error:', parseErr);
+        allChapters.push({
+          id: uuidv4(),
+          chapterNumber: 1,
+          title: 'Section 1',
+          summary: 'Failed to parse structure',
+          content: chunk,
+          isGenerating: false,
+          parentId: null,
+          sortOrder: 0,
+          type: 'chapter',
+          children: [],
+        });
+      }
+
+      // Fire onChapterDone for the new top‑level items (usually one)
+      const newChapters = allChapters.filter(ch => ch.parentId === null);
+      newChapters.forEach((ch, idx) => {
+        callbacks?.onChapterDone?.(idx, ch.title, ch.summary);
+      });
+    });
+  }
+
+  // Step 5 – Build tree from flat list (parentId links).
   const chapterMap = new Map<string, Chapter>();
-  // Sort by sortOrder so that children are inserted in the correct order
-  // regardless of the order in which concurrent jobs completed.
+  // Sort by sortOrder so children are inserted correctly.
   allChapters
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder)
@@ -606,9 +605,7 @@ export async function processDocument(
     }
   }
 
-  // Notify caller that the full tree is ready.
   callbacks?.onDiscovered?.(roots);
-
   onProgress('Done.');
   return roots;
 }
