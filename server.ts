@@ -1199,6 +1199,14 @@ app.get('/api/school/usage', authenticate, async (req: any, res) => {
   }
 });
 
+function safeParse(val: any) {
+  if (!val) return undefined;
+  if (typeof val === 'string') {
+    try { return JSON.parse(val); } catch(e) { return undefined; }
+  }
+  return val;
+}
+
 // --- Chat Routes ---
 app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
@@ -1207,17 +1215,17 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
     } catch(e) {}
     const chats = await sql`SELECT * FROM chats WHERE chapter_id = ${req.params.chapterId} AND user_id = ${req.userId} ORDER BY created_at ASC`;
-    const result = chats.map(c => ({
+    const result = chats.map((c: any) => ({
       id: c.id,
       role: c.role,
       text: c.text,
-      relationshipGraph: c.relationship_graph ? (typeof c.relationship_graph === 'string' ? JSON.parse(c.relationship_graph) : c.relationship_graph) : undefined,
-      followUps: c.follow_ups ? (typeof c.follow_ups === 'string' ? JSON.parse(c.follow_ups) : c.follow_ups) : undefined,
+      relationshipGraph: safeParse(c.relationship_graph),
+      followUps: safeParse(c.follow_ups),
       type: c.type,
-      actionData: c.action_data ? (typeof c.action_data === 'string' ? JSON.parse(c.action_data) : c.action_data) : undefined,
-      recommended_videos: c.recommended_videos ? (typeof c.recommended_videos === 'string' ? JSON.parse(c.recommended_videos) : c.recommended_videos) : undefined,
-      images: c.images ? (typeof c.images === 'string' ? JSON.parse(c.images) : c.images) : undefined,
-      reactions: c.reactions || undefined
+      actionData: safeParse(c.action_data),
+      recommended_videos: safeParse(c.recommended_videos),
+      images: safeParse(c.images),
+      reactions: safeParse(c.reactions) || undefined
     }));
     res.json(result);
   } catch (err: any) {
