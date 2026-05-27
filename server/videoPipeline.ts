@@ -1,6 +1,7 @@
 import sql from './db.js';
 import { v4 as uuidv4 } from 'uuid';
 import { generateStoryboardJob } from './storyboardEngine.js'; // Let's use our existing AI or mock it
+import { renderManimScene } from '../src/services/manimRenderer.js';
 
 // Mock delay function
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -74,22 +75,45 @@ export async function processVideoLessonJob(job_id: string, chapter_id: string, 
 }
 
 export async function processSceneAssets(scene_id: string, org_id: string, visual_prompt: string, narration: string, duration: number) {
-  await delay(1000); // Simulate API latency
+  const orgs = await sql`SELECT school_id, name FROM organizations WHERE id = ${org_id}`;
+  const orgContext = orgs.length > 0 ? orgs[0].name : '';
 
-  // Scene classification
-  let model_used = 'motion_slide';
-  let image_url = 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?w=800&q=80'; // generic
-  const promptLower = visual_prompt?.toLowerCase() || '';
+  const text = (visual_prompt + ' ' + (orgContext ?? '')).toLowerCase();
+  const manimKeywords = [
+    'equation', 'formula', 'graph', 'vector', 'integral', 'derivative',
+    'matrix', 'trig', 'algebra', 'calculus', 'physics', 'mechanics',
+    'electromagnetic', 'wave function', 'ohm', 'newton', 'f = ma',
+    'quantum', 'manim'
+  ];
 
-  if (promptLower.includes('3d') || promptLower.includes('anatomy') || promptLower.includes('rotate')) {
-    model_used = 'cinematic_kling';
-    image_url = 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&q=80';
-  } else if (promptLower.includes('equation') || promptLower.includes('formula') || promptLower.includes('math')) {
-    model_used = 'equation_manim';
-    image_url = 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800&q=80';
-  } else if (promptLower.includes('diagram') || promptLower.includes('chart') || promptLower.includes('graph')) {
-    model_used = 'diagram_webgl';
-    image_url = 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&q=80';
+  let renderer = 'veo';
+  if (manimKeywords.some(k => text.includes(k))) {
+    renderer = 'manim';
+  }
+
+  let image_url = 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?w=800&q=80';
+  let model_used = 'veo';
+
+  if (renderer === 'manim') {
+    try {
+      image_url = await renderManimScene(visual_prompt);
+      model_used = 'manim';
+      await sql`UPDATE scenes SET status = 'completed' WHERE id = ${scene_id}`;
+    } catch (error) {
+      console.error('Manim failed, falling back to Veo', error);
+      renderer = 'veo';
+    }
+  }
+
+  if (renderer === 'veo') {
+    try {
+      const { generateTopicVideo } = await import('../src/lib/gemini.js');
+      image_url = await generateTopicVideo(visual_prompt);
+      model_used = 'veo_3.1_lite';
+    } catch (error) {
+      console.error('Veo 3.1 Lite generation failed, using fallback placeholder', error);
+      // keep the existing fallback Unsplash URL if Veo fails
+    }
   }
 
   // Insert Visual Metadata
@@ -100,9 +124,17 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
   `;
 
   // Insert Narration
+  let audioUrl = 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg'; // fallback
+  try {
+    const { synthesizeSpeech } = await import('../src/lib/gemini.js');
+    audioUrl = await synthesizeSpeech(narration, 'Kore');
+  } catch (error) {
+    console.error('TTS generation failed, using fallback beep', error);
+  }
+
   await sql`
     INSERT INTO narration_assets (id, org_id, scene_id, asset_url, voice_name, duration_ms)
-    VALUES (${uuidv4()}, ${org_id}, ${scene_id}, 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg', 'Eleven_Mock', ${duration * 1000})
+    VALUES (${uuidv4()}, ${org_id}, ${scene_id}, ${audioUrl}, 'Google_Kore', ${duration * 1000})
     ON CONFLICT (id) DO UPDATE SET asset_url = EXCLUDED.asset_url
   `;
 }
