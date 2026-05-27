@@ -65,10 +65,12 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
         });
         if (res.ok) {
           const data = await res.json();
+          window.dispatchEvent(new Event('usage-updated'));
           setSteps(data.steps || []);
           setLessonState('launch');
         } else {
-          throw new Error('Failed to start lesson');
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to start lesson');
         }
       } catch (err) {
         console.error(err);

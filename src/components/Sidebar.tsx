@@ -265,12 +265,14 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   const [showPricing, setShowPricing] = useState(false);
 
   const fetchUsage = () => {
-    fetch('/api/user/usage')
+    fetch('/api/me/context')
       .then(res => res.json())
       .then(data => {
-        if (!data.error) setUserUsage(data);
+        if (!data.error) {
+          setUserUsage(data);
+        }
       })
-      .catch(err => console.error("Could not fetch usage", err));
+      .catch(err => console.error("Could not fetch context", err));
   };
 
   useEffect(() => {
@@ -472,40 +474,67 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                   <span className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-[9px] uppercase font-bold tracking-widest">{userUsage.plan || 'Free'}</span>
                 </div>
                 
-                <div className="space-y-2 text-[10px] text-white/50 mb-3">
-                  <div className="flex justify-between">
-                    <span>Books:</span>
-                    <span>{userUsage.usage.books_uploaded_this_month} / {userUsage.limits?.document === 'unlimited' ? '∞' : (userUsage.limits?.document || 0)}</span>
+                {userUsage.context === 'school' && userUsage.is_trial ? (
+                  <div className="text-[11px] text-white/70 mb-3 bg-red-500/10 border border-red-500/20 p-2.5 rounded-md">
+                    <p className="font-semibold text-red-400 mb-1">{userUsage.plan} Trial &ndash; {userUsage.trial_days_left} days left</p>
+                    <p className="opacity-80 leading-relaxed text-[10px]">Upgrade to unlock video generation and image search.</p>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Video Gen:</span>
-                    <span>{userUsage.usage.video_generations_this_month} / {userUsage.limits?.video === 'unlimited' ? '∞' : (userUsage.limits?.video || 0)}</span>
+                ) : userUsage.context === 'school' ? (
+                  <div className="text-[10px] text-white/50 mb-3">
+                     <p className="font-semibold text-cyan-400 mb-2">{userUsage.plan} Plan &ndash; Active</p>
+                     <div className="space-y-2">
+                       <div className="flex justify-between">
+                         <span>Videos:</span>
+                         <span>{userUsage.usage.video_generations_this_month} / {userUsage.limits?.video || 0}</span>
+                       </div>
+                       <div className="flex justify-between">
+                         <span>Images:</span>
+                         <span>{userUsage.usage.image_searches_this_month} / {userUsage.limits?.image || 0}</span>
+                       </div>
+                       <div className="flex justify-between">
+                         <span>Interactive:</span>
+                         <span>{userUsage.usage.interactive_lessons_this_month} / {userUsage.limits?.interactive || 0}</span>
+                       </div>
+                     </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Images:</span>
-                    <span>{userUsage.usage.image_searches_this_month} / {userUsage.limits?.image === 'unlimited' ? '∞' : (userUsage.limits?.image || 0)}</span>
+                ) : (
+                  <div className="space-y-2 text-[10px] text-white/50 mb-3">
+                    <div className="flex justify-between">
+                      <span>Books:</span>
+                      <span>{userUsage.usage.books_uploaded_this_month} / {userUsage.limits?.document === 'unlimited' ? '∞' : (userUsage.limits?.document || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Video Gen:</span>
+                      <span>{userUsage.usage.video_generations_this_month} / {userUsage.limits?.video === 'unlimited' ? '∞' : (userUsage.limits?.video || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Images:</span>
+                      <span>{userUsage.usage.image_searches_this_month} / {userUsage.limits?.image === 'unlimited' ? '∞' : (userUsage.limits?.image || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Interactive:</span>
+                      <span>{userUsage.usage.interactive_lessons_this_month} / {userUsage.limits?.interactive === 'unlimited' ? '∞' : (userUsage.limits?.interactive || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Chat (Daily):</span>
+                      <span>{userUsage.usage.chat_messages_today} / {userUsage.plan === 'free' || userUsage.plan === 'Starter' ? 10 : '∞'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>YouTube searches:</span>
+                      <span>{userUsage.usage.youtube_searches_today} / {userUsage.limits?.youtube === 'unlimited' ? '∞' : (userUsage.limits?.youtube || 0)} today</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Interactive:</span>
-                    <span>{userUsage.usage.interactive_lessons_this_month} / {userUsage.limits?.interactive === 'unlimited' ? '∞' : (userUsage.limits?.interactive || 0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Chat (Daily):</span>
-                    <span>{userUsage.usage.chat_messages_today} / {userUsage.plan === 'free' || userUsage.plan === 'Starter' ? 10 : '∞'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>YouTube searches:</span>
-                    <span>{userUsage.usage.youtube_searches_today} / {userUsage.limits?.youtube === 'unlimited' ? '∞' : (userUsage.limits?.youtube || 0)} today</span>
-                  </div>
-                </div>
+                )}
 
-                <button 
-                  onClick={() => setShowPricing(true)}
-                  className="w-full py-1.5 bg-white/5 hover:bg-white/10 text-white transition-colors rounded-md text-xs flex items-center justify-center gap-1 border border-white/10"
-                >
-                  <Sparkles className="w-3 h-3 text-cyan-400" />
-                  Upgrade Plan
-                </button>
+                {userUsage.context !== 'school' && (
+                  <button 
+                    onClick={() => setShowPricing(true)}
+                    className="w-full py-1.5 bg-white/5 hover:bg-white/10 text-white transition-colors rounded-md text-xs flex items-center justify-center gap-1 border border-white/10"
+                  >
+                    <Sparkles className="w-3 h-3 text-cyan-400" />
+                    Upgrade Plan
+                  </button>
+                )}
               </div>
             )}
           </div>

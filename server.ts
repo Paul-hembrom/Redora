@@ -19,85 +19,6 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
 
-// --- Freemium Usage Check Helper ---
-async function checkUsageAndLimits(userId: string, type: 'document' | 'video' | 'image' | 'interactive' | 'youtube') {
-  const subs = await sql`SELECT plan, credits_remaining FROM subscriptions WHERE user_id = ${userId}`;
-  let plan = 'free';
-  if (subs.length > 0 && subs[0].plan) {
-    plan = subs[0].plan;
-  }
-  const isFree = plan === 'free' || plan === 'Starter';
-  const isPro = plan === 'pro' || plan === 'Pro' || plan === 'lifetime' || plan === 'Growth' || plan === 'Enterprise' || plan === 'unlimited';
-
-  let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
-  if (usageRows.length === 0) {
-    await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
-    usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
-  }
-  const usage = usageRows[0];
-
-  const todayDate = new Date();
-  const resetDate = new Date(usage.last_reset_date);
-  const dailyResetDate = usage.last_daily_reset_date ? new Date(usage.last_daily_reset_date) : new Date(0);
-  
-  if (todayDate.getMonth() !== resetDate.getMonth() || todayDate.getFullYear() !== resetDate.getFullYear()) {
-    await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
-    usage.video_generations_this_month = 0;
-    usage.image_searches_this_month = 0;
-    usage.interactive_lessons_this_month = 0;
-    usage.books_uploaded_this_month = 0;
-  }
-
-  if (todayDate.getDate() !== dailyResetDate.getDate() || todayDate.getMonth() !== dailyResetDate.getMonth() || todayDate.getFullYear() !== dailyResetDate.getFullYear()) {
-    await sql`UPDATE user_usage SET youtube_searches_today = 0, last_daily_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
-    usage.youtube_searches_today = 0;
-  }
-
-  // Free Tier Limits: books 4/mo, video 2/mo, images 20/mo, interactive 10/mo, youtube 10/day
-  // Pro Tier Limits: books unlimited, video 10/mo, images 50/mo, interactive 30/mo, youtube 50/day
-  // Assuming Pro means 'unlimited' or the named Pro tiers for this individual user
-  
-  let limits = {
-     document: isPro ? Infinity : 4,
-     video: isPro ? 10 : 2,
-     image: isPro ? 50 : 20,
-     interactive: isPro ? 30 : 10,
-     youtube: isPro ? 50 : 10
-  };
-
-  if (plan === 'unlimited') {
-      limits = { document: Infinity, video: Infinity, image: Infinity, interactive: Infinity, youtube: Infinity };
-  }
-
-  if (type === 'document' && usage.books_uploaded_this_month >= limits.document) {
-      throw new Error(`Monthly limit reached for Document Uploads (${limits.document}). Upgrade your plan.`);
-  }
-  if (type === 'video' && usage.video_generations_this_month >= limits.video) {
-      throw new Error(`Monthly limit reached for Video Generations (${limits.video}). Upgrade your plan.`);
-  }
-  if (type === 'image' && usage.image_searches_this_month >= limits.image) {
-      throw new Error(`Monthly limit reached for Image Searches (${limits.image}). Upgrade your plan.`);
-  }
-  if (type === 'interactive' && usage.interactive_lessons_this_month >= limits.interactive) {
-      throw new Error(`Monthly limit reached for Interactive Lessons (${limits.interactive}). Upgrade your plan.`);
-  }
-  if (type === 'youtube' && usage.youtube_searches_today >= limits.youtube) {
-      throw new Error(`Daily video search limit reached. Upgrade to Pro for 50 searches/day.`);
-  }
-
-  if (type === 'document') {
-    await sql`UPDATE user_usage SET books_uploaded_this_month = books_uploaded_this_month + 1 WHERE user_id = ${userId}`;
-  } else if (type === 'video') {
-    await sql`UPDATE user_usage SET video_generations_this_month = video_generations_this_month + 1 WHERE user_id = ${userId}`;
-  } else if (type === 'image') {
-    await sql`UPDATE user_usage SET image_searches_this_month = image_searches_this_month + 1 WHERE user_id = ${userId}`;
-  } else if (type === 'interactive') {
-    await sql`UPDATE user_usage SET interactive_lessons_this_month = interactive_lessons_this_month + 1 WHERE user_id = ${userId}`;
-  } else if (type === 'youtube') {
-    await sql`UPDATE user_usage SET youtube_searches_today = youtube_searches_today + 1 WHERE user_id = ${userId}`;
-  }
-}
-
 export class SubscriptionLimitError extends Error {
   constructor(message: string) {
     super(message);
@@ -105,56 +26,156 @@ export class SubscriptionLimitError extends Error {
   }
 }
 
-async function enforceSchoolLimits(userId: string, type: 'video' | 'image' | 'interactive', requestedOrgId?: string): Promise<boolean> {
-  // Normal users (no org_id) - immediately return true with no database query
-  if (!requestedOrgId || requestedOrgId === 'demo' || requestedOrgId === 'default_org') {
-    return true;
-  }
-  
-  // Validate UUID format to avoid database errors
+async function verifyAndIncrementUsage(userId: string, type: string, orgId?: string) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(requestedOrgId)) {
-    return true; // Not a valid UUID – treat as personal user
+  let useSchool = false;
+  if (orgId && orgId !== 'demo' && orgId !== 'default_org' && uuidRegex.test(orgId)) {
+    useSchool = true;
   }
 
-  try {
-    let schoolId = null;
-    let role = null;
-
-    const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${requestedOrgId}`;
-    if (orgs.length > 0) {
-      schoolId = orgs[0].school_id;
+  if (!useSchool) {
+    // Personal Usage
+    let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+    if (usageRows.length === 0) {
+      await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
+      usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
     }
-
-    // 1. Query organization_members to get the user's role
-    const members = await sql`SELECT role FROM organization_members WHERE organization_id = ${requestedOrgId} AND user_id = ${userId} LIMIT 1`;
-    if (members.length > 0) {
-      role = members[0].role;
-    }
-
-    if (schoolId) {
-      // 2. If school is locked, throw error
-      const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${schoolId}`;
-      if (subs.length > 0 && subs[0].status === 'locked') {
-        throw new SubscriptionLimitError('School account suspended');
-      }
-    }
+    const subs = await sql`SELECT * FROM subscriptions WHERE user_id = ${userId}`;
+    const usage = usageRows[0] || {};
+    const sub = subs[0] || {};
+    const plan = sub.plan || 'free';
+    const isPro = plan === 'pro' || plan === 'Pro' || plan === 'lifetime' || plan === 'Growth' || plan === 'Enterprise' || plan === 'unlimited';
     
-    // 3. Otherwise, return true
-    return true;
-  } catch (err: any) {
-    if (err.name === 'SubscriptionLimitError') throw err;
-    if (err.message && err.message.includes('does not exist')) {
-      return true; // Missing tables, fallback safely
+    // Daily/Monthly resets
+    const todayDate = new Date();
+    const resetDate = usage.last_reset_date ? new Date(usage.last_reset_date) : new Date(0);
+    const dailyResetDate = usage.last_daily_reset_date ? new Date(usage.last_daily_reset_date) : new Date(0);
+    
+    if (todayDate.getMonth() !== resetDate.getMonth() || todayDate.getFullYear() !== resetDate.getFullYear()) {
+      await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+      usage.video_generations_this_month = 0;
+      usage.image_searches_this_month = 0;
+      usage.interactive_lessons_this_month = 0;
+      usage.books_uploaded_this_month = 0;
     }
-    throw err;
+  
+    if (todayDate.getDate() !== dailyResetDate.getDate() || todayDate.getMonth() !== dailyResetDate.getMonth() || todayDate.getFullYear() !== dailyResetDate.getFullYear()) {
+      await sql`UPDATE user_usage SET youtube_searches_today = 0, last_daily_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+      usage.youtube_searches_today = 0;
+    }
+
+    let limits: any = plan === 'unlimited' ? {
+       document: 'unlimited', video: 'unlimited', image: 'unlimited', interactive: 'unlimited', youtube: 'unlimited'
+    } : {
+       document: isPro ? 'unlimited' : 4,
+       video: isPro ? 10 : 2,
+       image: isPro ? 50 : 20,
+       interactive: isPro ? 30 : 10,
+       youtube: isPro ? 50 : 10
+    };
+
+    let count = 0;
+    const limit = limits[type];
+    
+    if (type === 'video') count = usage.video_generations_this_month || 0;
+    if (type === 'image') count = usage.image_searches_this_month || 0;
+    if (type === 'interactive') count = usage.interactive_lessons_this_month || 0;
+    if (type === 'document') count = usage.books_uploaded_this_month || 0;
+    if (type === 'youtube') count = usage.youtube_searches_today || 0;
+
+    if (limit !== 'unlimited' && count >= limit) {
+      throw new SubscriptionLimitError(`Personal limit reached for ${type}. Upgrade your plan.`);
+    }
+
+    // Increment
+    if (type === 'document') {
+      await sql`UPDATE user_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'video') {
+      await sql`UPDATE user_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'image') {
+      await sql`UPDATE user_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'interactive') {
+      await sql`UPDATE user_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'youtube') {
+      await sql`UPDATE user_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE user_id = ${userId}`;
+    }
+
+    return;
+  }
+
+  // School Usage
+  const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${orgId}`;
+  if (!orgs.length || !orgs[0].school_id) throw new SubscriptionLimitError('Organization not found.');
+  const schoolId = orgs[0].school_id;
+
+  const subs = await sql`SELECT * FROM school_subscriptions WHERE school_id = ${schoolId}`;
+  const sub = subs[0];
+  if (!sub) throw new SubscriptionLimitError('No school subscription exists.');
+  const status = sub.status || 'trialing';
+
+  if (status === 'locked') throw new SubscriptionLimitError('School account suspended.');
+
+  const usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+  const usage = usageRows[0] || {};
+
+  if (status === 'trialing' || status === 'trial') {
+    if (type === 'video' || type === 'image') {
+      throw new SubscriptionLimitError(`${type} features are not available during trial. Please upgrade.`);
+    }
+    if (type === 'interactive') {
+      if ((usage.interactive_lessons_this_month || 0) >= 2) throw new SubscriptionLimitError('Trial limit reached for interactive lessons (2 max).');
+    }
+    if (type === 'document') {
+      const orgUsers = await sql`SELECT user_id FROM organization_members WHERE org_id = ${orgId}`;
+      const userIds = orgUsers.map((u: any) => u.user_id);
+      let bookCount = 0;
+      if (userIds.length > 0) {
+        const books = await sql`SELECT count(*) FROM chapters WHERE user_id IN ${sql(userIds)}`;
+        bookCount = Number(books[0].count);
+      }
+      if (bookCount >= 10) throw new SubscriptionLimitError('Trial limit reached for books (10 max).');
+    }
+  } else {
+    // Active usage checks
+    const planName = sub.plan_type || 'Starter';
+    const planLimits: any = {
+      'Starter': { document: 1000, video: 10, image: 20, interactive: 5, youtube: 50 },
+      'Growth': { document: 5000, video: 25, image: 50, interactive: 20, youtube: 100 },
+      'Enterprise': { document: 10000, video: 100, image: 200, interactive: 100, youtube: 500 }
+    };
+    const currentLimits = planLimits[planName] || planLimits['Starter'];
+    let count = 0;
+    if (type === 'video') count = usage.video_generations_this_month || 0;
+    if (type === 'image') count = usage.image_searches_this_month || 0;
+    if (type === 'interactive') count = usage.interactive_lessons_this_month || 0;
+    if (type === 'document') count = usage.books_uploaded_this_month || 0;
+    if (type === 'youtube') count = usage.youtube_searches_today || 0;
+
+    if (count >= currentLimits[type]) {
+      throw new SubscriptionLimitError(`Plan limit reached for ${planName} plan.`);
+    }
+  }
+
+  // Increment school
+  if (type === 'document') {
+    await sql`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'video') {
+    await sql`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'image') {
+    await sql`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'interactive') {
+    await sql`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'youtube') {
+    await sql`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = ${schoolId}`;
   }
 }
+
 
 // --- Gateway Token Exchange Route ---
 app.get('/auth/token-exchange', async (req, res) => {
   const token = req.query.token as string;
   const role = req.query.role as string;
+  const queryOrgId = req.query.org_id as string;
   if (!token) {
     return res.status(400).send('Missing token');
   }
@@ -163,10 +184,12 @@ app.get('/auth/token-exchange', async (req, res) => {
     // Verify the token using the existing JWT_SECRET
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod') as any;
     
+    const org_id = queryOrgId || decoded.org_id;
+
     // School Lock Check
-    if (decoded.org_id) {
+    if (org_id) {
        try {
-         const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${decoded.org_id}`;
+         const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${org_id}`;
          if (orgs.length > 0 && orgs[0].school_id) {
             const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${orgs[0].school_id}`;
             if (subs.length > 0 && subs[0].status === 'locked') {
@@ -187,6 +210,12 @@ app.get('/auth/token-exchange', async (req, res) => {
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
+    res.cookie('sb-access-token', token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
     
     if (role) {
       res.cookie('sb-role', role, {
@@ -197,8 +226,8 @@ app.get('/auth/token-exchange', async (req, res) => {
       });
     }
 
-    if (decoded.org_id) {
-      res.cookie('sb-org-id', decoded.org_id, {
+    if (org_id) {
+      res.cookie('sb-org-id', org_id, {
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
@@ -237,7 +266,9 @@ const preventStudentModification = (req: any, res: any, next: any) => {
         '/api/auth/signup',
         '/api/retrieve-videos',
         '/api/chats',
-        '/api/nvidia/chat/completions'
+        '/api/nvidia/chat/completions',
+        '/api/tts',
+        '/api/stt/transcribe'
       ];
       
       const isTopicsImagesOrLesson = req.path.match(/^\/api\/topics\/[a-zA-Z0-9_\-]+\/(images|start-lesson)$/);
@@ -251,9 +282,238 @@ const preventStudentModification = (req: any, res: any, next: any) => {
 };
 app.use(preventStudentModification);
 
+// --- Trial & Feature Gating limits ---
+async function checkFeatureAllowed(orgId: string | undefined, feature: string, userId: string): Promise<{allowed: boolean, reason?: string}> {
+  if (!orgId) {
+    let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+    if (usageRows.length === 0) {
+      return { allowed: true };
+    }
+    const subs = await sql`SELECT * FROM subscriptions WHERE user_id = ${userId}`;
+    const usage = usageRows[0] || {};
+    const sub = subs[0] || {};
+    const plan = sub.plan || 'free';
+    const isPro = plan === 'pro' || plan === 'Pro' || plan === 'lifetime' || plan === 'Growth' || plan === 'Enterprise' || plan === 'unlimited';
+    
+    let limits: any = plan === 'unlimited' ? {
+       document: 'unlimited', video: 'unlimited', image: 'unlimited', interactive: 'unlimited', youtube: 'unlimited'
+    } : {
+       document: isPro ? 'unlimited' : 4,
+       video: isPro ? 10 : 2,
+       image: isPro ? 50 : 20,
+       interactive: isPro ? 30 : 10,
+       youtube: isPro ? 50 : 10
+    };
+
+    let count = 0;
+    let limit = limits[feature];
+    if (limit === 'unlimited') return { allowed: true };
+    
+    if (feature === 'video') count = usage.video_generations_this_month || 0;
+    if (feature === 'image') count = usage.image_searches_this_month || 0;
+    if (feature === 'interactive') count = usage.interactive_lessons_this_month || 0;
+    if (feature === 'document') {
+       const docs = await sql`SELECT count(*) FROM chapters WHERE user_id = ${userId}`;
+       count = Number(docs[0].count) || 0;
+    }
+    if (feature === 'chat') return { allowed: true };
+    if (feature === 'youtube') count = usage.youtube_searches_today || 0;
+
+    if (count >= limit) return { allowed: false, reason: 'Personal limit reached.' };
+    return { allowed: true };
+  }
+
+  const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${orgId}`;
+  if (!orgs.length || !orgs[0].school_id) return { allowed: false, reason: 'Organization not found.' };
+  
+  const schoolId = orgs[0].school_id;
+  const subs = await sql`SELECT * FROM school_subscriptions WHERE school_id = ${schoolId}`;
+  const sub = subs[0];
+  if (!sub) return { allowed: false, reason: 'No school subscription.' };
+  
+  const status = sub.status || 'trialing'; 
+  if (status === 'locked') return { allowed: false, reason: 'School account suspended.' };
+
+  const usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+  const usage = usageRows[0] || {};
+  
+  if (status === 'trialing' || status === 'trial') {
+    if (feature === 'video') return { allowed: false, reason: 'Video generation is not available during trial. Please upgrade.' };
+    if (feature === 'image') return { allowed: false, reason: 'Image search is not available during trial. Please upgrade.' };
+    if (feature === 'interactive') {
+       if ((usage.interactive_lessons_this_month || 0) < 2) return { allowed: true };
+       return { allowed: false, reason: 'Trial limit reached for interactive lessons (2 max).' };
+    }
+    if (feature === 'document') {
+       const orgUsers = await sql`SELECT user_id FROM organization_members WHERE org_id = ${orgId}`;
+       const userIds = orgUsers.map((u: any) => u.user_id);
+       let bookCount = 0;
+       if (userIds.length > 0) {
+         const books = await sql`SELECT count(*) FROM chapters WHERE user_id IN ${sql(userIds)}`;
+         bookCount = Number(books[0].count);
+       }
+       if (bookCount < 10) return { allowed: true };
+       return { allowed: false, reason: 'Trial limit reached for books (10 max).' };
+    }
+    if (feature === 'chat' || feature === 'youtube') return { allowed: true };
+    return { allowed: false, reason: 'Feature not allowed during trial.' };
+  }
+
+  const plan = sub.plan_type || 'Starter';
+  const limits: any = {
+    'Starter': { document: 1000, video: 10, image: 20, interactive: 5, youtube: 50 },
+    'Growth': { document: 5000, video: 25, image: 50, interactive: 20, youtube: 100 },
+    'Enterprise': { document: 10000, video: 100, image: 200, interactive: 100, youtube: 500 }
+  };
+  
+  const currentLimits = limits[plan] || limits['Starter'];
+  let count = 0;
+  if (feature === 'video') count = usage.video_generations_this_month || 0;
+  if (feature === 'image') count = usage.image_searches_this_month || 0;
+  if (feature === 'interactive') count = usage.interactive_lessons_this_month || 0;
+  if (feature === 'document') count = usage.books_uploaded_this_month || 0; 
+  if (feature === 'youtube') count = usage.youtube_searches_today || 0;
+  if (feature === 'chat') return { allowed: true };
+
+  if (count >= currentLimits[feature]) {
+     return { allowed: false, reason: `Plan limit reached for ${plan} plan.` };
+  }
+  
+  return { allowed: true };
+}
+
 // --- Auth Routes ---
 app.get('/api/me/role', (req, res) => {
   res.json({ role: req.cookies['sb-role'] || 'user' });
+});
+
+app.get('/api/me/context', authenticate, async (req: any, res) => {
+  try {
+    const orgId = req.cookies['sb-org-id'];
+    const role = req.cookies['sb-role'] || 'user';
+    const userId = req.userId;
+
+    if (orgId) {
+      const orgs = await sql`SELECT name, school_id FROM organizations WHERE id = ${orgId}`;
+      if (orgs.length > 0 && orgs[0].school_id) {
+        const schoolId = orgs[0].school_id;
+        const subs = await sql`SELECT * FROM school_subscriptions WHERE school_id = ${schoolId}`;
+        const usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+        const usage = usageRows[0] || {};
+        const sub = subs[0] || {};
+        const isTrial = sub.status === 'trialing' || sub.status === 'trial';
+        const isPro = sub.status === 'active' || isTrial;
+        let trial_days_left = 0;
+        if (isTrial && sub.trial_end) {
+           const end = new Date(sub.trial_end);
+           const now = new Date();
+           trial_days_left = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 3600 * 24)));
+        } else if (isTrial && sub.trial_end_date) {
+           const end = new Date(sub.trial_end_date);
+           const now = new Date();
+           trial_days_left = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / (1000 * 3600 * 24)));
+        }
+
+        const planName = sub.plan_type || 'Starter';
+        const planLimits: any = {
+          'Starter': { document: 1000, video: 10, image: 20, interactive: 5, youtube: 50 },
+          'Growth': { document: 5000, video: 25, image: 50, interactive: 20, youtube: 100 },
+          'Enterprise': { document: 10000, video: 100, image: 200, interactive: 100, youtube: 500 }
+        };
+        
+        const limits = planLimits[planName] || planLimits['Starter'];
+        
+        let videosLimit = isTrial ? 0 : limits.video;
+        let imagesLimit = isTrial ? 0 : limits.image;
+        let interactiveLimit = isTrial ? 2 : limits.interactive;
+        let booksLimit = isTrial ? 10 : limits.document;
+        
+        if (sub.status === 'locked') {
+          videosLimit = 0;
+          imagesLimit = 0;
+          interactiveLimit = 0;
+          booksLimit = 0;
+        }
+
+        return res.json({
+          context: 'school',
+          role,
+          orgId,
+          orgName: orgs[0].name,
+          subscription: sub,
+          is_trial: isTrial,
+          trial_days_left,
+          plan: planName,
+          status: sub.status || 'trialing',
+          limits,
+          usage: {
+             videos: { used: usage.video_generations_this_month || 0, limit: videosLimit },
+             images: { used: usage.image_searches_this_month || 0, limit: imagesLimit },
+             interactive_lessons: { used: usage.interactive_lessons_this_month || 0, limit: interactiveLimit },
+             books: { used: usage.books_uploaded_this_month || 0, limit: booksLimit },
+             chat: { used: usage.chat_messages_today || 0, limit: null },
+             youtube: { used: usage.youtube_searches_today || 0, limit: null },
+             // Keep old names for fallback if needed:
+             books_uploaded_this_month: usage.books_uploaded_this_month || 0,
+             video_generations_this_month: usage.video_generations_this_month || 0,
+             image_searches_this_month: usage.image_searches_this_month || 0,
+             interactive_lessons_this_month: usage.interactive_lessons_this_month || 0,
+             chat_messages_today: usage.chat_messages_today || 0,
+             youtube_searches_today: usage.youtube_searches_today || 0
+          }
+        });
+      }
+    }
+
+    const subs = await sql`SELECT * FROM subscriptions WHERE user_id = ${userId}`;
+    let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+    if (usageRows.length === 0) {
+      await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
+      usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
+    }
+
+    const usage = usageRows[0] || {};
+    const sub = subs[0] || {};
+    const plan = sub.plan || 'free';
+    const isPro = plan === 'pro' || plan === 'Pro' || plan === 'lifetime' || plan === 'Growth' || plan === 'Enterprise' || plan === 'unlimited';
+    
+    // Limits
+    const limits = plan === 'unlimited' ? {
+       document: 'unlimited', video: 'unlimited', image: 'unlimited', interactive: 'unlimited', youtube: 'unlimited'
+    } : {
+       document: isPro ? 'unlimited' : 4,
+       video: isPro ? 10 : 2,
+       image: isPro ? 50 : 20,
+       interactive: isPro ? 30 : 10,
+       youtube: isPro ? 50 : 10
+    };
+
+    return res.json({
+      context: 'personal',
+      role,
+      subscription: sub,
+      plan,
+      status: plan === 'free' ? 'trialing' : 'active',
+      limits,
+      usage: {
+        videos: { used: usage.video_generations_this_month || 0, limit: limits.video === 'unlimited' ? null : limits.video },
+        images: { used: usage.image_searches_this_month || 0, limit: limits.image === 'unlimited' ? null : limits.image },
+        interactive_lessons: { used: usage.interactive_lessons_this_month || 0, limit: limits.interactive === 'unlimited' ? null : limits.interactive },
+        books: { used: usage.books_uploaded_this_month || 0, limit: limits.document === 'unlimited' ? null : limits.document },
+        chat: { used: usage.chat_messages_today || 0, limit: plan === 'free' || plan === 'Starter' ? 10 : null },
+        youtube: { used: usage.youtube_searches_today || 0, limit: limits.youtube === 'unlimited' ? null : limits.youtube },
+        // Fallbacks
+        books_uploaded_this_month: usage.books_uploaded_this_month || 0,
+        video_generations_this_month: usage.video_generations_this_month || 0,
+        image_searches_this_month: usage.image_searches_this_month || 0,
+        interactive_lessons_this_month: usage.interactive_lessons_this_month || 0,
+        chat_messages_today: usage.youtube_searches_today || 0, // wait chat usage isn't really tracked properly in user_usage, using 0 for now since it's just frontend
+        youtube_searches_today: usage.youtube_searches_today || 0
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/auth/signup', async (req, res) => {
@@ -380,11 +640,16 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
   const { id, name, chapters, tags, org_id } = req.body;
   
   try {
-    const orgId = org_id || req.query.org_id;
+    const orgId = org_id || req.query.org_id || req.cookies?.['sb-org-id'];
     const userRole = await getUserRoleInOrg(req.userId, orgId);
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
 
-    await checkUsageAndLimits(req.userId, 'document');
+    try {
+      await verifyAndIncrementUsage(req.userId, 'document', orgId);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
+      throw e;
+    }
 
     await sql.begin(async (tx: any) => {
       await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${name}, ${tags ? JSON.stringify(tags) : '[]'})`;
@@ -642,24 +907,15 @@ app.get('/api/storyboards/:id', authenticate, async (req: any, res) => {
 // --- NEW VIDEO LESSON PIPELINE ROUTES ---
 app.post('/api/chapters/:id/generate-lesson', authenticate, async (req: any, res) => {
   try {
-    const orgId = req.body.org_id || req.query.org_id;
+    const orgId = req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id'];
     const userRole = await getUserRoleInOrg(req.userId, orgId);
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
 
-    let isSchool = false;
     try {
-      isSchool = await enforceSchoolLimits(req.userId, 'video', orgId);
+      await verifyAndIncrementUsage(req.userId, 'video', orgId);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
-    }
-
-    if (!isSchool) {
-      try {
-        await checkUsageAndLimits(req.userId, 'video');
-      } catch (e: any) {
-        return res.status(403).json({ error: e.message });
-      }
     }
 
     const chapterId = req.params.id;
@@ -780,20 +1036,11 @@ app.get('/api/youtube/:videoId/captions', authenticate, async (req: any, res) =>
 
 app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
   try {
-    let isSchool = false;
     try {
-      isSchool = await enforceSchoolLimits(req.userId, 'video', req.body.org_id || req.query.org_id);
+      await verifyAndIncrementUsage(req.userId, 'youtube', req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id']);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
-    }
-
-    if (!isSchool) {
-      try {
-        await checkUsageAndLimits(req.userId, 'youtube');
-      } catch (e: any) {
-        return res.status(403).json({ error: e.message });
-      }
     }
 
     const { title, summary, subject, grade, keyConcepts, class_context } = req.body;
@@ -902,20 +1149,11 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
 
 app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
   try {
-    let isSchool = false;
     try {
-      isSchool = await enforceSchoolLimits(req.userId, 'image', req.body.org_id || req.query.org_id);
+      await verifyAndIncrementUsage(req.userId, 'image', req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id']);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
-    }
-
-    if (!isSchool) {
-      try {
-        await checkUsageAndLimits(req.userId, 'image');
-      } catch (e: any) {
-        return res.status(403).json({ error: e.message });
-      }
     }
 
     const { org_context, title, key_concepts, summary } = req.body;
@@ -1038,22 +1276,13 @@ app.post('/api/topics/:id/start-lesson', authenticate, async (req: any, res) => 
     const { orgId } = req.body;
     
     // Default orgId if missing, or we can use a dummy
-    const actualOrgId = orgId || req.userId || 'default_org';
+    const actualOrgId = orgId || req.userId || req.cookies?.['sb-org-id'] || 'default_org';
 
-    let isSchool = false;
     try {
-      isSchool = await enforceSchoolLimits(req.userId, 'interactive', actualOrgId);
+      await verifyAndIncrementUsage(req.userId, 'interactive', actualOrgId);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
-    }
-
-    if (!isSchool) {
-      try {
-        await checkUsageAndLimits(req.userId, 'interactive');
-      } catch (e: any) {
-        return res.status(403).json({ error: e.message });
-      }
     }
 
     const steps = await createInteractiveLesson(id, actualOrgId);

@@ -287,9 +287,11 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch images');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch images');
       }
 
+      window.dispatchEvent(new Event('usage-updated'));
       const data = await response.json();
       const imagesArray = data.images || [];
       
@@ -352,6 +354,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
         setError(data.error || 'Failed to start video generation.');
         return;
       }
+      window.dispatchEvent(new Event('usage-updated'));
       
       // Successfully started, switch to video tab
       setActiveTab('video');
@@ -395,9 +398,11 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch videos');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch videos');
       }
 
+      window.dispatchEvent(new Event('usage-updated'));
       const data = await response.json();
       
       const aiMsg: ChatMessage = {
@@ -611,20 +616,24 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             >
               <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson
             </button>
-            <button 
-              onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
-              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
-              title="Toggle Video Lesson Pipeline"
-            >
-              <Film className="w-3.5 h-3.5" /> Pipeline
-            </button>
-            <button 
-              onClick={handleGenerateVideoLesson} 
-              className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
-              title="Generate AI video lesson"
-            >
-              <Wand2 className="w-3.5 h-3.5" /> Generate Video
-            </button>
+            {user?.role !== 'student' && (
+              <>
+                <button 
+                  onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
+                  className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
+                  title="Toggle Video Lesson Pipeline"
+                >
+                  <Film className="w-3.5 h-3.5" /> Pipeline
+                </button>
+                <button 
+                  onClick={handleGenerateVideoLesson} 
+                  className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
+                  title="Generate AI video lesson"
+                >
+                  <Wand2 className="w-3.5 h-3.5" /> Generate Video
+                </button>
+              </>
+            )}
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
             </button>

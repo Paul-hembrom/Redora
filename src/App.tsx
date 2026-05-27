@@ -15,6 +15,8 @@ import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+import { CreditsPanel } from './components/CreditsPanel';
+
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -213,11 +215,18 @@ export default function App() {
           chapters
         };
         
-        await fetch('/api/documents', {
+        const res = await fetch('/api/documents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(finalDoc)
         });
+
+        if (!res.ok) {
+           const errData = await res.json().catch(() => ({}));
+           throw new Error(errData.error || 'Failed to sync document to server');
+        }
+
+        window.dispatchEvent(new Event('usage-updated'));
       }
     } catch (err: any) {
       console.error(err);
@@ -372,6 +381,9 @@ export default function App() {
           <h1 className="font-display font-bold text-lg tracking-wide">READORA</h1>
         </div>
         <div className="flex items-center gap-4 md:gap-6">
+          <div className="hidden sm:block">
+            <CreditsPanel />
+          </div>
           <button
             onClick={() => setIsSearchModalOpen(true)}
             className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
