@@ -28,13 +28,14 @@ function hasKey(key: string | undefined): key is string {
 }
 
 // ──────────────────────────────────────────────
-// 3. DeepSeek V4‑Flash (OpenAI‑compatible)
+// 3. DeepSeek V4‑Flash (OpenAI‑compatible) — WITH RETRY
 // ──────────────────────────────────────────────
 async function callDeepSeek(
   prompt: string,
   systemInstruction?: string,
   responseFormat?: 'json_object' | 'text',
   maxTokens?: number,
+  maxRetries = 3,   // ← new parameter
 ): Promise<string> {
   const messages: any[] = [];
   if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
@@ -50,26 +51,42 @@ async function callDeepSeek(
     body.response_format = { type: 'json_object' };
   }
 
-  const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${DEEPSEEK_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${DEEPSEEK_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
 
-  if (!res.ok) {
-    if (res.status === 429) throw new ApiRateLimitError('DeepSeek rate limit', 5000);
-    const errText = await res.text();
-    throw new Error(`DeepSeek API Error: ${errText}`);
+    if (!res.ok) {
+      // Transient server errors → retry
+      if (res.status === 503 || res.status === 502 || res.status === 504) {
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s...
+          console.warn(`DeepSeek ${res.status} – retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw new ApiRateLimitError(`DeepSeek server error ${res.status}`, 5000);
+      }
+      // Rate limit
+      if (res.status === 429) throw new ApiRateLimitError('DeepSeek rate limit', 5000);
+      // Other errors → throw immediately
+      const errText = await res.text();
+      throw new Error(`DeepSeek API Error: ${errText}`);
+    }
+
+    const data = await res.json();
+    let content = data.choices[0].message.content;
+    // Strip markdown fences if present
+    content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+    return content;
   }
 
-  const data = await res.json();
-  let content = data.choices[0].message.content;
-  // Strip markdown fences if present
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
-  return content;
+  throw new Error('DeepSeek retries exhausted');
 }
 
 // ──────────────────────────────────────────────
@@ -133,7 +150,6 @@ async function callGeminiTTS(
   if (!part?.inlineData) throw new Error('TTS generation returned no audio');
   const { data: rawData, mimeType } = part.inlineData;
 
-  // Gemini returns raw PCM; we convert to WAV for browser playback
   const wavBase64 = pcmToWavBase64(rawData, mimeType);
   return `data:audio/wav;base64,${wavBase64}`;
 }
@@ -157,7 +173,7 @@ async function callVeo31Lite(
 
   const video = operation.response?.generatedVideos?.[0]?.video;
   if (!video) throw new Error('Veo generation returned no video');
-  return video.uri; // downloadable URI
+  return video.uri;
 }
 
 // ──────────────────────────────────────────────
@@ -185,8 +201,6 @@ async function callElevenLabsSTT(audioBlob: Blob): Promise<string> {
 
 // ──────────────────────────────────────────────
 // 6. NVIDIA / HuggingFace fallbacks (your existing code, untouched)
-//    Keep callNvidiaFallback, callNvidiaVisionFallback exactly as before.
-//    (They are called only when paid APIs fail or keys are missing.)
 // ──────────────────────────────────────────────
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
   const baseUrl = import.meta.env.VITE_BACKEND_URL || "";
@@ -313,7 +327,7 @@ async function callLLM(
   maxTokens?: number,
 ): Promise<string> {
   if (hasKey(DEEPSEEK_KEY)) {
-    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens); } catch (e) { console.warn('DeepSeek failed, falling back to NVIDIA', e); }
+    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens); } catch (e) { console.warn('DeepSeek failed, falling back to Gemini', e); }
   }
   if (hasKey(GEMINI_KEY)) {
     try { return await callGeminiFlashLite(prompt, systemInstruction); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
@@ -322,7 +336,40 @@ async function callLLM(
 }
 
 // ──────────────────────────────────────────────
-// 8. Public functions (updated to use the new stack)
+// 8. JSON repair helper for truncated responses
+// ──────────────────────────────────────────────
+function repairTruncatedJson(jsonString: string): string {
+  // Remove trailing commas before closing brackets/braces
+  let repaired = jsonString.replace(/,\s*([}\]])/g, '$1');
+  
+  let openBrackets = 0, closeBrackets = 0;
+  let openBraces = 0, closeBraces = 0;
+  let inString = false;
+  
+  for (let i = 0; i < repaired.length; i++) {
+    const char = repaired[i];
+    if (char === '"' && (i === 0 || repaired[i - 1] !== '\\')) {
+      inString = !inString;
+    } else if (!inString) {
+      if (char === '[') openBrackets++;
+      if (char === ']') closeBrackets++;
+      if (char === '{') openBraces++;
+      if (char === '}') closeBraces++;
+    }
+  }
+  
+  // Close any unterminated string
+  if (inString) repaired += '"';
+  
+  // Close unclosed arrays and objects
+  while (closeBrackets < openBrackets) { repaired += ']'; closeBrackets++; }
+  while (closeBraces < openBraces) { repaired += '}'; closeBraces++; }
+  
+  return repaired;
+}
+
+// ──────────────────────────────────────────────
+// 9. Public functions
 // ──────────────────────────────────────────────
 
 export async function generateBatchChapterMetadata(
@@ -372,9 +419,7 @@ No markdown formatting, no explanation.
           summaryObj = summaryObj.join("\n- ");
           if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
         } else if (typeof summaryObj === 'string') {
-          // Clean up weird literals
           summaryObj = summaryObj.replace(/\\n/g, '\n');
-          // Add bullet if missing to first item
           if (!summaryObj.trim().startsWith('-')) {
             summaryObj = '- ' + summaryObj.trim();
           }
@@ -414,7 +459,6 @@ export async function generateChapterMetadata(content: string, chapterNumber: nu
   } else if (summaryDetail === 'academic') {
     instructions = "Provide a comprehensive and academic summary. Start with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing academic depth, underlying theories, specific methodologies, and core arguments. Do not provide superficial descriptions.";
   } else {
-    // detailed
     instructions = "Provide a detailed summary. Start with a short overview paragraph, then 4-6 descriptive bullet points capturing key concepts, events, logic, and arguments.";
   }
 
@@ -540,6 +584,9 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
   }
 }
 
+// ──────────────────────────────────────────────
+//  generateDocumentHierarchy – with JSON repair
+// ──────────────────────────────────────────────
 export async function generateDocumentHierarchy(content: string, retries = 3): Promise<any> {
   const prompt = `
 You are an expert textbook editor processing a raw document dump.
@@ -576,7 +623,20 @@ ${content.substring(0, 35000)}
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const raw = await callLLM(prompt, undefined, 'json_object', 8192);
-      const parsed = JSON.parse(raw);
+      let parsed;
+      
+      try {
+        parsed = JSON.parse(raw);
+      } catch (parseError) {
+        console.warn(`JSON parse failed on attempt ${attempt + 1}, attempting repair...`);
+        const repaired = repairTruncatedJson(raw);
+        try {
+          parsed = JSON.parse(repaired);
+        } catch (repairError) {
+          throw new Error('JSON repair failed, retrying full generation...');
+        }
+      }
+      
       return parsed;
     } catch (error: any) {
       console.warn(`Attempt ${attempt + 1} failed for hierarchy generation:`, error);
@@ -632,7 +692,7 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
 }
 
 // ──────────────────────────────────────────────
-// 9. NEW public functions (TTS, STT, Video)
+// 10. NEW public functions (TTS, STT, Video)
 // ──────────────────────────────────────────────
 export async function synthesizeSpeech(text: string, voiceName?: string): Promise<string> {
   if (!hasKey(GEMINI_KEY)) throw new Error('Gemini API key required for TTS');
@@ -653,10 +713,10 @@ export async function generateTopicVideo(
 }
 
 // ──────────────────────────────────────────────
-// 10. PCM → WAV helper (for Gemini TTS)
+// 11. PCM → WAV helper (for Gemini TTS)
 // ──────────────────────────────────────────────
 function pcmToWavBase64(rawBase64: string, mimeType: string): string {
-  const sampleRate = 24000; // Gemini default
+  const sampleRate = 24000;
   const numChannels = 1;
   const bitsPerSample = 16;
   const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
@@ -668,13 +728,12 @@ function pcmToWavBase64(rawBase64: string, mimeType: string): string {
   const buffer = new ArrayBuffer(headerSize + dataSize);
   const view = new DataView(buffer);
 
-  // RIFF header
   writeString(view, 0, 'RIFF');
   view.setUint32(4, 36 + dataSize, true);
   writeString(view, 8, 'WAVE');
   writeString(view, 12, 'fmt ');
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);           // PCM
+  view.setUint16(20, 1, true);
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
