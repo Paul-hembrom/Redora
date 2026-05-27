@@ -35,7 +35,7 @@ async function callDeepSeek(
   systemInstruction?: string,
   responseFormat?: 'json_object' | 'text',
   maxTokens?: number,
-  maxRetries = 3,   // ← new parameter
+  maxRetries = 3,
 ): Promise<string> {
   const messages: any[] = [];
   if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
@@ -62,26 +62,22 @@ async function callDeepSeek(
     });
 
     if (!res.ok) {
-      // Transient server errors → retry
       if (res.status === 503 || res.status === 502 || res.status === 504) {
         if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s...
+          const delay = Math.pow(2, attempt) * 1000;
           console.warn(`DeepSeek ${res.status} – retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
         throw new ApiRateLimitError(`DeepSeek server error ${res.status}`, 5000);
       }
-      // Rate limit
       if (res.status === 429) throw new ApiRateLimitError('DeepSeek rate limit', 5000);
-      // Other errors → throw immediately
       const errText = await res.text();
       throw new Error(`DeepSeek API Error: ${errText}`);
     }
 
     const data = await res.json();
     let content = data.choices[0].message.content;
-    // Strip markdown fences if present
     content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
     return content;
   }
@@ -339,7 +335,6 @@ async function callLLM(
 // 8. JSON repair helper for truncated responses
 // ──────────────────────────────────────────────
 function repairTruncatedJson(jsonString: string): string {
-  // Remove trailing commas before closing brackets/braces
   let repaired = jsonString.replace(/,\s*([}\]])/g, '$1');
   
   let openBrackets = 0, closeBrackets = 0;
@@ -358,10 +353,8 @@ function repairTruncatedJson(jsonString: string): string {
     }
   }
   
-  // Close any unterminated string
   if (inString) repaired += '"';
   
-  // Close unclosed arrays and objects
   while (closeBrackets < openBrackets) { repaired += ']'; closeBrackets++; }
   while (closeBraces < openBraces) { repaired += '}'; closeBraces++; }
   
@@ -385,9 +378,10 @@ export async function generateBatchChapterMetadata(
   if (summaryDetail === 'brief') {
     instructions = 'Provide a very brief summary (2-3 short bullet points) highlighting only the most critical takeaway.';
   } else if (summaryDetail === 'academic') {
-    instructions = "Provide a comprehensive and academic summary. Start with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing academic depth, underlying theories, specific methodologies, and core arguments. Do not provide superficial descriptions.";
+    instructions = "You must provide a rigorous, comprehensive academic summary. First, write a substantive overview paragraph of at least 150 words that introduces the research area, core thesis, and overall significance. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and thoroughly explain a distinct concept, theory, or finding with academic depth. Expand on each point. This summary is intended for a scholarly audience.";
   } else {
-    instructions = "Provide a detailed summary. Start with a short overview paragraph, then 4-6 descriptive bullet points capturing key concepts, events, logic, and arguments.";
+    // Detailed mode – the one you care about most
+    instructions = "You must provide a thorough and detailed summary. This is critically important. First, write a comprehensive overview paragraph of at least 150 words that captures the core thesis, methodology, and key findings. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and cover a distinct key concept, argument, or result. Do not be brief. Expand on each point thoroughly. This summary must be suitable for a university-level textbook.";
   }
 
   const prompt = `
@@ -452,14 +446,21 @@ No markdown formatting, no explanation.
   throw new Error('Failed to generate metadata after multiple attempts.');
 }
 
-export async function generateChapterMetadata(content: string, chapterNumber: number, retries = 3, summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed'): Promise<{title: string, summary: string}> {
+// ── generateChapterMetadata (single chapter) ─────────────────────────
+export async function generateChapterMetadata(
+  content: string,
+  chapterNumber: number,
+  retries = 3,
+  summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed'
+): Promise<{title: string; summary: string}> {
   let instructions = "";
   if (summaryDetail === 'brief') {
     instructions = "Provide a very brief summary (2-3 short bullet points) highlighting only the most critical takeaway.";
   } else if (summaryDetail === 'academic') {
-    instructions = "Provide a comprehensive and academic summary. Start with an introductory overview paragraph, followed by 5-8 robust bullet points. Each bullet point should be thorough (1-2 sentences), capturing academic depth, underlying theories, specific methodologies, and core arguments. Do not provide superficial descriptions.";
+    instructions = "You must provide a rigorous, comprehensive academic summary. First, write a substantive overview paragraph of at least 150 words that introduces the research area, core thesis, and overall significance. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and thoroughly explain a distinct concept, theory, or finding with academic depth. Expand on each point. This summary is intended for a scholarly audience.";
   } else {
-    instructions = "Provide a detailed summary. Start with a short overview paragraph, then 4-6 descriptive bullet points capturing key concepts, events, logic, and arguments.";
+    // Detailed mode – THIS IS THE FIX YOU ASKED FOR
+    instructions = "You must provide a thorough and detailed summary. This is critically important. First, write a comprehensive overview paragraph of at least 150 words that captures the core thesis, methodology, and key findings. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and cover a distinct key concept, argument, or result. Do not be brief. Expand on each point thoroughly. This summary must be suitable for a university-level textbook.";
   }
 
   const prompt = `
@@ -584,9 +585,7 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
   }
 }
 
-// ──────────────────────────────────────────────
-//  generateDocumentHierarchy – with JSON repair
-// ──────────────────────────────────────────────
+// ── generateDocumentHierarchy – with JSON repair ────────────────────
 export async function generateDocumentHierarchy(content: string, retries = 3): Promise<any> {
   const prompt = `
 You are an expert textbook editor processing a raw document dump.
