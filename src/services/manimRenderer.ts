@@ -1,20 +1,41 @@
 import { GoogleGenAI } from '@google/genai';
 
-const MANIM_API_URL = 'https://paulhemb-redora.hf.space';
+const MANIM_API_URL = 'https://paulhemb-redora.hf.space/render';
+
+// Gemini client singleton – exactly like in gemini.ts
+let _genai: any = null;
+async function getGenAI() {
+  if (!_genai) {
+    _genai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY || '',
+      httpOptions: {
+        retryOptions: {
+          attempts: 5          // matches your global retry config
+        }
+      }
+    });
+  }
+  return _genai;
+}
 
 /**
- * Generate Manim Python code from a visual prompt.
+ * Generate Manim Python code from a visual prompt using Gemini.
  */
 async function generateManimCode(visualPrompt: string): Promise<string> {
+  const ai = await getGenAI();
+
   const prompt = `Generate Python code using the Manim Community library for this educational animation: ${visualPrompt}. Include proper imports and a Scene class with a construct method. Only return the code, no explanation.`;
-  
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: prompt
+    model: 'gemini-3.1-flash-lite-preview',   // same model as the rest of the app
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      temperature: 0.2,
+      maxOutputTokens: 4096,
+    },
   });
-  
-  const code = response.text || '';
+
+  const code = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   // Strip markdown fences if the AI wraps them
   return code.replace(/^```python?\n?/, '').replace(/\n?```$/, '').trim();
 }
