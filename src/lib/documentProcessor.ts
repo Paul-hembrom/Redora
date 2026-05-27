@@ -62,6 +62,14 @@ export function preprocessText(text: string, options: PreprocessOptions): string
   return words.join(' ');
 }
 
+/**
+ * Remove null bytes (0x00) from a string.
+ * Null bytes are invalid UTF-8 and will cause PostgreSQL errors.
+ */
+function stripNullBytes(str: string): string {
+  return str.replace(/\x00/g, '');
+}
+
 // ---------------------------------------------------------------------------
 // Concurrency limiter
 // ---------------------------------------------------------------------------
@@ -96,7 +104,6 @@ function createConcurrencyLimit(concurrency: number) {
 // ---------------------------------------------------------------------------
 function isTransientError(err: unknown): boolean {
   if (err instanceof ApiRateLimitError) return true;
-  // Check for common HTTP transient error codes
   if (err instanceof Error && err.message) {
     const msg = err.message;
     return /\b(?:503|429|502|504)\b/.test(msg) || /service unavailable/i.test(msg);
@@ -125,7 +132,6 @@ async function withRetry<T>(
       await new Promise(r => setTimeout(r, delay));
     }
   }
-  // Unreachable but required by TS
   throw new Error('withRetry: unreachable');
 }
 
@@ -137,13 +143,15 @@ export async function extractTextFromFile(
   onProgress?: (msg: string) => void,
 ): Promise<string> {
   const extension = file.name.split('.').pop()?.toLowerCase();
+  let rawText = '';
 
   // ------------------------------------------------------------------
   // Plain text
   // ------------------------------------------------------------------
   if (extension === 'txt') {
     const buf = await file.arrayBuffer();
-    return new TextDecoder().decode(buf);
+    rawText = new TextDecoder().decode(buf);
+    return stripNullBytes(rawText);
   }
 
   // ------------------------------------------------------------------
@@ -168,7 +176,8 @@ export async function extractTextFromFile(
         text += (doc as any).body.textContent + '\n\n';
       }
     }
-    return text;
+    rawText = text;
+    return stripNullBytes(rawText);
   }
 
   // ------------------------------------------------------------------
@@ -177,7 +186,8 @@ export async function extractTextFromFile(
   if (extension === 'docx') {
     const buf = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer: buf });
-    return result.value;
+    rawText = result.value;
+    return stripNullBytes(rawText);
   }
 
   // ------------------------------------------------------------------
@@ -190,7 +200,8 @@ export async function extractTextFromFile(
       new Uint8Array(buf).reduce((data, byte) => data + String.fromCharCode(byte), ''),
     );
     const mimeType = file.type || `image/${extension === 'jpg' ? 'jpeg' : extension}`;
-    return extractTextFromImage(base64Data, mimeType);
+    rawText = await extractTextFromImage(base64Data, mimeType);
+    return stripNullBytes(rawText);
   }
 
   // ------------------------------------------------------------------
@@ -239,16 +250,17 @@ export async function extractTextFromFile(
     };
 
     try {
-      return await extractPdf();
+      rawText = await extractPdf();
     } catch (error) {
       console.error(
         '[documentProcessor] Primary PDF extraction failed, trying fallback worker…',
         error,
       );
-      return extractPdf(
+      rawText = await extractPdf(
         `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`,
       );
     }
+    return stripNullBytes(rawText);
   }
 
   throw new Error(`Unsupported file type: ${extension}`);
@@ -258,11 +270,14 @@ export async function extractTextFromFile(
 // Chapter / chunk splitting – improved to avoid single‑line chunks
 // ---------------------------------------------------------------------------
 export function splitIntoChapters(text: string): string[] {
+  // Already stripped of null bytes, but safe to re‑strip.
+  const cleanText = stripNullBytes(text);
+
   // Try common chapter/section headers first.
   const chapterRegex = /\n(?=(?:Chapter|Section|Part)\s+[0-9IVX]+)/gi;
-  const originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 100);
+  const originalSplits = cleanText.split(chapterRegex).filter(s => s.trim().length > 100);
 
-  let parts = originalSplits.length > 1 ? originalSplits : text.split(/\n\s*\n/);
+  let parts = originalSplits.length > 1 ? originalSplits : cleanText.split(/\n\s*\n/);
 
   // If we still have too few parts, don't split on every newline – just do fixed‑size chunks.
   if (parts.length < 5 && originalSplits.length <= 1) {
@@ -272,7 +287,6 @@ export function splitIntoChapters(text: string): string[] {
   const chunks: string[] = [];
   let currentChunk = '';
 
-  // If we have meaningful parts, merge them respecting MAX_CHUNK_SIZE.
   if (parts.length > 0) {
     for (const part of parts) {
       if (part.length > MAX_CHUNK_SIZE) {
@@ -296,35 +310,36 @@ export function splitIntoChapters(text: string): string[] {
     if (currentChunk) chunks.push(currentChunk);
   } else {
     // No structural breaks – just slice by MAX_CHUNK_SIZE.
-    for (let i = 0; i < text.length; i += MAX_CHUNK_SIZE) {
-      chunks.push(text.slice(i, i + MAX_CHUNK_SIZE));
+    for (let i = 0; i < cleanText.length; i += MAX_CHUNK_SIZE) {
+      chunks.push(cleanText.slice(i, i + MAX_CHUNK_SIZE));
     }
   }
 
   // Guarantee non‑empty output.
   if (chunks.length === 0) {
-    chunks.push(text);
+    chunks.push(cleanText);
   }
 
-  return chunks;
+  // Final pass: ensure every chunk is free of null bytes.
+  return chunks.map(stripNullBytes);
 }
 
 // ---------------------------------------------------------------------------
-// Hierarchy parsing – now assigns content correctly to chapters
+// Hierarchy parsing – now strips null bytes from all string fields
 // ---------------------------------------------------------------------------
+function safeText(s: string): string {
+  return stripNullBytes(s || '');
+}
 
-/**
- * Parses a single hierarchy object returned by the AI and pushes Chapter records.
- * Content is placed on the chapter level; topics and parts get empty content
- * to avoid duplication and oversized summaries.
- */
 function parseHierarchyIntoChapters(
   hierarchy: any,
   chunk: string,
   allChapters: Chapter[],
-  baseSortOrder: number, // guaranteed unique across chunks
-  chunkIndex: number,
+  baseSortOrder: number,
+  _chunkIndex: number, // kept for API consistency
 ): void {
+  const cleanChunk = safeText(chunk);
+
   if (!hierarchy || typeof hierarchy !== 'object') {
     throw new Error('Invalid hierarchy format');
   }
@@ -337,9 +352,9 @@ function parseHierarchyIntoChapters(
       allChapters.push({
         id: partId,
         chapterNumber: pIdx + 1,
-        title: part.title || `Part ${pIdx + 1}`,
-        summary: part.summary || '',
-        content: '', // parts are structural only
+        title: safeText(part.title) || `Part ${pIdx + 1}`,
+        summary: safeText(part.summary) || '',
+        content: '',
         isGenerating: false,
         parentId: null,
         sortOrder: localCounter++,
@@ -353,9 +368,9 @@ function parseHierarchyIntoChapters(
           allChapters.push({
             id: chapId,
             chapterNumber: cIdx + 1,
-            title: chap.title || `Chapter ${cIdx + 1}`,
-            summary: chap.summary || '',
-            content: chunk, // full chunk for the chapter (contains all its topics)
+            title: safeText(chap.title) || `Chapter ${cIdx + 1}`,
+            summary: safeText(chap.summary) || '',
+            content: cleanChunk,
             isGenerating: false,
             parentId: partId,
             sortOrder: localCounter++,
@@ -368,9 +383,9 @@ function parseHierarchyIntoChapters(
               allChapters.push({
                 id: uuidv4(),
                 chapterNumber: tIdx + 1,
-                title: topic.title || `Topic ${tIdx + 1}`,
-                summary: topic.summary || '',
-                content: '', // topics inherit context from parent chapter
+                title: safeText(topic.title) || `Topic ${tIdx + 1}`,
+                summary: safeText(topic.summary) || '',
+                content: '',
                 isGenerating: false,
                 parentId: chapId,
                 sortOrder: localCounter++,
@@ -391,9 +406,9 @@ function parseHierarchyIntoChapters(
       allChapters.push({
         id: chapId,
         chapterNumber: cIdx + 1,
-        title: chap.title || `Chapter ${cIdx + 1}`,
-        summary: chap.summary || '',
-        content: chunk, // chapter owns the text
+        title: safeText(chap.title) || `Chapter ${cIdx + 1}`,
+        summary: safeText(chap.summary) || '',
+        content: cleanChunk,
         isGenerating: false,
         parentId: null,
         sortOrder: localCounter++,
@@ -406,9 +421,9 @@ function parseHierarchyIntoChapters(
           allChapters.push({
             id: uuidv4(),
             chapterNumber: tIdx + 1,
-            title: topic.title || `Topic ${tIdx + 1}`,
-            summary: topic.summary || '',
-            content: '', // content resides in parent chapter
+            title: safeText(topic.title) || `Topic ${tIdx + 1}`,
+            summary: safeText(topic.summary) || '',
+            content: '',
             isGenerating: false,
             parentId: chapId,
             sortOrder: localCounter++,
@@ -421,16 +436,14 @@ function parseHierarchyIntoChapters(
     return;
   }
 
-  // Top‑level topics (rare) – assign empty content to avoid duplication;
-  // the caller may later inject the chunk.
   if (hierarchy.topics && Array.isArray(hierarchy.topics)) {
     hierarchy.topics.forEach((topic: any, tIdx: number) => {
       allChapters.push({
         id: uuidv4(),
         chapterNumber: tIdx + 1,
-        title: topic.title || `Topic ${tIdx + 1}`,
-        summary: topic.summary || '',
-        content: '', // cannot reliably split the chunk
+        title: safeText(topic.title) || `Topic ${tIdx + 1}`,
+        summary: safeText(topic.summary) || '',
+        content: '',
         isGenerating: false,
         parentId: null,
         sortOrder: localCounter++,
@@ -456,7 +469,7 @@ export async function processDocument(
     onChapterDone?: (index: number, title: string, summary: string) => void;
   },
 ): Promise<Chapter[]> {
-  // Step 1 – extract raw text (streaming‑safe for PDFs)
+  // Step 1 – extract raw text (null bytes already stripped inside)
   onProgress('Extracting text…');
   const rawText = await extractTextFromFile(file, onProgress);
 
@@ -464,7 +477,7 @@ export async function processDocument(
   onProgress('Preprocessing text…');
   const processedText = preprocessText(rawText, options);
 
-  // Step 3 – split into ≤25k‑char chunks
+  // Step 3 – split into ≤25k‑char chunks (chunks also stripped)
   onProgress('Detecting structure…');
   const chunks = splitIntoChapters(processedText);
   onProgress(`Split into ${chunks.length} chunk(s). Analysing with AI…`);
@@ -482,12 +495,13 @@ export async function processDocument(
       console.error('[documentProcessor] Batch AI call failed:', err);
       // Fallback: treat each chunk as a single unnamed section.
       chunks.forEach((chunk, i) => {
+        const cleanChunk = safeText(chunk);
         const fallback: Chapter = {
           id: uuidv4(),
           chapterNumber: i + 1,
           title: `Section ${i + 1}`,
           summary: 'Structure extraction failed',
-          content: chunk,
+          content: cleanChunk,
           isGenerating: false,
           parentId: null,
           sortOrder: i * 10000,
@@ -497,24 +511,23 @@ export async function processDocument(
         allChapters.push(fallback);
         callbacks?.onChapterDone?.(i, fallback.title, fallback.summary);
       });
-      return allChapters; // return flat list; caller may still build a tree
+      return allChapters;
     }
 
-    // Parse each hierarchy in order, assigning unique sort orders.
     chunks.forEach((chunk, i) => {
-      const baseSort = i * 10000; // large enough gap to avoid collisions
+      const baseSort = i * 10000;
       const chaptersBefore = allChapters.length;
       try {
         parseHierarchyIntoChapters(hierarchies[i], chunk, allChapters, baseSort, i);
       } catch (parseErr) {
         console.error(`[documentProcessor] Chunk ${i + 1} parse error:`, parseErr);
-        // fallback for this chunk
+        const cleanChunk = safeText(chunk);
         const fallback: Chapter = {
           id: uuidv4(),
           chapterNumber: i + 1,
           title: `Section ${i + 1}`,
           summary: 'Failed to parse structure',
-          content: chunk,
+          content: cleanChunk,
           isGenerating: false,
           parentId: null,
           sortOrder: baseSort,
@@ -524,7 +537,6 @@ export async function processDocument(
         allChapters.push(fallback);
       }
 
-      // Fire onChapterDone for new top‑level items from this chunk
       const newChapters = allChapters.slice(chaptersBefore);
       newChapters
         .filter(ch => ch.parentId === null)
@@ -533,8 +545,7 @@ export async function processDocument(
         });
     });
   } else {
-    // SINGLE CHUNK PATH (chunks.length === 1 or 0)
-    // Use concurrency limiter (only one job) but keep the flow consistent.
+    // SINGLE CHUNK PATH
     const limit = createConcurrencyLimit(MAX_CONCURRENCY);
     const chunk = chunks[0] || '';
 
@@ -544,12 +555,13 @@ export async function processDocument(
         hierarchy = await withRetry(() => generateDocumentHierarchy(chunk, 3));
       } catch (err) {
         console.error('[documentProcessor] Single chunk AI analysis failed:', err);
+        const cleanChunk = safeText(chunk);
         allChapters.push({
           id: uuidv4(),
           chapterNumber: 1,
           title: 'Section 1',
           summary: 'Structure extraction failed',
-          content: chunk,
+          content: cleanChunk,
           isGenerating: false,
           parentId: null,
           sortOrder: 0,
@@ -564,12 +576,13 @@ export async function processDocument(
         parseHierarchyIntoChapters(hierarchy, chunk, allChapters, 0, 0);
       } catch (parseErr) {
         console.error('[documentProcessor] Single chunk parse error:', parseErr);
+        const cleanChunk = safeText(chunk);
         allChapters.push({
           id: uuidv4(),
           chapterNumber: 1,
           title: 'Section 1',
           summary: 'Failed to parse structure',
-          content: chunk,
+          content: cleanChunk,
           isGenerating: false,
           parentId: null,
           sortOrder: 0,
@@ -578,7 +591,6 @@ export async function processDocument(
         });
       }
 
-      // Fire onChapterDone for the new top‑level items (usually one)
       const newChapters = allChapters.filter(ch => ch.parentId === null);
       newChapters.forEach((ch, idx) => {
         callbacks?.onChapterDone?.(idx, ch.title, ch.summary);
@@ -588,7 +600,6 @@ export async function processDocument(
 
   // Step 5 – Build tree from flat list (parentId links).
   const chapterMap = new Map<string, Chapter>();
-  // Sort by sortOrder so children are inserted correctly.
   allChapters
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder)
