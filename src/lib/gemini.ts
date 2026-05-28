@@ -1,4 +1,5 @@
 import { ChatMessage, ReadingPersona } from '../types';
+import { jsonrepair } from 'jsonrepair';
 
 // ──────────────────────────────────────────────
 // 1. Error & helpers (unchanged)
@@ -78,6 +79,16 @@ async function callDeepSeek(
 
     const data = await res.json();
     let content = data.choices[0].message.content;
+    const finishReason = data.choices[0].finish_reason;
+    
+    if (finishReason === 'length' && responseFormat === 'json_object') {
+      if (attempt < maxRetries) {
+        console.warn(`DeepSeek truncated JSON (finish_reason=length) – retrying (attempt ${attempt + 1}/${maxRetries})`);
+        continue;
+      }
+      console.warn(`DeepSeek truncated JSON max retries reached. Let JSON repair handle it.`);
+    }
+
     content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
     return content;
   }
@@ -105,7 +116,7 @@ async function getGenAI() {
 }
 
 /** Gemini Flash‑Lite for chat / structured output */
-async function callGeminiFlashLite(
+export async function callGeminiFlashLite(
   prompt: string,
   systemInstruction?: string,
 ): Promise<string> {
@@ -115,7 +126,7 @@ async function callGeminiFlashLite(
   if (systemInstruction) config.systemInstruction = systemInstruction;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-lite-preview',
+    model: 'gemini-2.5-flash',
     contents: [{ role: 'user', parts }],
     config,
   });
@@ -335,30 +346,35 @@ async function callLLM(
 // 8. JSON repair helper for truncated responses
 // ──────────────────────────────────────────────
 function repairTruncatedJson(jsonString: string): string {
-  let repaired = jsonString.replace(/,\s*([}\]])/g, '$1');
-  
-  let openBrackets = 0, closeBrackets = 0;
-  let openBraces = 0, closeBraces = 0;
-  let inString = false;
-  
-  for (let i = 0; i < repaired.length; i++) {
-    const char = repaired[i];
-    if (char === '"' && (i === 0 || repaired[i - 1] !== '\\')) {
-      inString = !inString;
-    } else if (!inString) {
-      if (char === '[') openBrackets++;
-      if (char === ']') closeBrackets++;
-      if (char === '{') openBraces++;
-      if (char === '}') closeBraces++;
+  try {
+    return jsonrepair(jsonString);
+  } catch (err) {
+    console.warn("jsonrepair library failed, falling back to custom bracket-repair logic");
+    let repaired = jsonString.replace(/,\s*([}\]])/g, '$1');
+    
+    let openBrackets = 0, closeBrackets = 0;
+    let openBraces = 0, closeBraces = 0;
+    let inString = false;
+    
+    for (let i = 0; i < repaired.length; i++) {
+      const char = repaired[i];
+      if (char === '"' && (i === 0 || repaired[i - 1] !== '\\')) {
+        inString = !inString;
+      } else if (!inString) {
+        if (char === '[') openBrackets++;
+        if (char === ']') closeBrackets++;
+        if (char === '{') openBraces++;
+        if (char === '}') closeBraces++;
+      }
     }
+    
+    if (inString) repaired += '"';
+    
+    while (closeBrackets < openBrackets) { repaired += ']'; closeBrackets++; }
+    while (closeBraces < openBraces) { repaired += '}'; closeBraces++; }
+    
+    return repaired;
   }
-  
-  if (inString) repaired += '"';
-  
-  while (closeBrackets < openBrackets) { repaired += ']'; closeBrackets++; }
-  while (closeBraces < openBraces) { repaired += '}'; closeBraces++; }
-  
-  return repaired;
 }
 
 // ──────────────────────────────────────────────
@@ -621,7 +637,7 @@ ${content.substring(0, 35000)}
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object', 8192);
+      const raw = await callLLM(prompt, undefined, 'json_object', 16384);
       let parsed;
       
       try {

@@ -28,7 +28,7 @@ const STOP_WORDS = new Set([
 ]);
 
 /** Maximum characters per chunk sent to the AI hierarchy API. */
-const MAX_CHUNK_SIZE = 25_000;
+const MAX_CHUNK_SIZE = 12_000;
 
 /** Maximum concurrent AI hierarchy API calls at any time. */
 const MAX_CONCURRENCY = 3;

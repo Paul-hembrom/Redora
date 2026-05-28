@@ -1,8 +1,10 @@
 import React, { useRef, useEffect } from 'react';
 import { Document } from '../types';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+// @ts-ignore
+import html2pdf from 'html2pdf.js';
 
 interface Props {
   document: Document;
@@ -16,6 +18,32 @@ export default function DocumentReader({ document }: Props) {
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
     }
+  };
+
+  const handleDownloadPdf = (chapter: any) => {
+    const element = chapterRefs.current[chapter.id];
+    if (!element) return;
+
+    const opt = {
+      margin:       0.5,
+      filename:     `${chapter.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2 },
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+
+    // We can temporarily clone the node and remove elements we don't want in the PDF (like the download button or navigation links)
+    const clone = element.cloneNode(true) as HTMLElement;
+    
+    // Remove the download button and navigation links from the clone
+    const navLinks = clone.querySelector('.pdf-exclude');
+    if (navLinks) {
+        navLinks.remove();
+    }
+    const downloadBtns = clone.querySelectorAll('.download-btn');
+    downloadBtns.forEach(btn => btn.remove());
+
+    html2pdf().set(opt).from(clone).save();
   };
 
   const flattenChapters = (chapters: any[] = []): any[] => {
@@ -73,9 +101,20 @@ export default function DocumentReader({ document }: Props) {
                 ref={el => { if (el) chapterRefs.current[chapter.id] = el; }}
                 className="scroll-mt-12 group"
               >
-                <h2 className="text-2xl font-semibold text-white mb-6">
-                  {chapter.title}
-                </h2>
+                <div className="flex justify-between items-start mb-6">
+                  <h2 className="text-2xl font-semibold text-white">
+                    {chapter.title}
+                  </h2>
+                  <button 
+                    onClick={() => handleDownloadPdf(chapter)}
+                    className="download-btn flex items-center gap-2 text-xs font-medium bg-white/5 hover:bg-white/10 text-white/70 hover:text-white px-3 py-2 rounded-lg transition-colors border border-white/5"
+                    title="Download as PDF"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Download PDF</span>
+                  </button>
+                </div>
+                
                 {chapter.summary && (
                   <div className="bg-white/5 border-l-4 border-cyan-500/50 p-4 mb-8 rounded-r-lg">
                     <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400 mb-2">Summary</h4>
@@ -89,7 +128,7 @@ export default function DocumentReader({ document }: Props) {
                 </div>
 
                 {/* Chapter Navigation Linking */}
-                <div className="mt-12 flex justify-between items-center border-t border-white/5 pt-6 opacity-50 group-hover:opacity-100 transition-opacity">
+                <div className="pdf-exclude mt-12 flex justify-between items-center border-t border-white/5 pt-6 opacity-50 group-hover:opacity-100 transition-opacity">
                   {prevChapter ? (
                     <button 
                       onClick={() => scrollToChapter(prevChapter.id)}
