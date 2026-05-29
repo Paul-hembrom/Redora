@@ -495,10 +495,13 @@ export async function processDocument(
   // Step 1 — extract raw text (streaming-safe for large PDFs).
   onProgress('Extracting text…');
   const rawText = await extractTextFromFile(file, onProgress);
+  
+  // Bug 1: Remove null bytes to prevent PostgreSQL errors 
+  const sanitizedText = rawText.replace(/\x00/g, '');
 
   // Step 2 — optional NLP preprocessing.
   onProgress('Preprocessing text…');
-  const processedText = preprocessText(rawText, options);
+  const processedText = preprocessText(sanitizedText, options);
 
   // Step 3 — split into ≤25k-char chunks.
   onProgress('Detecting structure…');
@@ -529,12 +532,28 @@ export async function processDocument(
         hierarchy = await withRetry(() => generateDocumentHierarchy(chunk, 3));
       } catch (err) {
         console.error(`[documentProcessor] Chunk ${i + 1} AI analysis failed:`, err);
+        
+        // Bug 2: Fallback to generateChapterMetadata as a second attempt
+        let fallbackTitle = `Section ${i + 1}`;
+        let fallbackSummary = 'Summary temporarily unavailable – please try again later.';
+        
+        try {
+          // Attempt the simpler, more reliable single-chunk summarizer
+          const fallbackMeta = await withRetry(() => generateChapterMetadata(chunk, i + 1, 2, 'detailed'));
+          if (fallbackMeta) {
+            fallbackTitle = fallbackMeta.title || fallbackTitle;
+            fallbackSummary = fallbackMeta.summary || fallbackSummary;
+          }
+        } catch (fallbackErr) {
+          console.error(`[documentProcessor] Chunk ${i + 1} fallback summarization failed:`, fallbackErr);
+        }
+
         // Graceful fallback — keep the raw chunk as an unnamed section.
         const fallbackChapter: Chapter = {
           id: uuidv4(),
           chapterNumber: i + 1,
-          title: `Section ${i + 1}`,
-          summary: 'Structure extraction failed',
+          title: fallbackTitle,
+          summary: fallbackSummary,
           content: chunk,
           isGenerating: false,
           parentId: null,
