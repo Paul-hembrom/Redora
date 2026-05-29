@@ -10,7 +10,7 @@ interface LessonStep {
   id: string;
   type: 'video' | 'image' | 'question';
   url?: string;
-  audioUrl?: string;
+  narration_audio_url?: string;
   narrationText?: string;
   caption?: string;
   text?: string; 
@@ -85,16 +85,21 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   // Auto-play TTS and video when step changes or resumes
   useEffect(() => {
     if (lessonState === 'playing' && currentStep) {
-      if (currentStep.audioUrl && audioRef.current) {
-        audioRef.current.src = currentStep.audioUrl;
+      if (currentStep.narration_audio_url && audioRef.current) {
+        if (audioRef.current.getAttribute('src') !== currentStep.narration_audio_url) {
+          audioRef.current.src = currentStep.narration_audio_url;
+        }
         audioRef.current.play().catch(e => console.error("Audio block:", e));
-      } else if (currentStep.type === 'image' && !currentStep.audioUrl) {
+      } else if (currentStep.type === 'image' && !currentStep.narration_audio_url) {
         // Fallback for image steps without audio
         const timer = setTimeout(handleNext, (currentStep.duration || 5) * 1000);
         return () => clearTimeout(timer);
       }
       
       if (currentStep.type === 'video' && videoRef.current) {
+        if (videoRef.current.getAttribute('src') !== currentStep.url) {
+           videoRef.current.src = currentStep.url || '';
+        }
         videoRef.current.play().catch(e => console.error("Video block:", e));
       }
     }
@@ -453,7 +458,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
       {/* Captions */}
       {currentStep?.narrationText && lessonState === 'playing' && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl text-center z-20 pointer-events-none">
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl text-center z-20 pointer-events-auto">
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -461,9 +466,17 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
           >
             <div className="flex items-center gap-4">
               <Volume2 className={cn("w-6 h-6 shrink-0", isAudioPlaying ? "text-cyan-400 animate-pulse" : "text-white/40")} />
-              <p className="text-white md:text-2xl font-medium tracking-wide drop-shadow-sm leading-relaxed text-left">
+              <p className="text-white md:text-2xl font-medium tracking-wide drop-shadow-sm leading-relaxed text-left flex-1">
                 {currentStep.narrationText.replace(/\[.*?\]/g, '')}
               </p>
+              {!currentStep.narration_audio_url && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleNext(); }}
+                  className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition shrink-0 font-medium ml-4 pointer-events-auto"
+                >
+                  Next
+                </button>
+              )}
             </div>
           </motion.div>
         </div>

@@ -1,6 +1,6 @@
 import { GoogleGenAI, Schema, Type } from "@google/genai";
 import sql from "./db.js";
-import { synthesizeSpeech } from "./synthesizeSpeech.js";
+import { synthesizeSpeech } from "../src/lib/gemini.js";
 import { v4 as uuidv4 } from "uuid";
 
 export async function createInteractiveLesson(topicId: string, orgId: string) {
@@ -37,7 +37,7 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
           type: 'video',
           url: scene.video_url,
           narrationText: scene.narration || '',
-          audioUrl: scene.narration_url || null,
+          narration_audio_url: scene.narration_url || null,
           duration: scene.estimated_duration_seconds || 15
         });
       } else if (scene.image_url) {
@@ -47,7 +47,7 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
           url: scene.image_url,
           caption: scene.narration || scene.visual_prompt || '',
           narrationText: scene.narration || '',
-          audioUrl: scene.narration_url || null,
+          narration_audio_url: scene.narration_url || null,
           duration: scene.estimated_duration_seconds || 10
         });
       }
@@ -70,7 +70,7 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
       type: 'image',
       caption: chapter.title,
       narrationText: introText,
-      audioUrl: null,
+      narration_audio_url: null,
       duration: 15
     });
 
@@ -157,19 +157,30 @@ For each step, return exactly:
      }
   }
 
-  // Synthesize speech for any step that needs it (some steps might still have old audioUrls - we'll ignore those if we want to overwrite, but actually we should overwrite to get Maya)
+  // Synthesize speech for any step that needs it
   for (const step of steps) {
     if (step.narrationText) {
       try {
-        const url = await synthesizeSpeech(step.narrationText);
-        step.audioUrl = url;
-        // Optionally save to DB here if desired.
+        let ttsText = step.narrationText;
+        if (step.humor) {
+          ttsText = `${ttsText} [playful] ${step.humor.setup} [short pause] ${step.humor.punchline}`;
+          if (step.humor.emotion) {
+             ttsText = `[${step.humor.emotion}] ` + ttsText;
+          }
+        } else if (step.emotion && step.emotion !== 'neutral') {
+          let em = step.emotion;
+          if (em === 'excited') em = 'enthusiastic';
+          ttsText = `[${em}] ${ttsText}`;
+        }
+        
+        const url = await synthesizeSpeech(ttsText, 'Kore');
+        step.narration_audio_url = url;
       } catch(e) {
          console.error("TTS generation failed:", e);
       }
     } else if (step.type === 'question') {
       try {
-        step.audioUrl = await synthesizeSpeech("[curious] " + step.text);
+        step.narration_audio_url = await synthesizeSpeech("[curious] " + step.text, 'Kore');
       } catch (e) {}
     }
   }
