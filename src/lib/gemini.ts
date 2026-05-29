@@ -663,6 +663,59 @@ ${content.substring(0, 35000)}
           throw new Error('JSON repair failed, retrying full generation...');
         }
       }
+
+      // POST-PROCESSING LOGIC
+      if (parsed && Array.isArray(parsed.parts)) {
+        // 1. Remove empty / placeholder headings
+        parsed.parts = parsed.parts.filter((p: any) => {
+          if (p.title?.includes('Main Text') && (!p.chapters || p.chapters.length === 0)) return false;
+          return true;
+        });
+
+        parsed.parts.forEach((p: any) => {
+          if (Array.isArray(p.chapters)) {
+            // Remove empty chapters
+            p.chapters = p.chapters.filter((c: any) => {
+              if (c.title?.includes('Main Text') && (!c.topics || c.topics.length === 0)) return false;
+              return true;
+            });
+
+            // 2. Merge duplicate Conclusion chapters
+            const mergedChapters: any[] = [];
+            for (let c of p.chapters) {
+              const lowerTitle = (c.title || '').toLowerCase();
+              if (lowerTitle.includes('conclusion')) {
+                const existing = mergedChapters.find(mc => (mc.title || '').toLowerCase().includes('conclusion'));
+                if (existing) {
+                  if (c.topics) {
+                    existing.topics = [...(existing.topics || []), ...c.topics];
+                  }
+                  existing.summary = (existing.summary || '') + ' ' + (c.summary || '');
+                  continue;
+                }
+              }
+              mergedChapters.push(c);
+            }
+            p.chapters = mergedChapters;
+          }
+        });
+
+        // 3. Merge isolated References part into the previous part
+        const partsToKeep: any[] = [];
+        for (let i = 0; i < parsed.parts.length; i++) {
+          const p = parsed.parts[i];
+          const lowerTitle = (p.title || '').toLowerCase();
+          if (lowerTitle.includes('reference') && i > 0) {
+            const prev = partsToKeep[partsToKeep.length - 1];
+            if (p.chapters) {
+              prev.chapters = [...(prev.chapters || []), ...p.chapters];
+            }
+          } else {
+            partsToKeep.push(p);
+          }
+        }
+        parsed.parts = partsToKeep;
+      }
       
       return parsed;
     } catch (error: any) {

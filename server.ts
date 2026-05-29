@@ -1214,6 +1214,44 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
 
 import { synthesizeSpeech } from './server/synthesizeSpeech.js';
 
+app.post('/api/lessons/study-plan', authenticate, async (req: any, res) => {
+  try {
+    const { docId } = req.body;
+    let chapters;
+    if (docId) {
+       const docs = await sql`SELECT chapters FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+       if (!docs || docs.length === 0) return res.status(404).json({error: "Not found"});
+       chapters = typeof docs[0].chapters === 'string' ? JSON.parse(docs[0].chapters) : docs[0].chapters;
+    } else {
+       const docs = await sql`SELECT name, chapters FROM documents WHERE user_id = ${req.userId}`;
+       chapters = docs.map((d: any) => ({
+         title: "Project: " + d.name,
+         children: typeof d.chapters === 'string' ? JSON.parse(d.chapters) : d.chapters
+       }));
+    }
+    
+    // We send to gemini to create a schedule
+    const text = JSON.stringify(chapters, ['title', 'summary', 'children']);
+    
+    const prompt = `You are a learning expert. Given the following document chapter hierarchy, generate a multi-day study schedule.
+Format it in Markdown, with headings for Day 1, Day 2, etc., and bullet points for what chapters or parts to study. Break it down reasonably.
+
+Chapter data:
+${text.substring(0, 50000)}`;
+    
+    const ai = await getGenAI();
+    const result = await ai.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: [{ role: 'user', parts: [{ text: prompt }]}]
+    });
+    
+    let plan = result.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate study plan.';
+    res.json({ plan });
+  } catch(err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/tts', async (req, res) => {
   try {
     const { text } = req.body;
@@ -1455,9 +1493,21 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       actionData: safeParse(c.action_data),
       recommended_videos: safeParse(c.recommended_videos),
       images: safeParse(c.images),
-      reactions: safeParse(c.reactions) || undefined
+      reactions: safeParse(c.reactions) || undefined,
+      pinned: c.pinned
     }));
     res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/chats/:id/pin', authenticate, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { pinned } = req.body;
+    await sql`UPDATE chats SET pinned = ${pinned} WHERE id = ${id} AND user_id = ${req.userId}`;
+    res.json({ success: true, pinned });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

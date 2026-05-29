@@ -101,6 +101,7 @@ export async function initDb() {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS type TEXT`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS action_data TEXT`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS recommended_videos TEXT`;
+      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE`;
     } catch (e) {
       // Ignore
     }

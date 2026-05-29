@@ -10,7 +10,7 @@ import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
 import { generateChatResponse } from './lib/gemini';
 import { v4 as uuidv4 } from 'uuid';
-import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -343,6 +343,7 @@ export default function App() {
   };
 
   const handleUpdateSummary = async (chapterId: string, summary: string) => {
+    // ... remain the same from 345 down to 363 ...
     try {
       const res = await fetch(`/api/chapters/${chapterId}`, {
         method: 'PUT',
@@ -359,6 +360,31 @@ export default function App() {
       }));
     } catch (err) {
       console.error('Error updating summary:', err);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsSearchModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return document.documentElement.classList.contains('dark') || true;
+  });
+
+  const toggleTheme = () => {
+    if (isDarkMode) {
+      document.documentElement.classList.remove('dark');
+      setIsDarkMode(false);
+    } else {
+      document.documentElement.classList.add('dark');
+      setIsDarkMode(true);
     }
   };
 
@@ -382,6 +408,12 @@ export default function App() {
           <h1 className="font-display font-bold text-lg tracking-wide">READORA</h1>
         </div>
         <div className="flex items-center gap-4 md:gap-6">
+          <button
+            onClick={toggleTheme}
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
           <div className="hidden sm:block">
             <CreditsPanel />
           </div>

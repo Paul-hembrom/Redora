@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2 } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -133,6 +133,64 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
   const [isGeneratingFollowUps, setIsGeneratingFollowUps] = useState(false);
   const [showInteractiveLesson, setShowInteractiveLesson] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [isTtsLoading, setIsTtsLoading] = useState(false);
+  const ttsAudioRef = useRef<HTMLAudioElement>(null);
+
+  const handlePlayTTS = async (msg: ChatMessage) => {
+    if (playingMessageId === msg.id) {
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current.currentTime = 0;
+      }
+      setPlayingMessageId(null);
+      return;
+    }
+
+    try {
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+      }
+      setPlayingMessageId(msg.id);
+      setIsTtsLoading(true);
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: msg.text })
+      });
+      if (!res.ok) throw new Error('TTS failed');
+      const data = await res.json();
+      
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.src = data.audioUrl;
+        ttsAudioRef.current.playbackRate = playbackRate;
+        await ttsAudioRef.current.play();
+      }
+    } catch(err) {
+      console.error(err);
+      setPlayingMessageId(null);
+    } finally {
+      setIsTtsLoading(false);
+    }
+  };
+
+  const handleTogglePin = async (msg: ChatMessage) => {
+    try {
+      const pinValue = !msg.pinned;
+      const res = await fetch(`/api/chats/${msg.id}/pin`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: pinValue })
+      });
+      if (res.ok) {
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, pinned: pinValue } : m));
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  };
 
   useEffect(() => {
     setMessages([]);
@@ -579,14 +637,38 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
     handleSendMessage(input);
   };
 
+  useEffect(() => {
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate]);
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#050505] relative w-full max-w-full">
+      <audio 
+        ref={ttsAudioRef} 
+        onEnded={() => setPlayingMessageId(null)}
+        onError={() => setPlayingMessageId(null)}
+        className="hidden"
+      />
       <div className="flex flex-col lg:flex-row lg:items-center justify-between px-4 md:px-8 py-3 lg:py-0 lg:h-16 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10 gap-3 border-b border-white/5">
         <div className="min-w-0 shrink-0">
           <h2 className="text-sm font-display font-semibold text-white truncate">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full lg:w-auto pb-1 lg:pb-0">
+          <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
+             <Volume2 className="w-3.5 h-3.5 text-white/40 ml-1" />
+             <select 
+               value={playbackRate} 
+               onChange={e => setPlaybackRate(Number(e.target.value))}
+               className="bg-transparent text-xs text-white/80 font-medium focus:outline-none appearance-none px-2"
+             >
+               <option value={1}>1x</option>
+               <option value={1.25}>1.25x</option>
+               <option value={1.5}>1.5x</option>
+             </select>
+          </div>
           {onNavigateChapter && (
             <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 overflow-hidden">
               <button 
@@ -747,14 +829,41 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                     </div>
                   )}
                   {renderActionData(msg)}
-                  {msg.role === 'model' && (
+                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/bubble:opacity-100 transition-opacity">
                     <button
-                      onClick={() => handleCopy(msg.id, msg.text)}
-                      className="absolute top-2 right-2 p-1.5 text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40 rounded-md opacity-0 group-hover/bubble:opacity-100 transition-all"
-                      title="Copy response"
+                      onClick={() => handleTogglePin(msg)}
+                      className={cn("p-1.5 rounded-md transition-all", msg.pinned ? "text-cyan-400 bg-cyan-500/20" : "text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40")}
+                      title={msg.pinned ? "Unpin message" : "Pin message"}
                     >
-                      {copiedId === msg.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      {msg.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
                     </button>
+                    {msg.role === 'model' && (
+                      <button
+                        onClick={() => handlePlayTTS(msg)}
+                        className="p-1.5 text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40 rounded-md transition-all"
+                        title={playingMessageId === msg.id ? "Stop TTS" : "Play TTS"}
+                      >
+                        {isTtsLoading && playingMessageId === msg.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : playingMessageId === msg.id ? (
+                          <Square className="w-3.5 h-3.5 fill-current" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    )}
+                    {msg.role === 'model' && (
+                      <button
+                        onClick={() => handleCopy(msg.id, msg.text)}
+                        className="p-1.5 text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40 rounded-md transition-all"
+                        title="Copy response"
+                      >
+                        {copiedId === msg.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </div>
+                  {msg.pinned && (
+                    <div className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-cyan-400 rounded-full shadow-[0_0_10px_rgba(34,211,238,0.8)] border-2 border-[#0a0a0a]" title="Pinned Message" />
                   )}
                 </div>
 
@@ -910,7 +1019,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
                   e.preventDefault();
                   handleSubmit(e);
                 }
