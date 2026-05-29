@@ -485,6 +485,84 @@ function parseHierarchyIntoChapters(
  * Bug fix #9 — onChapterDone callback is now invoked after each chapter is
  *              finalised.
  */
+function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
+  let cleaned = [...nodes];
+
+  // 1. Recursive cleaning (bottom-up approach)
+  cleaned.forEach(node => {
+    if (node.children && node.children.length > 0) {
+      node.children = cleanAcademicPaperHierarchy(node.children);
+    }
+  });
+
+  const sanitizeTitle = (t: string) => (t || '').toLowerCase().replace(/^(part|chapter)\s*\d*[:\-]?\s*/i, '').trim();
+
+  // 2. Remove "Main Text" with no active children
+  cleaned = cleaned.filter(ch => {
+    const titleLower = (ch.title || '').toLowerCase();
+    if (titleLower.includes('main text') && (!ch.children || ch.children.length === 0)) {
+      return false;
+    }
+    return true;
+  });
+
+  // 3. Merge duplicate siblings
+  let i = 0;
+  while (i < cleaned.length - 1) {
+    const a = cleaned[i];
+    const b = cleaned[i + 1];
+    const aClean = sanitizeTitle(a.title);
+    const bClean = sanitizeTitle(b.title);
+    
+    if (aClean === bClean && aClean.length > 0) {
+      a.summary = (a.summary || '').length > (b.summary || '').length ? a.summary : (b.summary || '');
+      a.content = [a.content, b.content].filter(x => x && x.trim().length > 0).join('\n\n');
+      if (a.children || b.children) {
+        a.children = [...(a.children || []), ...(b.children || [])];
+      }
+      cleaned.splice(i + 1, 1);
+    } else {
+      i++;
+    }
+  }
+
+  // 4 & 5. Flattening & inline reference sections
+  let finalNodes: Chapter[] = [];
+  for (const node of cleaned) {
+    // 4. Inline shallow Reference sections
+    if ((node.type === 'part' || node.type === 'chapter') && node.children?.length === 1) {
+      const singleChild = node.children[0];
+      if (singleChild.type === 'topic' && /references?/i.test(singleChild.title || '')) {
+         finalNodes.push(singleChild);
+         continue;
+      }
+    }
+
+    // 5. Flatten unnecessary nesting (Part -> 1 Chapter -> Topics)
+    if (node.type === 'part' && node.children?.length === 1) {
+      const singleChapter = node.children[0];
+      if (singleChapter.type === 'chapter' && singleChapter.children && singleChapter.children.every(c => c.type === 'topic')) {
+        const partClean = sanitizeTitle(node.title);
+        const chClean = sanitizeTitle(singleChapter.title);
+        
+        if (partClean === chClean || partClean === '') {
+          // Replace Part with Chapter (flatten 1 level)
+          if (chClean === '' && singleChapter.children.length > 0) {
+             finalNodes.push(...singleChapter.children);
+          } else {
+             finalNodes.push(singleChapter);
+          }
+          continue;
+        }
+      }
+    }
+
+    finalNodes.push(node);
+  }
+
+  return finalNodes;
+}
+
 export async function processDocument(
   file: File,
   options: PreprocessOptions,
@@ -647,7 +725,7 @@ export async function processDocument(
       chapterMap.set(ch.id, { ...ch, children: [] });
     });
 
-  const roots: Chapter[] = [];
+  let roots: Chapter[] = [];
   for (const ch of chapterMap.values()) {
     if (ch.parentId && chapterMap.has(ch.parentId)) {
       chapterMap.get(ch.parentId)!.children!.push(ch);
@@ -655,6 +733,22 @@ export async function processDocument(
       roots.push(ch);
     }
   }
+
+  // Bug Fix: Post-process the tree to fix academic paper quirks
+  roots = cleanAcademicPaperHierarchy(roots);
+
+  // Re-number sortOrder and fix parentIds after flattening
+  sortCounter.value = 0;
+  function renumber(nodes: Chapter[], parentId: string | null) {
+    nodes.forEach(n => {
+       n.parentId = parentId;
+       n.sortOrder = sortCounter.value++;
+       if (n.children && n.children.length > 0) {
+          renumber(n.children, n.id);
+       }
+    });
+  }
+  renumber(roots, null);
 
   // Notify caller that the full tree is ready.
   callbacks?.onDiscovered?.(roots);
