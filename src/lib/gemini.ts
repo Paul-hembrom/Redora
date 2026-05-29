@@ -20,9 +20,20 @@ function cleanErrorMessage(error: any): string {
 // ──────────────────────────────────────────────
 // 2. Env helpers – centralise API keys
 // ──────────────────────────────────────────────
-const DEEPSEEK_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
-const GEMINI_KEY   = import.meta.env.VITE_GEMINI_API_KEY   as string;
-const EL_KEY       = import.meta.env.VITE_ELEVENLABS_API_KEY as string;
+function getEnvSafe(key: string, getViteEnv: () => string | undefined): string {
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key] as string;
+  }
+  try {
+    const val = getViteEnv();
+    if (val) return val;
+  } catch (e) {}
+  return '';
+}
+
+const DEEPSEEK_KEY = getEnvSafe('VITE_DEEPSEEK_API_KEY', () => import.meta.env.VITE_DEEPSEEK_API_KEY as string);
+const GEMINI_KEY   = getEnvSafe('VITE_GEMINI_API_KEY',   () => import.meta.env.VITE_GEMINI_API_KEY as string);
+const EL_KEY       = getEnvSafe('VITE_ELEVENLABS_API_KEY', () => import.meta.env.VITE_ELEVENLABS_API_KEY as string);
 
 function hasKey(key: string | undefined): key is string {
   return typeof key === 'string' && key.length > 0;
@@ -210,7 +221,7 @@ async function callElevenLabsSTT(audioBlob: Blob): Promise<string> {
 // 6. NVIDIA / HuggingFace fallbacks (your existing code, untouched)
 // ──────────────────────────────────────────────
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
-  const baseUrl = import.meta.env.VITE_BACKEND_URL || "";
+  const baseUrl = getEnvSafe('VITE_BACKEND_URL', () => import.meta.env.VITE_BACKEND_URL as string);
   const messages = [];
   if (systemInstruction) {
     messages.push({ role: "system", content: systemInstruction });
@@ -264,7 +275,7 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
 }
 
 async function callNvidiaVisionFallback(base64Data: string, mimeType: string, prompt: string) {
-  const baseUrl = import.meta.env.VITE_BACKEND_URL || "";
+  const baseUrl = getEnvSafe('VITE_BACKEND_URL', () => import.meta.env.VITE_BACKEND_URL as string);
   const response = await fetch(`${baseUrl}/api/nvidia/chat/completions`, {
     method: "POST",
     headers: {
