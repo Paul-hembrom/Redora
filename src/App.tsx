@@ -103,6 +103,7 @@ export default function App() {
         })
         .then(async data => {
           if (Array.isArray(data)) {
+            console.log("Fetched docs:", data.length, data.map(d => d.id));
             let docs = data;
             
             // If there's a shared doc ID and it's not in the user's docs, fetch it

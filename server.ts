@@ -652,7 +652,8 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     }
 
     await sql.begin(async (tx: any) => {
-      await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${name}, ${tags ? JSON.stringify(tags) : '[]'})`;
+      const cleanName = (name || '').replace(/\x00/g, '');
+      await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${cleanName}, ${tags ? JSON.stringify(tags) : '[]'})`;
       
       if (chapters && chapters.length > 0) {
         const flatChapters: any[] = [];
@@ -662,9 +663,9 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
               id: ch.id,
               document_id: id,
               chapter_number: ch.chapterNumber || (idx + 1),
-              title: ch.title,
-              summary: ch.summary || '',
-              content: ch.content || '',
+              title: (ch.title || '').replace(/\x00/g, ''),
+              summary: (ch.summary || '').replace(/\x00/g, ''),
+              content: (ch.content || '').replace(/\x00/g, ''),
               parent_id: parentId || ch.parentId || null,
               sort_order: ch.sortOrder || idx,
               type: ch.type || (parentId ? 'topic' : 'chapter')
@@ -703,7 +704,7 @@ app.put('/api/chapters/:id', authenticate, async (req: any, res) => {
       return res.status(403).json({ error: 'Unauthorized to edit this chapter' });
     }
     
-    await sql`UPDATE chapters SET summary = ${summary} WHERE id = ${chapterId}`;
+    await sql`UPDATE chapters SET summary = ${summary.replace(/\x00/g, '')} WHERE id = ${chapterId}`;
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
