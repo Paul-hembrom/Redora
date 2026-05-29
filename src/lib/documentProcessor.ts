@@ -9,6 +9,8 @@ import {
   extractTextFromImage,
   ApiRateLimitError,
   generateDocumentHierarchy,
+  generateChapterMetadata,
+  generateMinimalSummary,
 } from './gemini';
 
 // ---------------------------------------------------------------------------
@@ -28,7 +30,7 @@ const STOP_WORDS = new Set([
 ]);
 
 /** Maximum characters per chunk sent to the AI hierarchy API. */
-const MAX_CHUNK_SIZE = 12_000;
+const MAX_CHUNK_SIZE = 8_000;
 
 /** Maximum concurrent AI hierarchy API calls at any time. */
 const MAX_CONCURRENCY = 3;
@@ -520,6 +522,25 @@ export async function processDocument(
   // Each job captures its own chunk index for progress reporting.
   const jobs = chunks.map((chunk, i) =>
     limit(async () => {
+      // Bug Fix 1: Skip trivial chunks entirely.
+      if (chunk.trim().length < 200 || /^(?:acknowledgments?|references?|supplementary|author contributions?)/i.test(chunk.trim())) {
+        const trivialChapter: Chapter = {
+          id: uuidv4(),
+          chapterNumber: i + 1,
+          title: 'Additional Information',
+          summary: 'Non-content section – automatically generated.',
+          content: chunk,
+          isGenerating: false,
+          parentId: null,
+          sortOrder: sortCounter.value++,
+          type: 'topic',
+          children: [],
+        };
+        allChapters.push(trivialChapter);
+        callbacks?.onChapterDone?.(i, trivialChapter.title, trivialChapter.summary);
+        return;
+      }
+
       const percent = Math.round(((i + 1) / chunks.length) * 100);
       onProgress(
         `AI analysis: chunk ${i + 1} of ${chunks.length} (${percent}%)…`,
@@ -546,6 +567,16 @@ export async function processDocument(
           }
         } catch (fallbackErr) {
           console.error(`[documentProcessor] Chunk ${i + 1} fallback summarization failed:`, fallbackErr);
+          
+          // Bug Fix 2: Second fallback (ultra-minimal)
+          try {
+            const minSummary = await generateMinimalSummary(chunk);
+            if (minSummary && !minSummary.includes('temporarily unavailable')) {
+               fallbackSummary = minSummary;
+            }
+          } catch (superFallbackErr) {
+            console.error(`[documentProcessor] Chunk ${i + 1} super fallback failed:`, superFallbackErr);
+          }
         }
 
         // Graceful fallback — keep the raw chunk as an unnamed section.

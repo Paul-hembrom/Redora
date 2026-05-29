@@ -641,6 +641,7 @@ CRITICAL RULES:
 2. "summary" fields MUST be comprehensive, high-quality, long summaries (multiple sentences emphasizing key learning points).
 3. If the text is short, you can just return chapters, or just topics. Maintain the JSON array structure.
 4. Ensure absolutely ZERO content from the source text is lost. Every paragraph must end up in a topic's "content" field.
+5. If the document appears to be a research paper, avoid creating separate parts for references and acknowledgements; instead group them under the last chapter or a single 'Supplementary Material' section.
 
 Source Text:
 ${content.substring(0, 35000)}
@@ -778,4 +779,17 @@ function pcmToWavBase64(rawBase64: string, mimeType: string): string {
 
 function writeString(view: DataView, offset: number, str: string) {
   for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+// ──────────────────────────────────────────────
+// 12. Ultra-minimal fallback summarizer
+// ──────────────────────────────────────────────
+export async function generateMinimalSummary(text: string): Promise<string> {
+  const prompt = `Summarise this text in one sentence:\n\n${text.substring(0, 4000)}`;
+  try {
+    return await callLLM(prompt, undefined, 'text', 1024);
+  } catch (err) {
+    console.error('Minimal fallback summarize failed:', err);
+    return 'Summary temporarily unavailable – please try again later.';
+  }
 }

@@ -27,9 +27,9 @@ export default function DocumentReader({ document }: Props) {
     const opt = {
       margin:       0.5,
       filename:     `${chapter.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
+      image:        { type: 'jpeg' as const, quality: 0.98 },
       html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' as const }
     };
 
     // We can temporarily clone the node and remove elements we don't want in the PDF (like the download button or navigation links)
