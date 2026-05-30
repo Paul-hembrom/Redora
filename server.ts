@@ -1239,7 +1239,9 @@ Format it in Markdown, with headings for Day 1, Day 2, etc., and bullet points f
 Chapter data:
 ${text.substring(0, 50000)}`;
     
-    const ai = await getGenAI();
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY || ''
+    });
     const result = await ai.models.generateContent({
       model: 'gemini-3.1-pro-preview',
       contents: [{ role: 'user', parts: [{ text: prompt }]}]
