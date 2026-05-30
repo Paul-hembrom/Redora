@@ -5,6 +5,7 @@ import ChatArea from './components/ChatArea';
 import DocumentReader from './components/DocumentReader';
 import Login from './components/Login';
 import Signup from './components/Signup';
+import Pricing from './components/Pricing';
 import GlobalSearchModal from './components/GlobalSearchModal';
 import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
@@ -161,6 +162,11 @@ export default function App() {
         .catch(err => console.error('Failed to fetch documents', err));
     }
   }, [user, logout]);
+
+  const isPricingPage = window.location.pathname === '/pricing';
+  if (isPricingPage) {
+    return <Pricing />;
+  }
 
   if (loading) {
     return (
