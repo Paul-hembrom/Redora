@@ -581,24 +581,32 @@ export default function App() {
                 <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-4">
                   {isEmptyDragActive ? "Drop document here" : `Welcome, ${user.name}`}
                 </h2>
-                <p className="text-base md:text-lg font-light text-white/60 leading-relaxed mb-10">
-                  Upload your first document to automatically detect chapters, generate summaries, and interact with the text using AI.
-                </p>
-                
-                <button 
-                  className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black rounded-xl font-semibold text-lg transition-all duration-300 shadow-[0_0_20px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] hover:-translate-y-1 flex items-center gap-3"
-                >
-                  <UploadCloud className="w-5 h-5" />
-                  Upload a Document
-                </button>
-
-                <div className="flex flex-wrap justify-center gap-2 mt-8">
-                  {['PDF', 'EPUB', 'DOCX', 'TXT', 'Images'].map(ext => (
-                    <span key={ext} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50 text-xs font-medium">
-                      {ext}
-                    </span>
-                  ))}
-                </div>
+                {user.role === 'student' ? (
+                  <p className="text-base md:text-lg font-light text-white/60 leading-relaxed mb-10 text-center">
+                    You have view-only access. Select a shared document from the sidebar to start reading.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-base md:text-lg font-light text-white/60 leading-relaxed mb-10 text-center">
+                      Upload your first document to automatically detect chapters, generate summaries, and interact with the text using AI.
+                    </p>
+                    
+                    <button 
+                      className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black rounded-xl font-semibold text-lg transition-all duration-300 shadow-[0_0_20px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] hover:-translate-y-1 flex items-center gap-3"
+                    >
+                      <UploadCloud className="w-5 h-5" />
+                      Upload a Document
+                    </button>
+    
+                    <div className="flex flex-wrap justify-center gap-2 mt-8">
+                      {['PDF', 'EPUB', 'DOCX', 'TXT', 'Images'].map(ext => (
+                        <span key={ext} className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50 text-xs font-medium">
+                          {ext}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             );

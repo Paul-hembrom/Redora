@@ -690,36 +690,38 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
               </button>
             </div>
           )}
-          <div className="flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5">
+          <div className="flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 overflow-x-auto custom-scrollbar pr-2">
+            {user?.role !== 'student' && (
+              <button 
+                onClick={() => setShowInteractiveLesson(true)}
+                className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+                title="Start Interactive Lesson"
+              >
+                <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson
+              </button>
+            )}
             <button 
-              onClick={() => setShowInteractiveLesson(true)}
-              className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
-              title="Start Interactive Lesson"
+              onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
+              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
+              title="Toggle Video Lesson Pipeline"
             >
-              <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson
+              <Film className="w-3.5 h-3.5" /> Pipeline
             </button>
             {user?.role !== 'student' && (
-              <>
-                <button 
-                  onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
-                  className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
-                  title="Toggle Video Lesson Pipeline"
-                >
-                  <Film className="w-3.5 h-3.5" /> Pipeline
-                </button>
-                <button 
-                  onClick={handleGenerateVideoLesson} 
-                  className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
-                  title="Generate AI video lesson"
-                >
-                  <Wand2 className="w-3.5 h-3.5" /> Generate Video
-                </button>
-              </>
+              <button 
+                onClick={handleGenerateVideoLesson} 
+                className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
+                title="Generate AI video lesson"
+              >
+                <Wand2 className="w-3.5 h-3.5" /> Generate Video
+              </button>
             )}
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
             </button>
-            <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
+            {user?.role !== 'student' && (
+              <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
+            )}
             <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
               <Target className="w-3.5 h-3.5" /> Quiz
             </button>
