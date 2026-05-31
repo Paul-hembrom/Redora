@@ -30,10 +30,10 @@ const STOP_WORDS = new Set([
 ]);
 
 /** Maximum characters per chunk sent to the AI hierarchy API. */
-const MAX_CHUNK_SIZE = 8_000;
+const MAX_CHUNK_SIZE = 30_000;
 
 /** Maximum concurrent AI hierarchy API calls at any time. */
-const MAX_CONCURRENCY = 3;
+const MAX_CONCURRENCY = 8;
 
 /** Maximum number of retry attempts for rate-limited API calls. */
 const MAX_RETRIES = 4;
@@ -283,6 +283,16 @@ export async function extractTextFromFile(
 // Chapter / chunk splitting
 // ---------------------------------------------------------------------------
 export function splitIntoChapters(text: string): string[] {
+  // Dynamically adjust chunk size based on document length
+  // Target around 20-30 chunks max for large docs to utilize concurrency natively,
+  // but keep a reasonable floor/ceiling.
+  let dynamicChunkSize = Math.max(8_000, Math.min(30_000, Math.ceil(text.length / MAX_CONCURRENCY)));
+  // If the document is massive (> 1M chars), allow even larger chunks up to 60,000 
+  // because Gemini/DeepSeek context sizes are huge and we want to minimise API overhead.
+  if (text.length > 500_000) {
+     dynamicChunkSize = Math.min(60_000, Math.ceil(text.length / (MAX_CONCURRENCY * 2)));
+  }
+
   const chapterRegex = /\n(?=(?:Chapter|Section|Part)\s+[0-9IVX]+)/gi;
   const originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 100);
 
@@ -297,17 +307,17 @@ export function splitIntoChapters(text: string): string[] {
   let currentChunk = '';
 
   for (const part of parts) {
-    if (part.length > MAX_CHUNK_SIZE) {
+    if (part.length > dynamicChunkSize) {
       // Flush current chunk first, then hard-slice the oversized part.
       if (currentChunk) {
         chunks.push(currentChunk);
         currentChunk = '';
       }
-      for (let i = 0; i < part.length; i += MAX_CHUNK_SIZE) {
-        chunks.push(part.slice(i, i + MAX_CHUNK_SIZE));
+      for (let i = 0; i < part.length; i += dynamicChunkSize) {
+        chunks.push(part.slice(i, i + dynamicChunkSize));
       }
     } else if (
-      currentChunk.length + part.length > MAX_CHUNK_SIZE &&
+      currentChunk.length + part.length > dynamicChunkSize &&
       currentChunk.length > 0
     ) {
       chunks.push(currentChunk);
@@ -321,8 +331,8 @@ export function splitIntoChapters(text: string): string[] {
 
   // Absolute fallback — should never be reached but guarantees non-empty output.
   if (chunks.length === 0) {
-    for (let i = 0; i < text.length; i += MAX_CHUNK_SIZE) {
-      chunks.push(text.slice(i, i + MAX_CHUNK_SIZE));
+    for (let i = 0; i < text.length; i += dynamicChunkSize) {
+      chunks.push(text.slice(i, i + dynamicChunkSize));
     }
   }
 
@@ -583,175 +593,100 @@ export async function processDocument(
   onProgress('Preprocessing text…');
   const processedText = preprocessText(sanitizedText, options);
 
-  // Step 3 — split into ≤25k-char chunks.
+  // Step 3 — split into large chunks.
   onProgress('Detecting structure…');
   const chunks = splitIntoChapters(processedText);
-  onProgress(`Split into ${chunks.length} chunk(s). Analysing with AI…`);
+  onProgress(`Split into ${chunks.length} chunk(s). Initializing structure…`);
 
-  // Step 4 — run AI hierarchy extraction on all chunks concurrently,
-  //           limited to MAX_CONCURRENCY simultaneous requests.
-  //           Bug fix #3: use concurrency limiter instead of sequential awaits.
+  // Step 4 — Initialize structure synchronously for immediate UI feedback.
+  const roots: Chapter[] = chunks.map((chunk, i) => {
+    return {
+      id: uuidv4(),
+      chapterNumber: i + 1,
+      title: `Processing part ${i + 1}...`,
+      summary: 'Generating summary...',
+      content: chunk,
+      isGenerating: true,
+      parentId: null,
+      sortOrder: i,
+      type: 'chapter',
+      children: [],
+    };
+  });
+
+  // Call onDiscovered immediately to show the structure in the UI
+  callbacks?.onDiscovered?.(roots);
+
+  // Step 5 — Async generation in batches using generateBatchChapterMetadata
   const limit = createConcurrencyLimit(MAX_CONCURRENCY);
-  const allChapters: Chapter[] = [];
-  const sortCounter = { value: 0 };
+  const BATCH_SIZE = 5;
+  const batches: Chapter[][] = [];
+  
+  for (let i = 0; i < roots.length; i += BATCH_SIZE) {
+    batches.push(roots.slice(i, i + BATCH_SIZE));
+  }
 
-  // We use a shared mutex-like object so that concurrent callbacks write
-  // into allChapters in order of sortCounter rather than race order.
-  // Each job captures its own chunk index for progress reporting.
-  const jobs = chunks.map((chunk, i) =>
+  const jobs = batches.map((batch, batchIdx) =>
     limit(async () => {
-      // Bug Fix 1: Skip trivial chunks entirely.
-      if (chunk.trim().length < 200 || /^(?:acknowledgments?|references?|supplementary|author contributions?)/i.test(chunk.trim())) {
-        const trivialChapter: Chapter = {
-          id: uuidv4(),
-          chapterNumber: i + 1,
-          title: 'Additional Information',
-          summary: 'Non-content section – automatically generated.',
-          content: chunk,
-          isGenerating: false,
-          parentId: null,
-          sortOrder: sortCounter.value++,
-          type: 'topic',
-          children: [],
-        };
-        allChapters.push(trivialChapter);
-        callbacks?.onChapterDone?.(i, trivialChapter.title, trivialChapter.summary);
-        return;
-      }
-
-      const percent = Math.round(((i + 1) / chunks.length) * 100);
-      onProgress(
-        `AI analysis: chunk ${i + 1} of ${chunks.length} (${percent}%)…`,
-      );
-
-      let hierarchy: any = null;
-
-      // Bug fix #6: retry on rate-limit errors with exponential backoff.
       try {
-        hierarchy = await withRetry(() => generateDocumentHierarchy(chunk, 3));
-      } catch (err) {
-        console.error(`[documentProcessor] Chunk ${i + 1} AI analysis failed:`, err);
+        const batchData = batch.map(ch => ({
+          content: ch.content,
+          chapterNumber: ch.chapterNumber
+        }));
         
-        // Bug 2: Fallback to generateChapterMetadata as a second attempt
-        let fallbackTitle = `Section ${i + 1}`;
-        let fallbackSummary = 'Summary temporarily unavailable – please try again later.';
+        const percent = Math.round(((batchIdx + 1) / batches.length) * 100);
+        onProgress(`AI analysis: batch ${batchIdx + 1} of ${batches.length} (${percent}%)…`);
         
-        try {
-          // Attempt the simpler, more reliable single-chunk summarizer
-          const fallbackMeta = await withRetry(() => generateChapterMetadata(chunk, i + 1, 2, 'detailed'));
-          if (fallbackMeta) {
-            fallbackTitle = fallbackMeta.title || fallbackTitle;
-            fallbackSummary = fallbackMeta.summary || fallbackSummary;
+        // Detailed summary instruction is the default behaviour.
+        const metadataMap = await withRetry(() => generateBatchChapterMetadata(batchData, 3, 'detailed'));
+        
+        for (const ch of batch) {
+          const meta = metadataMap[ch.chapterNumber];
+          if (meta) {
+            ch.title = meta.title;
+            // The batch generator sometimes returns title/summary in one single object
+            ch.summary = meta.summary;
+          } else {
+            ch.title = `Section ${ch.chapterNumber}`;
+            ch.summary = 'Summary temporarily unavailable.';
           }
-        } catch (fallbackErr) {
-          console.error(`[documentProcessor] Chunk ${i + 1} fallback summarization failed:`, fallbackErr);
+          ch.isGenerating = false;
           
-          // Bug Fix 2: Second fallback (ultra-minimal)
-          try {
-            const minSummary = await generateMinimalSummary(chunk);
-            if (minSummary && !minSummary.includes('temporarily unavailable')) {
-               fallbackSummary = minSummary;
-            }
-          } catch (superFallbackErr) {
-            console.error(`[documentProcessor] Chunk ${i + 1} super fallback failed:`, superFallbackErr);
-          }
+          // Bug fix #9 / Async updating: The UI receives the newly generated title and summary
+          callbacks?.onChapterDone?.(ch.chapterNumber - 1, ch.title, ch.summary);
         }
-
-        // Graceful fallback — keep the raw chunk as an unnamed section.
-        const fallbackChapter: Chapter = {
-          id: uuidv4(),
-          chapterNumber: i + 1,
-          title: fallbackTitle,
-          summary: fallbackSummary,
-          content: chunk,
-          isGenerating: false,
-          parentId: null,
-          sortOrder: sortCounter.value++,
-          type: 'topic',
-          children: [],
-        };
-        allChapters.push(fallbackChapter);
-
-        // Bug fix #9: fire onChapterDone even for fallback sections.
-        callbacks?.onChapterDone?.(i, fallbackChapter.title, fallbackChapter.summary);
-        return;
+      } catch (err) {
+        console.error(`[documentProcessor] Batch ${batchIdx + 1} failed:`, err);
+        // Fallback for failed batches
+        for (const ch of batch) {
+          ch.title = `Section ${ch.chapterNumber}`;
+          
+          try {
+            // Attempt ultra-minimal fallback summarizing
+            const minSummary = await generateMinimalSummary(ch.content);
+            if (minSummary && !minSummary.includes('temporarily unavailable')) {
+               ch.summary = minSummary;
+            } else {
+               ch.summary = 'Summary temporarily unavailable - please manually update.';
+            }
+          } catch (fallbackErr) {
+            ch.summary = 'Summary temporarily unavailable - please manually update.';
+          }
+          
+          ch.isGenerating = false;
+          callbacks?.onChapterDone?.(ch.chapterNumber - 1, ch.title, ch.summary);
+        }
       }
-
-      // Parse the AI response into Chapter records.
-      const chaptersBefore = allChapters.length;
-      try {
-        parseHierarchyIntoChapters(hierarchy, chunk, allChapters, sortCounter);
-      } catch (parseErr) {
-        console.error(`[documentProcessor] Chunk ${i + 1} hierarchy parse error:`, parseErr);
-        allChapters.push({
-          id: uuidv4(),
-          chapterNumber: i + 1,
-          title: `Section ${i + 1}`,
-          summary: 'Failed to parse structure',
-          content: chunk,
-          isGenerating: false,
-          parentId: null,
-          sortOrder: sortCounter.value++,
-          type: 'topic',
-          children: [],
-        });
-      }
-
-      // Bug fix #9: call onChapterDone for each top-level chapter added by
-      // this chunk (the ones that have no parentId are the top-level items).
-      const newChapters = allChapters.slice(chaptersBefore);
-      newChapters
-        .filter(ch => ch.parentId === null)
-        .forEach((ch, idx) => {
-          callbacks?.onChapterDone?.(chaptersBefore + idx, ch.title, ch.summary);
-        });
-    }),
+    })
   );
 
   await Promise.all(jobs);
 
-  // Step 5 — build the chapter tree from the flat allChapters list.
-  //
-  // Bug fix #4: we no longer do `{ ...ch, children: [] }` which would wipe
-  // out any children already attached.  Instead we build a fresh map and
-  // wire up parent→child links using the parentId stored on each Chapter.
-  const chapterMap = new Map<string, Chapter>();
-  // Sort by sortOrder so that children are inserted in the correct order
-  // regardless of the order in which concurrent jobs completed.
-  allChapters
-    .slice()
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .forEach(ch => {
-      chapterMap.set(ch.id, { ...ch, children: [] });
-    });
-
-  let roots: Chapter[] = [];
-  for (const ch of chapterMap.values()) {
-    if (ch.parentId && chapterMap.has(ch.parentId)) {
-      chapterMap.get(ch.parentId)!.children!.push(ch);
-    } else {
-      roots.push(ch);
-    }
+  // Re-number sortOrder just in case
+  let sortOrderCounter = 0;
+  for (const root of roots) {
+    root.sortOrder = sortOrderCounter++;
   }
-
-  // Bug Fix: Post-process the tree to fix academic paper quirks
-  roots = cleanAcademicPaperHierarchy(roots);
-
-  // Re-number sortOrder and fix parentIds after flattening
-  sortCounter.value = 0;
-  function renumber(nodes: Chapter[], parentId: string | null) {
-    nodes.forEach(n => {
-       n.parentId = parentId;
-       n.sortOrder = sortCounter.value++;
-       if (n.children && n.children.length > 0) {
-          renumber(n.children, n.id);
-       }
-    });
-  }
-  renumber(roots, null);
-
-  // Notify caller that the full tree is ready.
-  callbacks?.onDiscovered?.(roots);
 
   onProgress('Done.');
   return roots;

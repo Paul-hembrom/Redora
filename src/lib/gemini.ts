@@ -398,7 +398,7 @@ export async function generateBatchChapterMetadata(
   summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed',
 ): Promise<{ [chapterNumber: number]: { title: string; summary: string } }> {
   const chaptersText = chaptersData
-    .map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 9000)}`)
+    .map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 75000)}`)
     .join('\n\n');
 
   let instructions = '';
