@@ -274,16 +274,15 @@ app.get('/auth/token-exchange', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    const hostname = req.hostname;
-    const cookieDomain = hostname.includes('.') && hostname !== 'localhost' ? '.' + hostname.split('.').slice(-2).join('.') : undefined;
-
     const cookieOptions = {
       httpOnly: true,
       secure: true,
       sameSite: 'none' as const,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      ...(cookieDomain ? { domain: cookieDomain } : {})
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     };
+
+    console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
+    console.log('Cookie options:', cookieOptions);
 
     // If verification succeeds, set the cookie exactly as your existing login does
     res.cookie('token', localToken, cookieOptions);
