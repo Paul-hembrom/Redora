@@ -1,4 +1,5 @@
 import express from 'express';
+import jwksClient from 'jwks-rsa';
 import multer from 'multer';
 import path from 'path';
 import cors from 'cors';
@@ -205,9 +206,47 @@ app.get('/auth/token-exchange', async (req, res) => {
   }
 
   try {
-    // Verify the token using the Supabase JWT secret
-    const secret = process.env.SUPABASE_JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
-    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'], issuer: 'supabase' }) as any;
+    const tokenPayload = jwt.decode(token, { complete: true }) as any;
+    if (!tokenPayload || !tokenPayload.header) {
+      console.error('Invalid token payload or header', tokenPayload);
+      return res.status(401).send('Invalid token structure');
+    }
+
+    let decoded: any;
+    if (tokenPayload.header.alg === 'ES256') {
+      const issuer = tokenPayload.payload.iss;
+      if (!issuer) {
+         console.error('No issuer found in the token payload');
+         return res.status(401).send('No issuer in token to securely fetch JWKS');
+      }
+      
+      const client = jwksClient({
+        jwksUri: `${issuer}/jwk`
+      });
+
+      const getKey = (header: any, callback: any) => {
+        client.getSigningKey(header.kid, function(err, key) {
+          if (err) {
+            callback(err, null);
+          } else {
+            const signingKey = key.getPublicKey();
+            callback(null, signingKey);
+          }
+        });
+      };
+
+      decoded = await new Promise((resolve, reject) => {
+         jwt.verify(token, getKey, { algorithms: ['ES256'] }, (err: any, d: any) => {
+           if (err) reject(err);
+           else resolve(d);
+         });
+      });
+      console.log('ES256 Token successfully verified via JWKS');
+    } else {
+      const secret = process.env.SUPABASE_JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
+      decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as any;
+      console.log('HS256 Token successfully verified via Secret');
+    }
     
     const org_id = queryOrgId || decoded.org_id || decoded.user_metadata?.org_id;
 
@@ -228,36 +267,34 @@ app.get('/auth/token-exchange', async (req, res) => {
        }
     }
 
+    // Generate a local HS256 token for our own auth middleware to use seamlessly
+    const localToken = jwt.sign(
+      { userId: decoded.sub || decoded.userId || decoded.id, org_id }, 
+      JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod', 
+      { expiresIn: '7d' }
+    );
+
+    const hostname = req.hostname;
+    const cookieDomain = hostname.includes('.') && hostname !== 'localhost' ? '.' + hostname.split('.').slice(-2).join('.') : undefined;
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none' as const,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      ...(cookieDomain ? { domain: cookieDomain } : {})
+    };
+
     // If verification succeeds, set the cookie exactly as your existing login does
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
-    res.cookie('sb-access-token', token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
+    res.cookie('token', localToken, cookieOptions);
+    res.cookie('sb-access-token', token, cookieOptions);
     
     if (role) {
-      res.cookie('sb-role', role, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-      });
+      res.cookie('sb-role', role, cookieOptions);
     }
 
     if (org_id) {
-      res.cookie('sb-org-id', org_id, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-      });
+      res.cookie('sb-org-id', org_id, cookieOptions);
     }
 
     // Redirect to the home page (the user's workspace will load automatically)
