@@ -1,5 +1,5 @@
 import express from 'express';
-import jwksClient from 'jwks-rsa';
+import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import path from 'path';
 import cors from 'cors';
@@ -13,6 +13,9 @@ import { processVideoLessonJob, processSceneAssets } from './server/videoPipelin
 import { getUserRoleInOrg } from './server/roles.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 export const app = express();
 
@@ -198,57 +201,28 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
 
 // --- Gateway Token Exchange Route ---
 app.get('/auth/token-exchange', async (req, res) => {
-  const token = (req.query.access_token || req.query.token) as string;
+  // Disable caching
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  const accessToken = (req.query.access_token || req.query.token) as string;
   const role = req.query.role as string;
   const queryOrgId = req.query.org_id as string;
-  if (!token) {
+  
+  if (!accessToken) {
     return res.status(400).send('Missing access_token');
   }
 
   try {
-    const tokenPayload = jwt.decode(token, { complete: true }) as any;
-    if (!tokenPayload || !tokenPayload.header) {
-      console.error('Invalid token payload or header', tokenPayload);
-      return res.status(401).send('Invalid token structure');
-    }
-
-    let decoded: any;
-    if (tokenPayload.header.alg === 'ES256') {
-      const issuer = tokenPayload.payload.iss;
-      if (!issuer) {
-         console.error('No issuer found in the token payload');
-         return res.status(401).send('No issuer in token to securely fetch JWKS');
-      }
-      
-      const client = jwksClient({
-        jwksUri: `${issuer}/jwk`
-      });
-
-      const getKey = (header: any, callback: any) => {
-        client.getSigningKey(header.kid, function(err, key) {
-          if (err) {
-            callback(err, null);
-          } else {
-            const signingKey = key.getPublicKey();
-            callback(null, signingKey);
-          }
-        });
-      };
-
-      decoded = await new Promise((resolve, reject) => {
-         jwt.verify(token, getKey, { algorithms: ['ES256'] }, (err: any, d: any) => {
-           if (err) reject(err);
-           else resolve(d);
-         });
-      });
-      console.log('ES256 Token successfully verified via JWKS');
-    } else {
-      const secret = process.env.SUPABASE_JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
-      decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as any;
-      console.log('HS256 Token successfully verified via Secret');
-    }
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
     
-    const org_id = queryOrgId || decoded.org_id || decoded.user_metadata?.org_id;
+    if (error || !user) {
+      console.error('Supabase auth error:', error);
+      return res.status(401).send('Invalid token');
+    }
+
+    const org_id = queryOrgId || user.user_metadata?.org_id;
 
     // School Lock Check
     if (org_id) {
@@ -267,13 +241,8 @@ app.get('/auth/token-exchange', async (req, res) => {
        }
     }
 
-    // Disable caching
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-
-    const userId = decoded.sub || decoded.id || decoded.userId;
-    const email = decoded.email || decoded.user_metadata?.email || '';
+    const userId = user.id;
+    const email = user.email || user.user_metadata?.email || '';
 
     // Generate a local HS256 token for our own auth middleware to use seamlessly
     const localToken = jwt.sign(
@@ -294,7 +263,6 @@ app.get('/auth/token-exchange', async (req, res) => {
 
     // If verification succeeds, set the cookie exactly as your existing login does
     res.cookie('token', localToken, cookieOptions);
-    res.cookie('sb-access-token', token, cookieOptions);
     
     if (role) {
       res.cookie('sb-role', role, cookieOptions);
@@ -307,6 +275,7 @@ app.get('/auth/token-exchange', async (req, res) => {
     // Redirect to the home page (the user's workspace will load automatically)
     res.redirect('/');
   } catch (err) {
+    console.error('Exchange error:', err);
     return res.status(401).send('Invalid token');
   }
 });
