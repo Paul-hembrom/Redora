@@ -267,22 +267,20 @@ app.get('/auth/token-exchange', async (req, res) => {
        }
     }
 
+    const userId = decoded.sub || decoded.id || decoded.userId;
+    const email = decoded.email || decoded.user_metadata?.email || '';
+
     // Generate a local HS256 token for our own auth middleware to use seamlessly
     const localToken = jwt.sign(
-      { userId: decoded.sub || decoded.userId || decoded.id, org_id }, 
-      JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod', 
+      { userId }, 
+      JWT_SECRET, 
       { expiresIn: '7d' }
     );
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none' as const,
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    };
+    const cookieOptions = { httpOnly: true, secure: true, sameSite: 'none' as const };
 
     console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
-    console.log('Cookie options:', cookieOptions);
+    console.log('Local userId:', userId, 'email:', email);
 
     // If verification succeeds, set the cookie exactly as your existing login does
     res.cookie('token', localToken, cookieOptions);
@@ -306,7 +304,10 @@ app.get('/auth/token-exchange', async (req, res) => {
 // --- Auth Middleware ---
 const authenticate = (req: any, res: any, next: any) => {
   const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  if (!token) {
+    console.log('Authenticate: No token found in cookies or headers');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string, sub?: string };
@@ -319,8 +320,10 @@ const authenticate = (req: any, res: any, next: any) => {
         req.userId = decoded.sub || decoded.userId;
         return next();
       }
+      console.log('Authenticate: Invalid token (HS256 Supabase check failed)');
       res.status(401).json({ error: 'Invalid token' });
-    } catch (err2) {
+    } catch (err2: any) {
+      console.log('Authenticate error:', err2.message);
       res.status(401).json({ error: 'Invalid token' });
     }
   }
@@ -627,6 +630,8 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/auth/me', authenticate, async (req: any, res) => {
+  console.log('GET /api/auth/me hit. User ID:', req.userId);
+  console.log('Cookies present:', Object.keys(req.cookies));
   try {
     const role = req.cookies['sb-role'] || 'user';
     let user;
@@ -639,16 +644,20 @@ app.get('/api/auth/me', authenticate, async (req: any, res) => {
     }
 
     if (!user) {
+      console.log('No local user found for ID. Checking token validity for Gateway User. Role:', role, 'sb-access-token present:', !!req.cookies['sb-access-token']);
       // If no local user found, they might be a D2 Gateway user
       if (req.cookies['sb-access-token'] || role === 'student' || role === 'teacher' || role === 'admin') {
          user = { id: req.userId, name: role.charAt(0).toUpperCase() + role.slice(1) || 'Gateway User', email: '' };
       } else {
+         console.log('User not found and no acceptable tokens/roles for mock generation.');
          return res.status(404).json({ error: 'User not found' });
       }
     }
     
+    console.log('Returning user:', user.id, 'Role:', role);
     res.json({ user: { ...user, role } });
   } catch (err: any) {
+    console.error('Error in /api/auth/me:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
