@@ -197,18 +197,19 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
 
 // --- Gateway Token Exchange Route ---
 app.get('/auth/token-exchange', async (req, res) => {
-  const token = req.query.token as string;
+  const token = (req.query.access_token || req.query.token) as string;
   const role = req.query.role as string;
   const queryOrgId = req.query.org_id as string;
   if (!token) {
-    return res.status(400).send('Missing token');
+    return res.status(400).send('Missing access_token');
   }
 
   try {
-    // Verify the token using the existing JWT_SECRET
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod') as any;
+    // Verify the token using the Supabase JWT secret
+    const secret = process.env.SUPABASE_JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'], issuer: 'supabase' }) as any;
     
-    const org_id = queryOrgId || decoded.org_id;
+    const org_id = queryOrgId || decoded.org_id || decoded.user_metadata?.org_id;
 
     // School Lock Check
     if (org_id) {
@@ -272,11 +273,20 @@ const authenticate = (req: any, res: any, next: any) => {
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    req.userId = decoded.userId;
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string, sub?: string };
+    req.userId = decoded.userId || decoded.sub;
     next();
   } catch (err) {
-    res.status(401).json({ error: 'Invalid token' });
+    try {
+      if (process.env.SUPABASE_JWT_SECRET) {
+        const decoded = jwt.verify(token, process.env.SUPABASE_JWT_SECRET, { algorithms: ['HS256'] }) as any;
+        req.userId = decoded.sub || decoded.userId;
+        return next();
+      }
+      res.status(401).json({ error: 'Invalid token' });
+    } catch (err2) {
+      res.status(401).json({ error: 'Invalid token' });
+    }
   }
 };
 
@@ -582,10 +592,25 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', authenticate, async (req: any, res) => {
   try {
-    const users = await sql`SELECT id, name, email FROM users WHERE id = ${req.userId}`;
-    const user = users[0];
-    if (!user) return res.status(404).json({ error: 'User not found' });
     const role = req.cookies['sb-role'] || 'user';
+    let user;
+    
+    try {
+      const users = await sql`SELECT id, name, email FROM users WHERE id = ${req.userId}`;
+      user = users[0];
+    } catch (e) {
+      // Ignored for Supabase UUIDs if not matching Postgres UUID format or something
+    }
+
+    if (!user) {
+      // If no local user found, they might be a D2 Gateway user
+      if (req.cookies['sb-access-token'] || role === 'student' || role === 'teacher' || role === 'admin') {
+         user = { id: req.userId, name: role.charAt(0).toUpperCase() + role.slice(1) || 'Gateway User', email: '' };
+      } else {
+         return res.status(404).json({ error: 'User not found' });
+      }
+    }
+    
     res.json({ user: { ...user, role } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
