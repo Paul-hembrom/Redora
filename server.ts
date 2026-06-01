@@ -267,6 +267,11 @@ app.get('/auth/token-exchange', async (req, res) => {
        }
     }
 
+    // Disable caching
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     const userId = decoded.sub || decoded.id || decoded.userId;
     const email = decoded.email || decoded.user_metadata?.email || '';
 
@@ -277,7 +282,12 @@ app.get('/auth/token-exchange', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    const cookieOptions = { httpOnly: true, secure: true, sameSite: 'none' as const };
+    const cookieOptions = { 
+      httpOnly: true, 
+      secure: true, 
+      sameSite: 'lax' as const, 
+      maxAge: 7 * 24 * 60 * 60 * 1000 
+    };
 
     console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
     console.log('Local userId:', userId, 'email:', email);
