@@ -19,6 +19,109 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
 
+// --- Trust Proxy for Secure Cookies Behind Vercel ---
+app.set('trust proxy', 1);
+
+// --- Gateway Token Exchange Route ---
+app.get('/auth/token-exchange', async (req, res) => {
+  // Disable caching
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
+  const accessToken = (req.query.access_token || req.query.token) as string;
+  const role = req.query.role as string;
+  const queryOrgId = req.query.org_id as string;
+  
+  if (!accessToken) {
+    return res.status(400).send('Missing access_token');
+  }
+
+  try {
+    let _adminClient: any = null;
+    const getAdminClient = async () => {
+      if (_adminClient) return _adminClient;
+      const { createClient } = await import('@supabase/supabase-js');
+      const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
+      if (!url || !key) throw new Error('Supabase env vars missing');
+      _adminClient = createClient(url, key);
+      return _adminClient;
+    };
+
+    let supabaseAdmin;
+    try {
+      supabaseAdmin = await getAdminClient();
+    } catch (envErr) {
+      console.error('Missing Supabase environment variables', envErr);
+      return res.status(500).send('Server configuration error');
+    }
+
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
+    
+    if (error || !user) {
+      console.error('Supabase auth error:', error);
+      return res.status(401).send('Invalid token');
+    }
+
+    const org_id = queryOrgId || user.user_metadata?.org_id;
+
+    // School Lock Check
+    if (org_id) {
+       try {
+         const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${org_id}`;
+         if (orgs.length > 0 && orgs[0].school_id) {
+            const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${orgs[0].school_id}`;
+            if (subs.length > 0 && subs[0].status === 'locked') {
+               return res.status(403).send('School account suspended');
+            }
+         }
+       } catch (err: any) {
+         if (err.message && !err.message.includes('does not exist')) {
+           console.error('Error during school lock check:', err);
+         }
+       }
+    }
+
+    const userId = user.id;
+    const email = user.email || user.user_metadata?.email || '';
+
+    // Generate a local HS256 token for our own auth middleware to use seamlessly
+    const localToken = jwt.sign(
+      { userId }, 
+      JWT_SECRET, 
+      { expiresIn: '7d' }
+    );
+
+    const cookieOptions = { 
+      httpOnly: true, 
+      secure: true, 
+      sameSite: 'lax' as const, 
+      maxAge: 7 * 24 * 60 * 60 * 1000 
+    };
+
+    console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
+    console.log('Local userId:', userId, 'email:', email);
+
+    // If verification succeeds, set the cookie exactly as your existing login does
+    res.cookie('token', localToken, cookieOptions);
+    
+    if (role) {
+      res.cookie('sb-role', role, cookieOptions);
+    }
+
+    if (org_id) {
+      res.cookie('sb-org-id', org_id, cookieOptions);
+    }
+
+    // Redirect to the home page (the user's workspace will load automatically)
+    res.redirect('/');
+  } catch (err) {
+    console.error('Exchange error:', err);
+    return res.status(401).send('Invalid token');
+  }
+});
+
 // Database readiness check
 app.use((req, res, next) => {
   if (!dbReady && (req.path.startsWith('/api/') || req.path.startsWith('/auth/'))) {
@@ -203,105 +306,7 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
 }
 
 
-// --- Gateway Token Exchange Route ---
-app.get('/auth/token-exchange', async (req, res) => {
-  // Disable caching
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
 
-  const accessToken = (req.query.access_token || req.query.token) as string;
-  const role = req.query.role as string;
-  const queryOrgId = req.query.org_id as string;
-  
-  if (!accessToken) {
-    return res.status(400).send('Missing access_token');
-  }
-
-  try {
-    let _adminClient: any = null;
-    const getAdminClient = async () => {
-      if (_adminClient) return _adminClient;
-      const { createClient } = await import('@supabase/supabase-js');
-      const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-      const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
-      if (!url || !key) throw new Error('Supabase env vars missing');
-      _adminClient = createClient(url, key);
-      return _adminClient;
-    };
-
-    let supabaseAdmin;
-    try {
-      supabaseAdmin = await getAdminClient();
-    } catch (envErr) {
-      console.error('Missing Supabase environment variables', envErr);
-      return res.status(500).send('Server configuration error');
-    }
-
-    const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
-    
-    if (error || !user) {
-      console.error('Supabase auth error:', error);
-      return res.status(401).send('Invalid token');
-    }
-
-    const org_id = queryOrgId || user.user_metadata?.org_id;
-
-    // School Lock Check
-    if (org_id) {
-       try {
-         const orgs = await sql`SELECT school_id FROM organizations WHERE id = ${org_id}`;
-         if (orgs.length > 0 && orgs[0].school_id) {
-            const subs = await sql`SELECT status FROM school_subscriptions WHERE school_id = ${orgs[0].school_id}`;
-            if (subs.length > 0 && subs[0].status === 'locked') {
-               return res.status(403).send('School account suspended');
-            }
-         }
-       } catch (err: any) {
-         if (err.message && !err.message.includes('does not exist')) {
-           console.error('Error during school lock check:', err);
-         }
-       }
-    }
-
-    const userId = user.id;
-    const email = user.email || user.user_metadata?.email || '';
-
-    // Generate a local HS256 token for our own auth middleware to use seamlessly
-    const localToken = jwt.sign(
-      { userId }, 
-      JWT_SECRET, 
-      { expiresIn: '7d' }
-    );
-
-    const cookieOptions = { 
-      httpOnly: true, 
-      secure: true, 
-      sameSite: 'lax' as const, 
-      maxAge: 7 * 24 * 60 * 60 * 1000 
-    };
-
-    console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
-    console.log('Local userId:', userId, 'email:', email);
-
-    // If verification succeeds, set the cookie exactly as your existing login does
-    res.cookie('token', localToken, cookieOptions);
-    
-    if (role) {
-      res.cookie('sb-role', role, cookieOptions);
-    }
-
-    if (org_id) {
-      res.cookie('sb-org-id', org_id, cookieOptions);
-    }
-
-    // Redirect to the home page (the user's workspace will load automatically)
-    res.redirect('/');
-  } catch (err) {
-    console.error('Exchange error:', err);
-    return res.status(401).send('Invalid token');
-  }
-});
 
 // --- Auth Middleware ---
 const authenticate = (req: any, res: any, next: any) => {
