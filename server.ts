@@ -95,13 +95,14 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
       { expiresIn: '7d' }
     );
 
-    const cookieOptions = { 
+    const cookieDomain = req.hostname.endsWith('.alphanexoraai.com') ? '.alphanexoraai.com' : undefined;
+    const cookieOptions: any = { 
       httpOnly: true, 
       secure: true, 
-      sameSite: 'none' as const,
+      sameSite: 'none',
       path: '/',
-      domain: '.alphanexoraai.com',
-      maxAge: 7 * 24 * 60 * 60 * 1000
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      ...(cookieDomain ? { domain: cookieDomain } : {})
     };
 
     console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
