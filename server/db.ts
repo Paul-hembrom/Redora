@@ -11,7 +11,11 @@ try {
   if (parsedDb.hostname.includes('pooler.supabase.com') && parsedDb.username === 'postgres') {
     const sbUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     if (sbUrl) {
-      const parsedSb = new URL(sbUrl);
+      let sbUrlStr = sbUrl;
+      if (!sbUrlStr.startsWith('http')) {
+        sbUrlStr = 'https://' + sbUrlStr;
+      }
+      const parsedSb = new URL(sbUrlStr);
       const projectRef = parsedSb.hostname.split('.')[0];
       if (projectRef && projectRef !== 'localhost' && projectRef !== '127') {
         parsedDb.username = `postgres.${projectRef}`;
