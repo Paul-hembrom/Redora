@@ -641,36 +641,38 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.get('/api/auth/me', authenticate, async (req: any, res) => {
-  console.log('GET /api/auth/me hit. User ID:', req.userId);
-  console.log('Cookies present:', Object.keys(req.cookies));
+app.get('/api/auth/me', async (req: any, res) => {
+  console.log('GET /api/auth/me hit.', 'Cookies:', Object.keys(req.cookies || {}));
   try {
+    const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    const userId = decoded.userId || decoded.sub;
     const role = req.cookies['sb-role'] || 'user';
+    const orgId = req.cookies['sb-org-id'] || null;
     let user;
     
     try {
-      const users = await sql`SELECT id, name, email FROM users WHERE id = ${req.userId}`;
-      user = users[0];
+      const users = await sql`SELECT id, name, email FROM users WHERE id = ${userId}`;
+      if (users.length > 0) {
+        user = users[0];
+      }
     } catch (e) {
-      // Ignored for Supabase UUIDs if not matching Postgres UUID format or something
+      // Ignored
     }
 
     if (!user) {
-      console.log('No local user found for ID. Checking token validity for Gateway User. Role:', role, 'sb-access-token present:', !!req.cookies['sb-access-token']);
-      // If no local user found, they might be a D2 Gateway user
-      if (req.cookies['sb-access-token'] || role === 'student' || role === 'teacher' || role === 'admin') {
-         user = { id: req.userId, name: role.charAt(0).toUpperCase() + role.slice(1) || 'Gateway User', email: '' };
-      } else {
-         console.log('User not found and no acceptable tokens/roles for mock generation.');
-         return res.status(404).json({ error: 'User not found' });
-      }
+      user = { id: userId, name: role.charAt(0).toUpperCase() + role.slice(1) || 'Gateway User', email: '' };
     }
     
     console.log('Returning user:', user.id, 'Role:', role);
-    res.json({ user: { ...user, role } });
+    res.json({ user: { ...user, role, org_id: orgId } });
   } catch (err: any) {
     console.error('Error in /api/auth/me:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(401).json({ error: 'Unauthorized' });
   }
 });
 

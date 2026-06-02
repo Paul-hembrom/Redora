@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/auth/(.*)", "destination": "/api/index" }
   ],
   "headers": [
