@@ -1782,6 +1782,21 @@ app.post('/api/upgrade', authenticate, async (req: any, res) => {
   }
 });
 
+// DEBUG: Log all registered routes
+console.log('=== REGISTERED ROUTES ===');
+app._router.stack.forEach((middleware: any) => {
+  if (middleware.route) {
+    console.log(`${Object.keys(middleware.route.methods)} ${middleware.route.path}`);
+  } else if (middleware.name === 'router') {
+    middleware.handle.stack.forEach((handler: any) => {
+      if (handler.route) {
+        console.log(`${Object.keys(handler.route.methods)} ${handler.route.path}`);
+      }
+    });
+  }
+});
+console.log('=== END ROUTES ===');
+
 async function startServer() {
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
