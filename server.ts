@@ -96,8 +96,7 @@ app.get('/auth/token-exchange', async (req, res) => {
     const cookieOptions = { 
       httpOnly: true, 
       secure: true, 
-      sameSite: 'lax' as const, 
-      maxAge: 7 * 24 * 60 * 60 * 1000 
+      sameSite: 'none' as const 
     };
 
     console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
