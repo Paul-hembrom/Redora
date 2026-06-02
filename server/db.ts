@@ -58,7 +58,7 @@ export async function initDb() {
       connected = true;
       console.log('Database connected successfully.');
     } catch (err: any) {
-      console.error(`Connection attempt failed: ${err.message}`);
+      console.warn(`Connection attempt failed: ${err.message}`);
       retries--;
       if (retries > 0) {
         console.log('Waiting 5 seconds before retrying...');
@@ -68,7 +68,7 @@ export async function initDb() {
   }
 
   if (!connected) {
-    console.error('All database connection retries failed. Setting flag dbReady = false.');
+    console.warn('All database connection retries failed. Setting flag dbReady = false. This is expected if DATABASE_URL is not configured.');
     dbReady = false;
     return;
   }
