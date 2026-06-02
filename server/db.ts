@@ -5,22 +5,70 @@ if (!dbUrl) {
   console.error('DATABASE_URL is not set');
   process.exit(1);
 }
-const url = new URL(dbUrl);
-console.log(`Connecting to database: ${url.hostname}:${url.port}`);
+let finalDbUrl = dbUrl;
+try {
+  const parsedDb = new URL(finalDbUrl);
+  if (parsedDb.hostname.includes('pooler.supabase.com') && parsedDb.username === 'postgres') {
+    const sbUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    if (sbUrl) {
+      const parsedSb = new URL(sbUrl);
+      const projectRef = parsedSb.hostname.split('.')[0];
+      if (projectRef && projectRef !== 'localhost' && projectRef !== '127') {
+        parsedDb.username = `postgres.${projectRef}`;
+        finalDbUrl = parsedDb.toString();
+        console.log(`Automatically updated pooler username to include project ref: postgres.${projectRef}`);
+      }
+    } else {
+      console.warn('WARNING: Using Supabase pooler with username "postgres" but SUPABASE_URL is not set. You may need to update DATABASE_URL to include your project ref in the username (e.g. postgres.[project-ref]).');
+    }
+  }
+} catch (e) {
+  console.log('Could not parse database URL to auto-inject project ref');
+}
+
+const url = new URL(finalDbUrl);
+console.log(`Connecting to database: ${url.hostname}:${url.port} as username: ${url.username}`);
 
 export let dbReady = true;
 
-const isLocal = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
+const isLocal = finalDbUrl.includes('localhost') || finalDbUrl.includes('127.0.0.1');
 
 // Configure postgres client
-const sql = postgres(dbUrl, {
+const sql = postgres(finalDbUrl, {
   ssl: isLocal ? false : 'require', // Supabase requires SSL for all remote connections
   max: 10, // Max number of connections
-  connect_timeout: 10, // Fail fast if the network is unreachable (e.g., IPv4 vs IPv6 issues)
+  connect_timeout: 30, // Updated to 30 seconds
 });
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Initialize schema
 export async function initDb() {
+  let retries = 3;
+  let connected = false;
+
+  while (retries > 0 && !connected) {
+    try {
+      console.log(`Database connection attempt ${4 - retries}/3...`);
+      await sql`SELECT 1`;
+      connected = true;
+      console.log('Database connected successfully.');
+    } catch (err: any) {
+      console.error(`Connection attempt failed: ${err.message}`);
+      retries--;
+      if (retries > 0) {
+        console.log('Waiting 5 seconds before retrying...');
+        await sleep(5000);
+      }
+    }
+  }
+
+  if (!connected) {
+    console.error('All database connection retries failed. Setting flag dbReady = false.');
+    dbReady = false;
+    return;
+  }
+
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS users (
