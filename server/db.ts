@@ -1,27 +1,19 @@
 import postgres from 'postgres';
 
-// Use DATABASE_URL from environment, or a default local connection string
-const connectionString = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/postgres';
-
-if (connectionString.includes('.supabase.co') && !connectionString.includes('pooler.supabase.com')) {
-  const errorMsg = 
-    '\n\n================================================================================\n' +
-    'CRITICAL ERROR: Supabase direct connections (port 5432) are IPv6 only.\n' +
-    'This environment only supports IPv4.\n\n' +
-    'You MUST use the Supabase Connection Pooler URL (port 6543) instead.\n' +
-    '1. Go to Supabase Dashboard -> Project Settings -> Database\n' +
-    '2. Check the box for "Use connection pooling"\n' +
-    '3. Copy the new URL (it will have port 6543 and look like pooler.supabase.com)\n' +
-    '4. Update your DATABASE_URL secret with this new URL.\n' +
-    '================================================================================\n\n';
-  console.error(errorMsg);
-  throw new Error(errorMsg);
+const dbUrl = process.env.DATABASE_URL;
+if (!dbUrl) {
+  console.error('DATABASE_URL is not set');
+  process.exit(1);
 }
+const url = new URL(dbUrl);
+console.log(`Connecting to database: ${url.hostname}:${url.port}`);
 
-const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+export let dbReady = true;
+
+const isLocal = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
 
 // Configure postgres client
-const sql = postgres(connectionString, {
+const sql = postgres(dbUrl, {
   ssl: isLocal ? false : 'require', // Supabase requires SSL for all remote connections
   max: 10, // Max number of connections
   connect_timeout: 10, // Fail fast if the network is unreachable (e.g., IPv4 vs IPv6 issues)
@@ -230,7 +222,7 @@ export async function initDb() {
         'If you are using Neon, ensure the endpoint ID in the username or host is correct.\n' +
         '================================================================================\n\n');
     }
-    throw error; // Re-throw to ensure the app fails fast if DB is unreachable
+    dbReady = false;
   }
 }
 

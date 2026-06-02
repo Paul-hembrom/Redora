@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import sql from './server/db.js';
+import sql, { dbReady } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
 import { getUserRoleInOrg } from './server/roles.js';
@@ -18,6 +18,14 @@ export const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
+
+// Database readiness check
+app.use((req, res, next) => {
+  if (!dbReady && (req.path.startsWith('/api/') || req.path.startsWith('/auth/'))) {
+    return res.status(503).json({ error: 'Database service unavailable' });
+  }
+  next();
+});
 
 // Restrict write access for students
 app.use((req, res, next) => {
