@@ -1,5 +1,4 @@
 import express from 'express';
-import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import path from 'path';
 import cors from 'cors';
@@ -212,15 +211,25 @@ app.get('/auth/token-exchange', async (req, res) => {
   }
 
   try {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
+    let _adminClient: any = null;
+    const getAdminClient = async () => {
+      if (_adminClient) return _adminClient;
+      const { createClient } = await import('@supabase/supabase-js');
+      const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
+      if (!url || !key) throw new Error('Supabase env vars missing');
+      _adminClient = createClient(url, key);
+      return _adminClient;
+    };
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      console.error('Missing Supabase environment variables');
+    let supabaseAdmin;
+    try {
+      supabaseAdmin = await getAdminClient();
+    } catch (envErr) {
+      console.error('Missing Supabase environment variables', envErr);
       return res.status(500).send('Server configuration error');
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     const { data: { user }, error } = await supabaseAdmin.auth.getUser(accessToken);
     
     if (error || !user) {
