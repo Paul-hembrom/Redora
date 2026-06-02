@@ -98,7 +98,10 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
     const cookieOptions = { 
       httpOnly: true, 
       secure: true, 
-      sameSite: 'none' as const 
+      sameSite: 'none' as const,
+      path: '/',
+      domain: '.alphanexoraai.com',
+      maxAge: 7 * 24 * 60 * 60 * 1000
     };
 
     console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
