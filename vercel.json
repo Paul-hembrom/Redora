@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/auth/(.*)", "destination": "/api/index" }
+  ],
   "headers": [
     {
       "source": "/auth/token-exchange",

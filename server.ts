@@ -24,7 +24,8 @@ app.set('trust proxy', 1);
 
 // --- Gateway Token Exchange Route ---
 app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) => {
-  console.log('token-exchange route hit, method:', req.method);
+  console.log('token-exchange route HIT');
+  console.log('method:', req.method);
   // Disable caching
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
