@@ -23,15 +23,16 @@ app.use(cookieParser());
 app.set('trust proxy', 1);
 
 // --- Gateway Token Exchange Route ---
-app.get('/auth/token-exchange', async (req, res) => {
+app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) => {
+  console.log('token-exchange route hit, method:', req.method);
   // Disable caching
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
 
-  const accessToken = (req.query.access_token || req.query.token) as string;
-  const role = req.query.role as string;
-  const queryOrgId = req.query.org_id as string;
+  const accessToken = (req.query.access_token || req.query.token || req.body?.access_token || req.body?.token) as string;
+  const role = (req.query.role || req.body?.role) as string;
+  const queryOrgId = (req.query.org_id || req.body?.org_id) as string;
   
   if (!accessToken) {
     return res.status(400).send('Missing access_token');
