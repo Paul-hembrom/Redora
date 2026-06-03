@@ -19,7 +19,7 @@ export default function Pricing() {
           <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
              <ArrowLeft className="w-4 h-4 text-cyan-400" />
           </div>
-          <span className="font-display font-medium text-sm text-white/70">Back to App</span>
+          <span className="font-display font-medium text-sm text-white/70">Back to Workspace</span>
         </a>
         <div className="font-display font-bold text-lg tracking-wide">READORA</div>
         <div className="w-20" /> {/* Spacer for centering */}

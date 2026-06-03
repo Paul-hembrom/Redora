@@ -7,7 +7,6 @@ import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
-import PricingModal from './PricingModal';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -262,7 +261,6 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     }
     setEditingSummaryId(null);
   };
-  const [showPricing, setShowPricing] = useState(false);
 
   const fetchUsage = () => {
     fetch('/api/me/context')
@@ -565,11 +563,11 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
 
                 {userUsage.context !== 'school' && (
                   <button 
-                    onClick={() => setShowPricing(true)}
+                    onClick={() => { window.location.href = '/pricing'; }}
                     className="w-full py-1.5 bg-white/5 hover:bg-white/10 text-white transition-colors rounded-md text-xs flex items-center justify-center gap-1 border border-white/10"
                   >
                     <Sparkles className="w-3 h-3 text-cyan-400" />
-                    Upgrade Plan
+                    Upgrade Now
                   </button>
                 )}
               </div>
@@ -577,16 +575,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
           </div>
         )}
 
-        {showPricing && (
-           <PricingModal 
-             currentPlan={userUsage?.plan || 'Free'} 
-             onClose={() => setShowPricing(false)} 
-             onUpgradeComplete={() => {
-               setShowPricing(false);
-               fetchUsage();
-             }} 
-           />
-        )}
+        {/* Removed PricingModal rendering so it doesn't overlap */}
 
         {user?.role !== 'student' && (
           <div className="flex gap-2 mb-4">
