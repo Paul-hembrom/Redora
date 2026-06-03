@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { X, Play, Pause, MessageCircleQuestion, Send, Loader2, Volume2, Mic, ArrowLeft, BookOpen, CheckCircle, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { v4 as uuidv4 } from 'uuid';
@@ -55,12 +55,11 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   useEffect(() => {
     async function fetchLesson() {
       try {
-        const token = localStorage.getItem('token');
         const res = await fetch(`/api/topics/${topicId}/start-lesson`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ orgId: 'demo' })
         });
@@ -212,25 +211,25 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
     setIsChatLoading(true);
 
     try {
-       const token = localStorage.getItem('token');
-       
        // Log to chat history
        await fetch(`/api/chats`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: uuidv4(), role: 'user', text: textToSubmit, chapterId: topicId })
        });
 
        const contentContext = `Current Step Content: ${currentStep?.caption || currentStep?.text || currentStep?.narrationText || ''}`;
        
        const { generateChatResponse } = await import('../lib/gemini');
-       const aiResult = await generateChatResponse(textToSubmit, contentContext, chatHistory as any, { tone: 'Enthusiastic', complexity: 'Intermediate' } as any);
+       const aiResult = await generateChatResponse(textToSubmit, contentContext, chatHistory as any, 'student');
 
        setChatHistory(prev => [...prev, { role: 'model', text: aiResult.response }]);
        
        await fetch(`/api/chats`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: uuidv4(), role: 'model', text: aiResult.response, chapterId: topicId })
        });
 
@@ -238,6 +237,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
        try {
          const ttsRes = await fetch(`/api/tts`, {
            method: 'POST',
+           credentials: 'include',
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ text: aiResult.response })
          });

@@ -4,7 +4,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import DocumentReader from './components/DocumentReader';
 import Login from './components/Login';
-import Signup from './components/Signup';
+import Signup from './components/storyboard/Signup';
 import Pricing from './components/Pricing';
 import GlobalSearchModal from './components/GlobalSearchModal';
 import { useAuth } from './contexts/AuthContext';

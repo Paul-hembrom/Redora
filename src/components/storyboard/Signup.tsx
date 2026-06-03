@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { BookOpen, Loader2, AlertTriangle, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 

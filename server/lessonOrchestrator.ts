@@ -4,18 +4,26 @@ import { synthesizeSpeech } from "../src/lib/gemini.js";
 import { v4 as uuidv4 } from "uuid";
 
 export async function createInteractiveLesson(topicId: string, orgId: string) {
+  // Check if topicId is a sub-topic (has a parent_id)
+  const chaptersInfo = await sql`SELECT id, parent_id, title, summary, content FROM chapters WHERE id = ${topicId}`;
+  
+  if (chaptersInfo.length === 0) return [];
+  
+  const targetChapter = chaptersInfo[0];
+  const lookupChapterId = targetChapter.parent_id || targetChapter.id;
+
   // Try to find an existing storyboard for this topic/chapter
   const storyboards = await sql`
     SELECT id FROM storyboards 
-    WHERE chapter_id = ${topicId} 
+    WHERE chapter_id = ${lookupChapterId} 
     ORDER BY created_at DESC 
     LIMIT 1
   `;
 
   let steps: any[] = [];
 
-  // 1. We fetch the topic content
-  const chapters = await sql`SELECT title, summary, content FROM chapters WHERE id = ${topicId}`;
+  // 1. We already fetched the topic content above
+  const chapters = chaptersInfo;
   
   if (storyboards.length > 0) {
     const storyboardId = storyboards[0].id;
@@ -206,6 +214,8 @@ Output valid JSON only.`;
         step.narration_audio_url = url;
       } catch(e) {
          console.error("TTS generation failed for step:", step.id, e);
+         // Fallback to a tiny silent WAV data URI so the frontend logic can proceed
+         step.narration_audio_url = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
       }
     }
   }
