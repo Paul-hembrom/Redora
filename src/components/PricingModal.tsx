@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Check, Loader2, Sparkles } from 'lucide-react';
+import { BetaBadge } from './BetaBadge';
 
 interface Props {
   currentPlan: string;
@@ -77,7 +78,7 @@ export default function PricingModal({ currentPlan, onClose, onUpgradeComplete }
               </li>
               <li className="flex items-center gap-3 text-white/70 text-sm">
                 <Check className="w-5 h-5 text-cyan-500 shrink-0" />
-                <span>2 Video generations / month</span>
+                <span className="flex items-center gap-2">2 Video generations / month <BetaBadge className="text-[10px] px-1.5 py-0" /></span>
               </li>
               <li className="flex items-center gap-3 text-white/70 text-sm">
                 <Check className="w-5 h-5 text-cyan-500 shrink-0" />
@@ -85,7 +86,7 @@ export default function PricingModal({ currentPlan, onClose, onUpgradeComplete }
               </li>
               <li className="flex items-center gap-3 text-white/70 text-sm">
                 <Check className="w-5 h-5 text-cyan-500 shrink-0" />
-                <span>10 Interactive lessons / month</span>
+                <span className="flex items-center gap-2">10 Interactive lessons / month <BetaBadge className="text-[10px] px-1.5 py-0" /></span>
               </li>
             </ul>
 
@@ -124,7 +125,7 @@ export default function PricingModal({ currentPlan, onClose, onUpgradeComplete }
               </li>
               <li className="flex items-center gap-3 text-white/90 text-sm">
                 <Check className="w-5 h-5 text-purple-400 shrink-0" />
-                <span><strong className="text-white">Unlimited</strong> video generations</span>
+                <span className="flex items-center gap-2"><strong className="text-white">Unlimited</strong> video generations <BetaBadge className="text-[10px] px-1.5 py-0" /></span>
               </li>
               <li className="flex items-center gap-3 text-white/90 text-sm">
                 <Check className="w-5 h-5 text-purple-400 shrink-0" />
@@ -132,7 +133,7 @@ export default function PricingModal({ currentPlan, onClose, onUpgradeComplete }
               </li>
               <li className="flex items-center gap-3 text-white/90 text-sm">
                 <Check className="w-5 h-5 text-purple-400 shrink-0" />
-                <span><strong className="text-white">Unlimited</strong> interactive lessons</span>
+                <span className="flex items-center gap-2"><strong className="text-white">Unlimited</strong> interactive lessons <BetaBadge className="text-[10px] px-1.5 py-0" /></span>
               </li>
               <li className="flex items-center gap-3 text-white/90 text-sm">
                 <Check className="w-5 h-5 text-purple-400 shrink-0" />

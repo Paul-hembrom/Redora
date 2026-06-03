@@ -5,6 +5,7 @@ import { X, Play, Pause, MessageCircleQuestion, Send, Loader2, Volume2, Mic, Arr
 import { cn } from '../lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { TeacherAvatar } from './TeacherAvatar';
+import { BetaBadge } from './BetaBadge';
 
 interface LessonStep {
   id: string;
@@ -300,9 +301,9 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
           className="relative z-10 flex flex-col items-center max-w-2xl text-center px-6"
         >
           <TeacherAvatar emotion="smiling" isSpeaking={false} className="w-48 h-48 mb-8 drop-shadow-[0_0_30px_rgba(34,211,238,0.3)]" />
-          <h1 className="text-3xl md:text-5xl font-bold text-white mb-6 tracking-tight">
+          <h1 className="text-3xl md:text-5xl font-bold text-white mb-6 tracking-tight flex items-center justify-center gap-4 flex-wrap">
             Ready to learn about <br/>
-            <span className="text-cyan-400">{topicTitle}</span>?
+            <span className="text-cyan-400">{topicTitle}</span>? <BetaBadge className="text-sm px-3 py-1 bg-yellow-400/20 border-yellow-400/50 text-yellow-300" />
           </h1>
           <p className="text-xl text-white/70 mb-12">
             I'm Maya, your teacher today! I'll guide you through the material.

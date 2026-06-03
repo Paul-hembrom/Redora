@@ -5,6 +5,7 @@ import ProgressBar from './ProgressBar';
 import SceneCard from './SceneCard';
 import { useAuth } from '../../contexts/AuthContext';
 import JSZip from 'jszip';
+import { BetaBadge } from '../BetaBadge';
 
 interface StoryboardScreenProps {
   chapterId: string;
@@ -78,7 +79,7 @@ export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
         <div className="w-16 h-16 bg-cyan-500/10 rounded-full flex items-center justify-center mb-4">
           <Film className="w-8 h-8 text-cyan-400" />
         </div>
-        <h3 className="text-xl font-bold text-white mb-2">Generate Video Lesson</h3>
+        <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2 justify-center">Generate Video Lesson <BetaBadge /></h3>
         <p className="text-white/60 mb-8 max-w-md">Transform this chapter into a fully narrated video lesson with cinematic visuals and diagram animations.</p>
         
         {user?.role === 'student' ? (
@@ -148,7 +149,7 @@ export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
     <div className="w-full max-w-5xl mx-auto py-8">
       <div className="mb-8 border-b border-white/10 pb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold text-white tracking-tight mb-2">Video Lesson</h2>
+          <h2 className="text-3xl font-bold text-white tracking-tight mb-2 flex items-center gap-3">Video Lesson <BetaBadge /></h2>
           <div className="flex items-center gap-3 text-sm text-white/50">
             <span className="px-2 py-1 bg-white/5 rounded">Status: {job.status}</span>
           </div>

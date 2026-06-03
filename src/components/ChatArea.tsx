@@ -13,6 +13,7 @@ import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
 import { ImageCard } from './ImageCard';
 import { InteractiveLesson } from './InteractiveLesson';
+import { BetaBadge } from './BetaBadge';
 
 import { useAuth } from '../contexts/AuthContext';
 
@@ -697,7 +698,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                 className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
                 title="Start Interactive Lesson"
               >
-                <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson
+                <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson <BetaBadge />
               </button>
             )}
             <button 
@@ -713,7 +714,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                 className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
                 title="Generate AI video lesson"
               >
-                <Wand2 className="w-3.5 h-3.5" /> Generate Video
+                <Wand2 className="w-3.5 h-3.5" /> Generate Video <BetaBadge />
               </button>
             )}
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">

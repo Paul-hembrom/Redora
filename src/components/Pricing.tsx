@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, ArrowLeft } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { BetaBadge } from './BetaBadge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -57,15 +58,17 @@ export default function Pricing() {
 
             <div className="flex flex-col gap-4 flex-1">
               {[
-                '4 books/month',
-                '2 AI-generated videos/month',
-                '20 image searches/month',
-                '10 YouTube searches/day',
-                '10 chat messages/day'
+                { text: '4 books/month' },
+                { text: '2 AI-generated videos/month', beta: true },
+                { text: '20 image searches/month' },
+                { text: '10 YouTube searches/day' },
+                { text: '10 chat messages/day' }
               ].map((feature, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-cyan-400 shrink-0" />
-                  <span className="text-sm text-white/70">{feature}</span>
+                  <span className="text-sm text-white/70 flex items-center gap-2">
+                    {feature.text} {feature.beta && <BetaBadge className="text-[10px] px-1.5 py-0" />}
+                  </span>
                 </div>
               ))}
             </div>
@@ -99,15 +102,17 @@ export default function Pricing() {
 
             <div className="flex flex-col gap-4 flex-1">
               {[
-                'Unlimited books',
-                '10 video generations/month',
-                '50 image searches/month',
-                'Unlimited chat',
-                'Priority support'
+                { text: 'Unlimited books' },
+                { text: '10 video generations/month', beta: true },
+                { text: '50 image searches/month' },
+                { text: 'Unlimited chat' },
+                { text: 'Priority support' }
               ].map((feature, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-cyan-400 shrink-0" />
-                  <span className="text-sm text-white/90">{feature}</span>
+                  <span className="text-sm text-white/90 flex items-center gap-2">
+                    {feature.text} {feature.beta && <BetaBadge className="text-[10px] px-1.5 py-0" />}
+                  </span>
                 </div>
               ))}
             </div>

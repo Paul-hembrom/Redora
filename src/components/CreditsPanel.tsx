@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Film, Image, GraduationCap, BookOpen, Clock, AlertTriangle } from 'lucide-react';
+import { BetaBadge } from './BetaBadge';
 
 interface CreditsPanelProps {
   className?: string;
@@ -32,7 +33,7 @@ export function CreditsPanel({ className = '', onUpdate }: CreditsPanelProps) {
   const { plan, is_trial, trial_days_left, status, usage, role } = userUsage;
   const isStudent = role === 'student';
 
-  const renderBadge = (icon: React.ReactNode, label: string, data: any) => {
+  const renderBadge = (icon: React.ReactNode, label: string, data: any, isBeta: boolean = false) => {
     if (!data) return null;
     
     // Student read-only mode => "Videos available: 13"
@@ -60,11 +61,16 @@ export function CreditsPanel({ className = '', onUpdate }: CreditsPanelProps) {
     if (data.limit === 0 || status === 'locked') colorClass = "bg-red-500/80";
 
     return (
-      <div className="relative group flex flex-col items-start gap-1 p-1.5 sm:px-2 sm:py-1 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-default min-w-[70px] sm:min-w-[85px]">
+      <div className="relative group flex flex-col items-start gap-1 p-1.5 sm:px-2 sm:py-1 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-default min-w-[70px] sm:min-w-[85px] overflow-hidden">
         <div className="flex items-center gap-1.5 flex-wrap w-full text-[10px] sm:text-xs">
           <span className="text-white/60 shrink-0">{icon}</span>
           <span className="text-white font-medium whitespace-nowrap">{data.used} <span className="text-white/30 text-[9px] font-normal">/ {limitText}</span></span>
         </div>
+        {isBeta && (
+          <div className="absolute top-0 right-0">
+            <BetaBadge className="text-[8px] px-1 py-0 leading-none h-3 border-none bg-yellow-500/20 text-yellow-500 rounded-bl-sm rounded-tr-md rounded-tl-none rounded-br-none" />
+          </div>
+        )}
         {/* Subtle Progress Bar */}
         {data.limit !== null && data.limit > 0 && (
           <div className="w-full h-0.5 bg-black/40 rounded-full overflow-hidden mt-0.5">
@@ -94,9 +100,9 @@ export function CreditsPanel({ className = '', onUpdate }: CreditsPanelProps) {
 
       {/* Badges */}
       <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
-         {renderBadge(<Film className="w-3 h-3 sm:w-3.5 sm:h-3.5" />, "Videos", usage.videos)}
+         {renderBadge(<Film className="w-3 h-3 sm:w-3.5 sm:h-3.5" />, "Videos", usage.videos, true)}
          {renderBadge(<Image className="w-3 h-3 sm:w-3.5 sm:h-3.5" />, "Images", usage.images)}
-         {renderBadge(<GraduationCap className="w-3 h-3 sm:w-3.5 sm:h-3.5" />, "Lessons", usage.interactive_lessons)}
+         {renderBadge(<GraduationCap className="w-3 h-3 sm:w-3.5 sm:h-3.5" />, "Lessons", usage.interactive_lessons, true)}
          {renderBadge(<BookOpen className="w-3 h-3 sm:w-3.5 sm:h-3.5" />, "Books", usage.books)}
       </div>
 
