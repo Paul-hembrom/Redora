@@ -14,6 +14,9 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
 
   let steps: any[] = [];
 
+  // 1. We fetch the topic content
+  const chapters = await sql`SELECT title, summary, content FROM chapters WHERE id = ${topicId}`;
+  
   if (storyboards.length > 0) {
     const storyboardId = storyboards[0].id;
 
@@ -30,7 +33,6 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
     `;
 
     for (const scene of scenes) {
-      // Determine media type
       if (scene.video_url) {
         steps.push({
           id: scene.id || uuidv4(),
@@ -54,34 +56,49 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
     }
   }
 
-  // If no storyboard exists or we want to add a fallback, we fetch the topic content
-  // and construct a simple lesson from the chapter text.
-  const chapters = await sql`SELECT title, summary, content FROM chapters WHERE id = ${topicId}`;
-  
+  // If no storyboard exists, construct a simple lesson from the chapter text.
   if (steps.length === 0 && chapters.length > 0) {
     const chapter = chapters[0];
     
-    // First step: Title & Summary
-    const step1Id = uuidv4();
-    const introText = "Welcome to today's lesson on " + chapter.title + ". " + chapter.summary;
-    
+    // First step: Short Intro
     steps.push({
-      id: step1Id,
-      type: 'image',
+      id: uuidv4(),
+      type: 'intro',
       caption: chapter.title,
-      narrationText: introText,
+      narrationText: "Welcome to today's lesson on " + chapter.title + ". Let's dive right in!",
       narration_audio_url: null,
+      emotion: 'smiling',
+      duration: 5
+    });
+
+    // Content step (shortened instead of dump)
+    steps.push({
+      id: uuidv4(),
+      type: 'image',
+      caption: chapter.title + " Overview",
+      narrationText: "Here's the main idea: " + chapter.summary.substring(0, 200) + "...",
+      narration_audio_url: null,
+      emotion: 'neutral',
       duration: 15
     });
 
-    // We can also add a question automatically
+    // Question
     steps.push({
       id: uuidv4(),
       type: 'question',
       text: "Based on what we just reviewed, what do you think is the most important concept in " + chapter.title + "?"
     });
   } else if (chapters.length > 0) {
-     // Append a question if not present
+     // Prepend Intro if not present, and append a question
+     const chapter = chapters[0];
+     steps.unshift({
+        id: uuidv4(),
+        type: 'intro',
+        caption: chapter.title,
+        narrationText: "Welcome to today's lesson! We'll be looking at " + chapter.title + ". Let's get started.",
+        emotion: 'smiling'
+     });
+
      steps.push({
       id: uuidv4(),
       type: 'question',
@@ -93,24 +110,32 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (apiKey && steps.length > 0) {
      const ai = new GoogleGenAI({ apiKey });
-     const prompt = `You are "Maya", a friendly, witty science teacher for students. Your personality:
-- Warm and encouraging, like a favorite teacher.
-- Occasionally sprinkle ONE light, topic-relevant pun or joke between major concept explanations (not during complex definitions).
-- Jokes must be age-appropriate, curriculum-relevant, and never distracting.
-- Example: "Mitochondria is the powerhouse of the cell... and if I had a rupee for every time I said that, I'd have enough to buy a real mitochondrion! [short pause] Okay, back to the lesson."
-- When students struggle, say something reassuring.
-- Your tone is conversational, not lecture-style.
-- Use the model's audio tags to match the emotion in each narration segment: Jokes: [laughing] or [playful] before punchline. Encouraging: [enthusiasm] + [warm]. Pauses: [short pause]. Complex: [calm] + [slow].
+     const prompt = `You are "Maya", a warm, witty, and encouraging science teacher. Your goal is to make this lesson highly engaging, just like VideoTutor.io.
+Your personality rules:
+- Warm and friendly, like a favorite teacher.
+- Humor: Sprinkle in some light, topic-relevant jokes or puns to keep attention.
+- Encouraging: Praise the student or reassure them when asking questions.
+- Tone: Conversational, interactive, and natural. Do NOT dump walls of text. Keep each narration segment concise and engaging.
+- Use explicit audio emotion tags for the TTS engine. Available tags: [smiling], [excited], [curious], [neutral], [thinking]. Use them at the START of sentences to set the tone. 
+- For jokes, add a [short pause] before the punchline if it fits.
 
-Here is the lesson plan draft (steps):
-${JSON.stringify(steps.map(s => ({ id: s.id, type: s.type, narrationText: s.narrationText })))}
+Here is the current draft of the lesson steps:
+${JSON.stringify(steps.map(s => ({ id: s.id, type: s.type, narrationText: s.narrationText, text: s.text })))}
 
-Rewrite 'narrationText' for each step introducing your personality, occasionally adding a topic-relevant joke, adjusting emotions, and injecting audio tags.
-For each step, return exactly:
+Task:
+1. Rewrite 'narrationText' for every step (except 'question' steps use 'text' as their display, so rewrite the narrationText you will say). 
+2. If a step is 'question', provide a 'narrationText' that Maya speaks to ask the question.
+3. Ensure the first 'intro' step is extremely welcoming ("Hello! I'm Maya...").
+4. Return an updated array of objects.
+
+For each step in the input, return exactly ONE object in the array with:
 - id: string
 - narrationText: string
 - emotion: string (one of 'neutral', 'smiling', 'thinking', 'excited', 'curious')
-- humor: object ({setup: string, punchline: string, emotion: string}) or null if no humor in this step.`;
+- type: string (you may optionally change an 'image' step to 'joke' or 'fun_fact' if you are inserting pure humor here, otherwise keep original)
+- humor: optional object ({setup: string, punchline: string}) if this step contains a distinct joke.
+
+Output valid JSON only.`;
 
      try {
        const response = await ai.models.generateContent({
@@ -126,17 +151,17 @@ For each step, return exactly:
                  id: { type: Type.STRING },
                  narrationText: { type: Type.STRING },
                  emotion: { type: Type.STRING },
+                 type: { type: Type.STRING },
                  humor: { 
                    type: Type.OBJECT, 
                    nullable: true,
                    properties: {
                      setup: { type: Type.STRING },
-                     punchline: { type: Type.STRING },
-                     emotion: { type: Type.STRING }
+                     punchline: { type: Type.STRING }
                    }
                  }
                },
-               required: ["id", "narrationText", "emotion"]
+               required: ["id", "narrationText", "emotion", "type"]
              }
            }
          }
@@ -148,8 +173,9 @@ For each step, return exactly:
          const match = steps.find(s => s.id === part.id);
          if (match) {
            match.narrationText = part.narrationText;
-           match.emotion = part.emotion;
-           match.humor = part.humor;
+           if (part.emotion) match.emotion = part.emotion;
+           if (part.type) match.type = part.type;
+           match.humor = part.humor || null;
          }
        }
      } catch(e) {
@@ -157,31 +183,30 @@ For each step, return exactly:
      }
   }
 
-  // Synthesize speech for any step that needs it
+  // Synthesize speech for every step that has narration
   for (const step of steps) {
     if (step.narrationText) {
       try {
         let ttsText = step.narrationText;
         if (step.humor) {
-          ttsText = `${ttsText} [playful] ${step.humor.setup} [short pause] ${step.humor.punchline}`;
-          if (step.humor.emotion) {
-             ttsText = `[${step.humor.emotion}] ` + ttsText;
+          // If we have distinct humor setup/punchline, ensure it's spoken
+          if (!ttsText.includes(step.humor.setup)) {
+            ttsText = `${ttsText}. ${step.humor.setup} [short pause] ${step.humor.punchline}`;
           }
-        } else if (step.emotion && step.emotion !== 'neutral') {
-          let em = step.emotion;
-          if (em === 'excited') em = 'enthusiastic';
+        }
+        
+        // Ensure an emotion tag exists at the start for Kore TTS if it supports it
+        let em = step.emotion || 'neutral';
+        if (em === 'excited') em = 'enthusiastic';
+        if (!ttsText.startsWith('[')) {
           ttsText = `[${em}] ${ttsText}`;
         }
         
         const url = await synthesizeSpeech(ttsText, 'Kore');
         step.narration_audio_url = url;
       } catch(e) {
-         console.error("TTS generation failed:", e);
+         console.error("TTS generation failed for step:", step.id, e);
       }
-    } else if (step.type === 'question') {
-      try {
-        step.narration_audio_url = await synthesizeSpeech("[curious] " + step.text, 'Kore');
-      } catch (e) {}
     }
   }
 

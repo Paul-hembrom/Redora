@@ -9,7 +9,7 @@ import { BetaBadge } from './BetaBadge';
 
 interface LessonStep {
   id: string;
-  type: 'video' | 'image' | 'question';
+  type: 'video' | 'image' | 'question' | 'intro' | 'joke' | 'fun_fact';
   url?: string;
   narration_audio_url?: string;
   narrationText?: string;
@@ -83,7 +83,6 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
   const currentStep = steps[currentStepIndex];
 
-  // Auto-play TTS and video when step changes or resumes
   useEffect(() => {
     if (lessonState === 'playing' && currentStep) {
       if (currentStep.narration_audio_url && audioRef.current) {
@@ -91,10 +90,15 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
           audioRef.current.src = currentStep.narration_audio_url;
         }
         audioRef.current.play().catch(e => console.error("Audio block:", e));
-      } else if (currentStep.type === 'image' && !currentStep.narration_audio_url) {
-        // Fallback for image steps without audio
-        const timer = setTimeout(handleNext, (currentStep.duration || 5) * 1000);
-        return () => clearTimeout(timer);
+      } else if (currentStep.type !== 'video' && !currentStep.narration_audio_url) {
+        // Fallback for steps without audio, so it doesn't get stuck forever
+        if (currentStep.type === 'question') {
+          const timer = setTimeout(openAskScreen, 3000);
+          return () => clearTimeout(timer);
+        } else {
+          const timer = setTimeout(handleNext, (currentStep.duration || 8) * 1000);
+          return () => clearTimeout(timer);
+        }
       }
       
       if (currentStep.type === 'video' && videoRef.current) {
@@ -136,11 +140,12 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   };
 
   const handleAudioEnded = () => {
-    if (currentStep && currentStep.type === 'video' && videoRef.current && !videoRef.current.ended) {
-      // wait for video
-      return;
+    // If it's a video step, wait for video unless it's already ended or absent
+    if (currentStep && currentStep.type === 'video' && videoRef.current) {
+      if (!videoRef.current.ended) return; // Wait for video to finish
     }
-    // If it's a question step, wait for user input (don't auto advance immediately unless we want a 5s delay)
+    
+    // Auto advance or open question
     if (currentStep && currentStep.type === 'question') {
       openAskScreen();
       return;
@@ -165,19 +170,10 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
         stream.getTracks().forEach(track => track.stop());
         
         try {
-          const formData = new FormData();
-          formData.append('audio', audioBlob, 'audio.webm');
-          const token = localStorage.getItem('token');
-          const res = await fetch('/api/stt/transcribe', {
-            method: 'POST',
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-            body: formData,
-          });
-          
-          if (!res.ok) throw new Error('Transcription failed');
-          const data = await res.json();
-          if (data.text) {
-            submitQuestionWithText(data.text);
+          const { transcribeSpeech } = await import('../lib/gemini');
+          const text = await transcribeSpeech(audioBlob);
+          if (text) {
+            submitQuestionWithText(text);
           }
         } catch (err) {
           console.error("Transcription error:", err);
@@ -401,14 +397,22 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
           else if (lessonState === 'paused') handleResume();
         }}
       >
-         {currentStep?.type === 'video' && currentStep.url ? (
+         {(currentStep?.type === 'intro' || currentStep?.type === 'joke' || currentStep?.type === 'fun_fact' || (currentStep?.type === 'image' && !currentStep.url)) ? (
+           <div className="max-w-4xl text-center px-8 z-10">
+              <Sparkles className="w-16 h-16 text-cyan-400 mx-auto mb-8 opacity-80" />
+              <h3 className="text-3xl md:text-5xl font-bold text-white leading-relaxed mb-6">{currentStep.caption || currentStep.text || topicTitle}</h3>
+           </div>
+         ) : currentStep?.type === 'video' && currentStep.url ? (
            <video 
               ref={videoRef}
               src={currentStep.url} 
               className={cn("w-full h-full object-contain transition-opacity duration-500", lessonState !== 'playing' && "opacity-40")}
               playsInline
               onEnded={() => {
-                if (audioRef.current && !audioRef.current.ended) return;
+                // If there's an audio URL being played, we must wait for it if it hasn't ended.
+                if (currentStep.narration_audio_url && audioRef.current && !audioRef.current.ended) {
+                  return;
+                }
                 handleNext();
               }}
            />
@@ -424,7 +428,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
               <h3 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-10">{currentStep.text}</h3>
            </div>
          ) : (
-           <div className="text-white/40"><BookOpen className="w-20 h-20 mb-4 opacity-50 mx-auto" /> Visual Missing</div>
+           <div className="text-white/40"><BookOpen className="w-20 h-20 mb-4 opacity-50 mx-auto" /> Learning Material</div>
          )}
 
          {/* Pause Overlay */}
