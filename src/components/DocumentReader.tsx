@@ -3,6 +3,7 @@ import { Document } from '../types';
 import { BookOpen, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ReadAloudButton } from './ReadAloudButton';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -116,8 +117,11 @@ export default function DocumentReader({ document }: Props) {
                 </div>
                 
                 {chapter.summary && (
-                  <div className="bg-white/5 border-l-4 border-cyan-500/50 p-4 mb-8 rounded-r-lg">
-                    <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400 mb-2">Summary</h4>
+                  <div className="bg-white/5 border-l-4 border-cyan-500/50 p-4 mb-8 rounded-r-lg relative group/summary">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400">Summary</h4>
+                      <ReadAloudButton text={chapter.summary} className="bg-transparent" iconSizeClasses="w-4 h-4" />
+                    </div>
                     <div className="prose prose-invert prose-sm max-w-none text-white/70 font-light">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
                     </div>

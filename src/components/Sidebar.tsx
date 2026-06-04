@@ -6,6 +6,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ReadAloudButton } from './ReadAloudButton';
 import { useAuth } from '../contexts/AuthContext';
 
 function cn(...inputs: ClassValue[]) {
@@ -145,6 +146,7 @@ const ChapterNode = ({
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
+                <ReadAloudButton text={chapter.summary} className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400" />
                 {user?.role !== 'student' && (
                   <button
                     onClick={(e) => startEditingSummary(e, chapter.id, chapter.summary)}
