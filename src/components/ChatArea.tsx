@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
+import { ScrollableActionBar } from './ScrollableActionBar';
 import { ImageCard } from './ImageCard';
 import { InteractiveLesson } from './InteractiveLesson';
 import { BetaBadge } from './BetaBadge';
@@ -657,7 +658,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           <h2 className="text-sm font-display font-semibold text-white truncate">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar w-full lg:w-auto pb-1 lg:pb-0">
+        <ScrollableActionBar className="w-full lg:w-auto pb-1 lg:pb-0 min-w-0" innerClassName="gap-2">
           <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
              <Volume2 className="w-3.5 h-3.5 text-white/40 ml-1" />
              <select 
@@ -691,7 +692,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
               </button>
             </div>
           )}
-          <div className="flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 overflow-x-auto custom-scrollbar pr-2">
+          <div className="flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 pr-2">
             {user?.role !== 'student' && (
               <button 
                 onClick={() => setShowInteractiveLesson(true)}
@@ -763,7 +764,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             <Trash2 className="w-4 h-4" />
             <span className="text-xs font-medium hidden sm:inline">Clear Chats</span>
           </button>
-        </div>
+        </ScrollableActionBar>
       </div>
 
       {activeTab === 'video' ? (
