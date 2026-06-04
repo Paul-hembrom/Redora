@@ -314,32 +314,74 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
 
 
 // --- Auth Middleware ---
-const authenticate = (req: any, res: any, next: any) => {
+const authenticate = async (req: any, res: any, next: any) => {
   const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
   if (!token) {
     console.log('Authenticate: No token found in cookies or headers');
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  let validUserId = null;
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string, sub?: string };
-    req.userId = decoded.userId || decoded.sub;
-    next();
+    validUserId = decoded.userId || decoded.sub;
   } catch (err) {
     try {
       if (process.env.SUPABASE_JWT_SECRET) {
         const decoded = jwt.verify(token, process.env.SUPABASE_JWT_SECRET, { algorithms: ['HS256'] }) as any;
-        req.userId = decoded.sub || decoded.userId;
-        return next();
+        validUserId = decoded.sub || decoded.userId;
+      } else {
+        throw new Error('Invalid token');
       }
-      console.log('Authenticate: Invalid token (HS256 Supabase check failed)');
-      res.status(401).json({ error: 'Invalid token' });
     } catch (err2: any) {
       console.log('Authenticate error:', err2.message);
-      res.status(401).json({ error: 'Invalid token' });
+      return res.status(401).json({ error: 'Invalid token' });
     }
   }
+  
+  if (!validUserId) return res.status(401).json({ error: 'Invalid token' });
+  req.userId = validUserId;
+  
+  const orgId = req.cookies['sb-org-id'];
+  req.orgId = null;
+  if (orgId) {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (orgId === 'demo' || orgId === 'default_org') {
+       req.orgId = orgId;
+    } else if (uuidRegex.test(orgId)) {
+      try {
+        const membership = await sql`SELECT 1 FROM organization_members WHERE organization_id = ${orgId} AND user_id = ${req.userId}`;
+        if (membership.length === 0) {
+           return res.status(403).json({ error: 'Forbidden: Not a member of this organization' });
+        }
+        req.orgId = orgId;
+      } catch (err: any) {
+        if (!err.message || !err.message.includes('does not exist')) {
+           console.error('Org access check error:', err);
+           return res.status(500).json({ error: 'Server error check org membership' });
+        }
+      }
+    }
+  }
+  next();
 };
+
+function getDocUserFilter(req: any) {
+  if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
+    return sql`user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})`;
+  }
+  return sql`user_id = ${req.userId}`;
+}
+
+function getDocAliasUserFilter(req: any, alias: string) {
+  if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
+    if (alias === 'd') return sql`d.user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})`;
+    if (alias === 'c') return sql`c.user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})`;
+  }
+  if (alias === 'd') return sql`d.user_id = ${req.userId}`;
+  if (alias === 'c') return sql`c.user_id = ${req.userId}`;
+  return sql`user_id = ${req.userId}`;
+}
 
 const preventStudentModification = (req: any, res: any, next: any) => {
   if (req.path.startsWith('/api/') && ['POST', 'PUT', 'DELETE'].includes(req.method)) {
@@ -681,10 +723,28 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
+
+// --- Organizations Route ---
+app.get('/api/organizations', authenticate, async (req: any, res) => {
+  try {
+    const orgs = await sql`
+      SELECT o.* FROM organizations o 
+      JOIN organization_members m ON o.id = m.organization_id 
+      WHERE m.user_id = ${req.userId}
+    `;
+    res.json(orgs);
+  } catch (err: any) {
+    if (err.message && err.message.includes('does not exist')) {
+      return res.json([]);
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Document Routes ---
 app.get('/api/documents', authenticate, async (req: any, res) => {
   try {
-    const docs = await sql`SELECT * FROM documents WHERE user_id = ${req.userId} ORDER BY upload_date DESC`;
+    const docs = await sql`SELECT * FROM documents WHERE ${getDocUserFilter(req)} ORDER BY upload_date DESC`;
     
     // Fetch all chapters for these documents
     const docIds = docs.map(d => d.id);
@@ -806,7 +866,7 @@ app.put('/api/chapters/:id', authenticate, async (req: any, res) => {
     const docQuery = await sql`
       SELECT d.id FROM documents d
       JOIN chapters c ON c.document_id = d.id
-      WHERE c.id = ${chapterId} AND d.user_id = ${req.userId}
+      WHERE c.id = ${chapterId} AND ${getDocAliasUserFilter(req, 'd')}
     `;
     if (docQuery.length === 0) {
       return res.status(403).json({ error: 'Unauthorized to edit this chapter' });
@@ -828,7 +888,7 @@ app.put('/api/documents/:id/tags', authenticate, async (req: any, res) => {
     const docId = req.params.id;
     const { tags } = req.body;
     
-    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND ${getDocUserFilter(req)}`;
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
 
     await sql`UPDATE documents SET tags = ${JSON.stringify(tags)} WHERE id = ${docId}`;
@@ -847,7 +907,7 @@ app.put('/api/documents/:id/share', authenticate, async (req: any, res) => {
     const docId = req.params.id;
     const { isPublic } = req.body;
     
-    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND ${getDocUserFilter(req)}`;
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
 
     await sql`UPDATE documents SET is_public = ${isPublic} WHERE id = ${docId}`;
@@ -920,7 +980,7 @@ app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
 
     const docId = req.params.id;
     // Verify ownership
-    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND ${getDocUserFilter(req)}`;
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
 
     // With ON DELETE CASCADE in the schema, deleting the document will delete chapters and chats automatically.
@@ -1327,11 +1387,11 @@ app.post('/api/lessons/study-plan', authenticate, async (req: any, res) => {
     const { docId } = req.body;
     let chapters;
     if (docId) {
-       const docs = await sql`SELECT chapters FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+       const docs = await sql`SELECT chapters FROM documents WHERE id = ${docId} AND ${getDocUserFilter(req)}`;
        if (!docs || docs.length === 0) return res.status(404).json({error: "Not found"});
        chapters = typeof docs[0].chapters === 'string' ? JSON.parse(docs[0].chapters) : docs[0].chapters;
     } else {
-       const docs = await sql`SELECT name, chapters FROM documents WHERE user_id = ${req.userId}`;
+       const docs = await sql`SELECT name, chapters FROM documents WHERE ${getDocUserFilter(req)}`;
        chapters = docs.map((d: any) => ({
          title: "Project: " + d.name,
          children: typeof d.chapters === 'string' ? JSON.parse(d.chapters) : d.chapters
@@ -1679,7 +1739,7 @@ app.delete('/api/chats/document/:docId', authenticate, async (req: any, res) => 
 
     const docId = req.params.docId;
     // Verify ownership
-    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND user_id = ${req.userId}`;
+    const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND ${getDocUserFilter(req)}`;
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
 
     await sql`DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ${docId})`;
@@ -1706,7 +1766,7 @@ app.get('/api/search', authenticate, async (req: any, res) => {
     const docs = await sql`
       SELECT id, name, upload_date 
       FROM documents 
-      WHERE user_id = ${req.userId} AND (name ILIKE ${fuzzyPattern} OR tags ILIKE ${searchPattern})
+      WHERE ${getDocUserFilter(req)} AND (name ILIKE ${fuzzyPattern} OR tags ILIKE ${searchPattern})
       LIMIT 10
     `;
 
@@ -1715,7 +1775,7 @@ app.get('/api/search', authenticate, async (req: any, res) => {
       SELECT c.id, c.document_id, c.chapter_number, c.title, c.summary, d.name as doc_name
       FROM chapters c
       JOIN documents d ON c.document_id = d.id
-      WHERE d.user_id = ${req.userId} AND (c.title ILIKE ${fuzzyPattern} OR c.summary ILIKE ${searchPattern} OR c.content ILIKE ${searchPattern} OR d.tags ILIKE ${searchPattern})
+      WHERE ${getDocAliasUserFilter(req, 'd')} AND (c.title ILIKE ${fuzzyPattern} OR c.summary ILIKE ${searchPattern} OR c.content ILIKE ${searchPattern} OR d.tags ILIKE ${searchPattern})
       LIMIT 10
     `;
 
