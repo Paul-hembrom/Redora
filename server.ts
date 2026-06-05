@@ -1477,6 +1477,23 @@ app.post('/api/stt/transcribe', upload.single('audio'), async (req, res) => {
 });
 
 import { createInteractiveLesson } from './server/lessonOrchestrator.js';
+import { saveSessionMemory } from './server/studentMemory.js';
+
+app.post('/api/topics/:id/memory', authenticate, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const { chatHistory } = req.body;
+    
+    // Save memory asynchronously
+    if (chatHistory && chatHistory.length > 0) {
+      await saveSessionMemory(req.userId, id, chatHistory);
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("Error saving memory:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // --- Interactive Lesson Route ---
 app.post('/api/topics/:id/start-lesson', authenticate, async (req: any, res) => {
@@ -1494,7 +1511,7 @@ app.post('/api/topics/:id/start-lesson', authenticate, async (req: any, res) => 
       throw e;
     }
 
-    const steps = await createInteractiveLesson(id, actualOrgId);
+    const steps = await createInteractiveLesson(id, actualOrgId, req.userId);
     res.json({ steps });
   } catch (err: any) {
     console.error("Error starting lesson:", err);

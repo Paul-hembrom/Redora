@@ -1,0 +1,61 @@
+import sql from "./db.js";
+import { v4 as uuidv4 } from "uuid";
+import { GoogleGenAI } from "@google/genai";
+
+export async function saveSessionMemory(userId: string, chapterId: string, chatHistory: any[]) {
+    // Only summarize if there's enough interaction
+    if (!chatHistory || chatHistory.length < 2) return;
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return;
+    
+    // Create a prompt to summarize stringified chat history
+    let interactionText = '';
+    chatHistory.forEach((msg, i) => {
+        if (msg.role === 'user') interactionText += `Student: ${msg.text}\n`;
+        else interactionText += `Maya: ${msg.text}\n`;
+    });
+
+    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `You are summarizing a student's Interactive Learning session for long-term memory. 
+Here is the interaction transcript:
+${interactionText}
+
+Task: Provide a highly concise summary (2-3 sentences max) of what the student struggled with, what they grasped well, and any particular interests they showed. This will be fed back to Maya in the next session to personalize teaching. Do not use second person ("you"). Refer to "the student". Use plain text.`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-3.1-flash-preview",
+            contents: prompt
+        });
+        
+        const summaryText = response.text?.trim() || "";
+        if (!summaryText) return;
+
+        // Save to chats table
+        await sql`
+            INSERT INTO chats (id, chapter_id, user_id, role, text, type)
+            VALUES (${uuidv4()}, ${chapterId}, ${userId}, 'system', ${summaryText}, 'memory')
+        `;
+    } catch(e) {
+        console.error("Failed to generate and save memory:", e);
+    }
+}
+
+export async function getStudentMemory(userId: string, currentChapterId: string) {
+    // For now, let's just get the last few memories for this user, perhaps specifically on this topic or recent
+    // If the chapter has a parent, we could look up cousin chapters, but just getting the last 3 memories globally for the user is good enough for general personalization, or we can filter by chapter_id. Let's just get the 3 most recent memories for this user to keep it simple.
+    
+    try {
+       const memories = await sql`
+         SELECT text FROM chats 
+         WHERE user_id = ${userId} AND type = 'memory' 
+         ORDER BY created_at DESC 
+         LIMIT 3
+       `;
+       return memories.map(m => m.text).join('\n---\n');
+    } catch(e) {
+       console.error("Failed to fetch memory:", e);
+       return "";
+    }
+}

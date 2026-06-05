@@ -2,8 +2,9 @@ import { GoogleGenAI, Schema, Type } from "@google/genai";
 import sql from "./db.js";
 import { synthesizeSpeech } from "../src/lib/gemini.js";
 import { v4 as uuidv4 } from "uuid";
+import { getStudentMemory } from "./studentMemory.js";
 
-export async function createInteractiveLesson(topicId: string, orgId: string) {
+export async function createInteractiveLesson(topicId: string, orgId: string, userId: string = 'default') {
   // Check if topicId is a sub-topic (has a parent_id)
   const chaptersInfo = await sql`SELECT id, parent_id, title, summary, content FROM chapters WHERE id = ${topicId}`;
   
@@ -11,6 +12,9 @@ export async function createInteractiveLesson(topicId: string, orgId: string) {
   
   const targetChapter = chaptersInfo[0];
   const lookupChapterId = targetChapter.parent_id || targetChapter.id;
+
+  // Fetch memory
+  const memoryContext = await getStudentMemory(userId, lookupChapterId);
 
   // Try to find an existing storyboard for this topic/chapter
   const storyboards = await sql`
@@ -126,6 +130,7 @@ Your personality rules:
 - Tone: Conversational, interactive, and natural. Do NOT dump walls of text. Keep each narration segment concise and engaging.
 - Use explicit audio emotion tags for the TTS engine. Available tags: [smiling], [excited], [curious], [neutral], [thinking]. Use them at the START of sentences to set the tone. 
 - For jokes, add a [short pause] before the punchline if it fits.
+${memoryContext ? `\nVERY IMPORTANT - STUDENT MEMORY:\nHere is what you remember from previous sessions with this student:\n"${memoryContext}"\nUse this context subtly to personalize this lesson. Do it right at the start and in how you scale explanations.` : ''}
 
 Here is the current draft of the lesson steps:
 ${JSON.stringify(steps.map(s => ({ id: s.id, type: s.type, narrationText: s.narrationText, text: s.text })))}

@@ -550,6 +550,31 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
   }
 }
 
+export async function generateILMChatResponse(
+  query: string,
+  chapterContent: string,
+  history: ChatMessage[]
+): Promise<string> {
+  const ai = await getGenAI();
+  const formattedHistory = history.map(msg => `${msg.role === 'user' ? 'Student' : 'Maya'}: ${msg.text}`).join('\n\n');
+  const prompt = `You are "Maya", a warm, witty, and encouraging science teacher. 
+Context from current lesson step: ${chapterContent.substring(0, 5000)}
+
+Chat History:
+${formattedHistory.substring(0, 5000)}
+
+Student Query/Answer: ${query}
+
+Provide a concise, encouraging, and natural conversational response. Acknowledge what the student said, give feedback if it was an answer, and either ask a short follow-up question or gently move the lesson forward. Keep it brief (2-4 sentences max)! Do not output JSON, just plain text. Provide explicit audio emotion tags for the TTS engine. Available tags: [smiling], [excited], [curious], [neutral], [thinking]. Use them at the START of sentences to set the tone.`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-preview',
+    contents: prompt,
+    config: { temperature: 0.7, maxOutputTokens: 250 }
+  });
+  return response.text.trim();
+}
+
 export async function generateChatResponse(
   query: string, 
   chapterContent: string, 

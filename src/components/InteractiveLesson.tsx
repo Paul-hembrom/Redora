@@ -80,6 +80,30 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
     fetchLesson();
   }, [topicId]);
 
+  useEffect(() => {
+    if (lessonState === 'asking' && chatHistory.length === 0 && !isChatLoading && !isRecording && !isTranscribing) {
+      const timer = setTimeout(async () => {
+         // Speak "Take your time"
+         try {
+           const ttsRes = await fetch(`/api/tts`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ text: '[smiling] Take your time, there is no rush.' })
+           });
+           if (ttsRes.ok) {
+             const { audioUrl } = await ttsRes.json();
+             if (chatAudioRef.current) {
+               chatAudioRef.current.src = audioUrl;
+               chatAudioRef.current.play().catch(e => console.error(e));
+               setChatAudioPlaying(true);
+             }
+           }
+         } catch(e) { console.error(e) }
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [lessonState, chatHistory.length, isChatLoading, isRecording, isTranscribing]);
+
   const currentStep = steps[currentStepIndex];
 
   useEffect(() => {
@@ -221,16 +245,16 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
        const contentContext = `Current Step Content: ${currentStep?.caption || currentStep?.text || currentStep?.narrationText || ''}`;
        
-       const { generateChatResponse } = await import('../lib/gemini');
-       const aiResult = await generateChatResponse(textToSubmit, contentContext, chatHistory as any, 'student');
+       const { generateILMChatResponse } = await import('../lib/gemini');
+       const aiResponseText = await generateILMChatResponse(textToSubmit, contentContext, chatHistory as any);
 
-       setChatHistory(prev => [...prev, { role: 'model', text: aiResult.response }]);
+       setChatHistory(prev => [...prev, { role: 'model', text: aiResponseText }]);
        
        await fetch(`/api/chats`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: uuidv4(), role: 'model', text: aiResult.response, chapterId: topicId })
+          body: JSON.stringify({ id: uuidv4(), role: 'model', text: aiResponseText, chapterId: topicId })
        });
 
        // Trigger TTS for AI response
@@ -239,7 +263,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
            method: 'POST',
            credentials: 'include',
            headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ text: aiResult.response })
+           body: JSON.stringify({ text: aiResponseText })
          });
          
          if (ttsRes.ok) {
@@ -267,6 +291,19 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
     await submitQuestionWithText(chatInput.trim());
   };
 
+  const handleClose = async () => {
+    if (chatHistory.length > 0) {
+      try {
+        await fetch(`/api/topics/${topicId}/memory`, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ chatHistory })
+        });
+      } catch(e) { console.error('Failed to save memory', e) }
+    }
+    onClose();
+  };
+
   if (lessonState === 'init') {
     return createPortal(
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-zinc-950/95 backdrop-blur-md font-sans">
@@ -286,7 +323,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
         <div className="absolute inset-0 bg-gradient-to-br from-cyan-900/20 to-zinc-950 pointer-events-none" />
         
         <div className="absolute top-6 left-6 z-10">
-          <button onClick={onClose} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-full text-white transition flex items-center gap-2 font-medium border border-white/10">
+          <button onClick={handleClose} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-full text-white transition flex items-center gap-2 font-medium border border-white/10">
             <ArrowLeft className="w-5 h-5"/> Back to Details
           </button>
         </div>
@@ -320,7 +357,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
     return createPortal(
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-zinc-950 font-sans">
         <div className="absolute top-6 left-6 z-10">
-          <button onClick={onClose} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-full text-white transition flex items-center gap-2 font-medium border border-white/10">
+          <button onClick={handleClose} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-full text-white transition flex items-center gap-2 font-medium border border-white/10">
             <X className="w-5 h-5"/> Close Lesson
           </button>
         </div>
@@ -335,7 +372,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
             You've completed the interactive lesson on <b className="text-white">{topicTitle}</b>.
           </p>
           <button 
-            onClick={onClose}
+            onClick={handleClose}
             className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white font-medium rounded-full text-lg transition-colors border border-white/10"
           >
             Return to Topic
@@ -348,9 +385,10 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
   // playing, paused, or asking state
   const isSpeaking = (lessonState === 'playing' && isAudioPlaying) || (lessonState === 'asking' && chatAudioPlaying);
-  const teacherEmotion = lessonState === 'asking' 
-    ? (chatAudioPlaying ? 'smiling' : 'curious') 
-    : (currentStep?.emotion || 'neutral');
+  const teacherEmotion = isChatLoading ? 'thinking' :
+    lessonState === 'asking' 
+      ? (chatAudioPlaying ? 'smiling' : 'curious') 
+      : (currentStep?.emotion || 'neutral');
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] bg-zinc-950 flex flex-col font-sans">
@@ -368,7 +406,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
       
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 h-24 flex items-center justify-between px-6 bg-gradient-to-b from-zinc-950 to-transparent z-50 pointer-events-none">
-        <button onClick={onClose} className="pointer-events-auto px-5 py-2.5 bg-zinc-900/80 hover:bg-zinc-800 rounded-full text-white transition flex items-center gap-2 font-medium backdrop-blur border border-white/10">
+        <button onClick={handleClose} className="pointer-events-auto px-5 py-2.5 bg-zinc-900/80 hover:bg-zinc-800 rounded-full text-white transition flex items-center gap-2 font-medium backdrop-blur border border-white/10">
           <X className="w-5 h-5"/> Close
         </button>
         
