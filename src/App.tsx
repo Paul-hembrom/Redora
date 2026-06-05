@@ -23,7 +23,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function App() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, isOffline } = useAuth();
   const [showLogin, setShowLogin] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -61,7 +61,7 @@ export default function App() {
       'image/webp': ['.webp']
     },
     maxSize: 300 * 1024 * 1024,
-    disabled: isUploading
+    disabled: isUploading || isOffline
   });
 
   const [sharedPublicDoc, setSharedPublicDoc] = useState<Document | null>(null);
@@ -117,6 +117,12 @@ export default function App() {
     const sharedDocId = urlParams.get('sharedDoc');
 
     if (user) {
+      if (!navigator.onLine) {
+         import('./lib/offline').then(m => m.getCachedDocuments()).then(docs => {
+            setDocuments(docs);
+         });
+         return;
+      }
       fetch('/api/documents')
         .then(res => {
           if (res.status === 401) {
@@ -451,6 +457,12 @@ export default function App() {
         </div>
       </header>
 
+      {isOffline && (
+        <div className="bg-orange-500/10 border-b border-orange-500/20 px-4 py-2 flex items-center justify-center text-orange-400 text-xs md:text-sm font-medium w-full z-40 shrink-0">
+          You are offline. Some features (AI chat, video generation) are unavailable.
+        </div>
+      )}
+
       <GlobalSearchModal 
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
@@ -592,10 +604,11 @@ export default function App() {
                     </p>
                     
                     <button 
-                      className="px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black rounded-xl font-semibold text-lg transition-all duration-300 shadow-[0_0_20px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] hover:-translate-y-1 flex items-center gap-3"
+                      disabled={isOffline || isUploading}
+                      className={cn("px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-black rounded-xl font-semibold text-lg transition-all duration-300 shadow-[0_0_20px_rgba(34,211,238,0.3)] hover:shadow-[0_0_30px_rgba(34,211,238,0.5)] hover:-translate-y-1 flex items-center gap-3", (isOffline || isUploading) && "opacity-50 cursor-not-allowed hover:translate-y-0")}
                     >
                       <UploadCloud className="w-5 h-5" />
-                      Upload a Document
+                      {isOffline ? 'Upload Unavailable Offline' : 'Upload a Document'}
                     </button>
     
                     <div className="flex flex-wrap justify-center gap-2 mt-8">

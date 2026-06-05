@@ -765,6 +765,25 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
+                <button
+                  onClick={async (e) => {
+                     e.stopPropagation();
+                     const flatChaps: any[] = [];
+                     const flatten = (ch: any) => {
+                       flatChaps.push(ch);
+                       if (ch.children) ch.children.forEach(flatten);
+                     }
+                     doc.chapters.forEach(flatten);
+                     
+                     const { cacheDocument } = await import('../lib/offline');
+                     await cacheDocument(doc, flatChaps);
+                     alert('Document saved for offline view!');
+                  }}
+                  className="p-1.5 text-white/30 hover:text-emerald-400 hover:bg-white/5 rounded-md transition-all"
+                  title="Make available offline"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>
+                </button>
                 {user?.role !== 'student' && onClearChats && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onClearChats(doc.id); }}

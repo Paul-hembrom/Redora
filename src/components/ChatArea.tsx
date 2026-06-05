@@ -123,7 +123,7 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
 }
 
 export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter }: Props) {
-  const { user } = useAuth();
+  const { user, isOffline } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -692,7 +692,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
               </button>
             </div>
           )}
-          <div className="flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 pr-2">
+          <div className={cn("flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 pr-2", isOffline && "opacity-50 pointer-events-none")}>
             {user?.role !== 'student' && (
               <button 
                 onClick={() => setShowInteractiveLesson(true)}
@@ -1022,19 +1022,20 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              disabled={isOffline}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
                   e.preventDefault();
                   handleSubmit(e);
                 }
               }}
-              placeholder="Ask a question about this chapter..."
-              className="w-full max-h-32 md:max-h-40 min-h-[44px] md:min-h-[52px] bg-transparent text-[16px] p-2.5 md:p-3 resize-none focus:outline-none placeholder:text-white/30 text-white font-light custom-scrollbar"
+              placeholder={isOffline ? "Chat is unavailable offline" : "Ask a question about this chapter..."}
+              className="w-full max-h-32 md:max-h-40 min-h-[44px] md:min-h-[52px] bg-transparent text-[16px] p-2.5 md:p-3 resize-none focus:outline-none placeholder:text-white/30 text-white font-light custom-scrollbar disabled:opacity-50"
               rows={1}
             />
             <button
               type="submit"
-              disabled={!input.trim() || isTyping}
+              disabled={!input.trim() || isTyping || isOffline}
               className="p-2.5 md:p-3.5 rounded-xl bg-cyan-500 text-black hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:shadow-[0_0_25px_rgba(34,211,238,0.5)] disabled:shadow-none"
             >
               <Send className="w-4 h-4 md:w-5 md:h-5" />

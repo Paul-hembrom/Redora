@@ -711,7 +711,7 @@ app.get('/api/auth/me', async (req: any, res) => {
     }
     
     console.log('Returning user:', user.id, 'Role:', role);
-    res.json({ user: { ...user, role, org_id: orgId } });
+    res.json({ user: { ...user, role, org_id: orgId }, token });
   } catch (err: any) {
     console.error('Error in /api/auth/me:', err.message);
     res.status(401).json({ error: 'Unauthorized' });
