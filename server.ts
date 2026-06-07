@@ -831,7 +831,12 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
 
     await sql.begin(async (tx: any) => {
       const cleanName = (name || '').replace(/\x00/g, '');
-      await tx`INSERT INTO documents (id, user_id, name, tags) VALUES (${id}, ${req.userId}, ${cleanName}, ${tags ? JSON.stringify(tags) : '[]'})`;
+      const isPublic = false;
+      const safeTags = tags ? JSON.stringify(tags) : '[]';
+      await tx`
+        INSERT INTO documents (id, user_id, name, upload_date, tags, is_public) 
+        VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic})
+      `;
       
       if (chapters && chapters.length > 0) {
         const flatChapters: any[] = [];
@@ -864,7 +869,7 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     if (errorMessage.includes('column') && errorMessage.includes('does not exist')) {
       errorMessage = 'Database sync failed. Please try again.';
     }
-    res.status(500).json({ error: errorMessage });
+    res.status(500).json({ error: errorMessage, fullError: err.message });
   }
 });
 
