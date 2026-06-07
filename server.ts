@@ -296,17 +296,17 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     }
   }
 
-  // Increment school
+  // Increment school (using sql.unsafe to bypass prepared-statement cache)
   if (type === 'document') {
-    await sql`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await sql.unsafe(`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
   } else if (type === 'video') {
-    await sql`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await sql.unsafe(`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
   } else if (type === 'image') {
-    await sql`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await sql.unsafe(`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
   } else if (type === 'interactive') {
-    await sql`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await sql.unsafe(`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
   } else if (type === 'youtube') {
-    await sql`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = ${schoolId}`;
+    await sql.unsafe(`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = '${schoolId}'`);
   }
 }
 
