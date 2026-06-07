@@ -266,7 +266,7 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
       if ((usage.interactive_lessons_this_month || 0) >= 2) throw new SubscriptionLimitError('Trial limit reached for interactive lessons (2 max).');
     }
     if (type === 'document') {
-      const orgUsers = await sql`SELECT user_id FROM organization_members WHERE org_id = ${orgId}`;
+      const orgUsers = await sql`SELECT user_id FROM organization_members WHERE organization_id = ${orgId}`;
       const userIds = orgUsers.map((u: any) => u.user_id);
       let bookCount = 0;
       if (userIds.length > 0) {
@@ -472,7 +472,7 @@ async function checkFeatureAllowed(orgId: string | undefined, feature: string, u
        return { allowed: false, reason: 'Trial limit reached for interactive lessons (2 max).' };
     }
     if (feature === 'document') {
-       const orgUsers = await sql`SELECT user_id FROM organization_members WHERE org_id = ${orgId}`;
+       const orgUsers = await sql`SELECT user_id FROM organization_members WHERE organization_id = ${orgId}`;
        const userIds = orgUsers.map((u: any) => u.user_id);
        let bookCount = 0;
        if (userIds.length > 0) {

@@ -263,16 +263,81 @@ export async function extractTextFromFile(
       return pageTexts.join('\n');
     };
 
+    const extractPdfOcr = async (workerSrc?: string): Promise<string> => {
+      if (workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+      }
+
+      const fileUrl = URL.createObjectURL(file);
+      let pdf: pdfjsLib.PDFDocumentProxy;
+      try {
+        pdf = await pdfjsLib.getDocument(fileUrl).promise;
+      } finally {
+        URL.revokeObjectURL(fileUrl);
+      }
+
+      const pageTexts: string[] = new Array(pdf.numPages);
+      const batchSize = 10;
+
+      for (let i = 1; i <= pdf.numPages; i += batchSize) {
+        const end = Math.min(i + batchSize - 1, pdf.numPages);
+        if (onProgress) {
+          onProgress(`OCR Fallback: Extracting PDF pages ${i}–${end} of ${pdf.numPages} using AI…`);
+        }
+
+        const batchPromises: Promise<void>[] = [];
+        for (let j = i; j <= end; j++) {
+          const pageIndex = j - 1;
+          batchPromises.push(
+            pdf.getPage(j).then(async page => {
+              const viewport = page.getViewport({ scale: 1.5 });
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              if (context) {
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                await page.render({ canvasContext: context, viewport }).promise;
+                
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                const base64Data = dataUrl.split(',')[1];
+                
+                pageTexts[pageIndex] = await extractTextFromImage(base64Data, 'image/jpeg');
+              } else {
+                pageTexts[pageIndex] = '';
+              }
+              page.cleanup();
+            })
+          );
+        }
+        await Promise.all(batchPromises);
+      }
+
+      return pageTexts.join('\n');
+    };
+
     try {
-      return await extractPdf();
+      let text = await extractPdf();
+      if (text.trim().length < 100) {
+         if (onProgress) onProgress('PDF contains no text, attempting OCR fallback...');
+         text = await extractPdfOcr();
+      }
+      return text;
     } catch (error) {
       console.error(
         '[documentProcessor] Primary PDF extraction failed, trying fallback worker…',
         error,
       );
-      return extractPdf(
+      let text = await extractPdf(
         `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`,
       );
+      if (text.trim().length < 100) {
+         if (onProgress) onProgress('PDF contains no text, attempting OCR fallback...');
+         text = await extractPdfOcr(
+            `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`
+         );
+      }
+      return text;
     }
   }
 
@@ -588,6 +653,10 @@ export async function processDocument(
   
   // Bug 1: Remove null bytes to prevent PostgreSQL errors 
   const sanitizedText = rawText.replace(/\x00/g, '');
+
+  if (sanitizedText.trim().length === 0) {
+    throw new Error("This document doesn't have textual content.");
+  }
 
   // Step 2 — optional NLP preprocessing.
   onProgress('Preprocessing text…');
