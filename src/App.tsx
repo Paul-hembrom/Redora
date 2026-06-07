@@ -262,6 +262,20 @@ export default function App() {
            throw new Error(errData.error || 'Failed to sync document to server');
         }
 
+        // Re-fetch document list after successful upload
+        try {
+          const docsRes = await fetch('/api/documents');
+          if (docsRes.ok) {
+            const data = await docsRes.json();
+            if (Array.isArray(data)) {
+              setDocuments(data);
+              import('./lib/offline').then(m => m.cacheDocuments(data));
+            }
+          }
+        } catch (e) {
+          console.error('Failed to refetch documents after upload', e);
+        }
+
         window.dispatchEvent(new Event('usage-updated'));
       }
     } catch (err: any) {

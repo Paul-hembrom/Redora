@@ -744,7 +744,17 @@ app.get('/api/organizations', authenticate, async (req: any, res) => {
 // --- Document Routes ---
 app.get('/api/documents', authenticate, async (req: any, res) => {
   try {
-    const docs = await sql`SELECT * FROM documents WHERE ${getDocUserFilter(req)} ORDER BY upload_date DESC`;
+    let docs;
+    if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
+      docs = await sql`
+        SELECT d.* FROM documents d
+        JOIN organization_members om ON d.user_id = om.user_id
+        WHERE om.organization_id = ${req.orgId}
+        ORDER BY d.upload_date DESC
+      `;
+    } else {
+      docs = await sql`SELECT * FROM documents WHERE user_id = ${req.userId} ORDER BY upload_date DESC`;
+    }
     
     // Fetch all chapters for these documents
     const docIds = docs.map(d => d.id);
@@ -848,7 +858,7 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
         await tx`INSERT INTO chapters ${tx(flatChapters)}`;
       }
     });
-    res.json({ success: true });
+    res.json({ success: true, document_id: id });
   } catch (err: any) {
     let errorMessage = err.message || 'An unknown error occurred';
     if (errorMessage.includes('column') && errorMessage.includes('does not exist')) {
