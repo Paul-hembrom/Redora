@@ -16,8 +16,10 @@ import {
 // ---------------------------------------------------------------------------
 // PDF.js worker setup
 // ---------------------------------------------------------------------------
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,11 +218,7 @@ export async function extractTextFromFile(
   // alive simultaneously.
   // ------------------------------------------------------------------
   if (extension === 'pdf') {
-    const extractPdf = async (workerSrc?: string): Promise<string> => {
-      if (workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
-      }
-
+    const extractPdf = async (): Promise<string> => {
       // Bug fix #1: pass the File (Blob) via `url` so pdf.js uses its
       // own range-request / streaming loader instead of a pre-loaded buffer.
       const fileUrl = URL.createObjectURL(file);
@@ -263,11 +261,7 @@ export async function extractTextFromFile(
       return pageTexts.join('\n');
     };
 
-    const extractPdfOcr = async (workerSrc?: string): Promise<string> => {
-      if (workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
-      }
-
+    const extractPdfOcr = async (): Promise<string> => {
       const fileUrl = URL.createObjectURL(file);
       let pdf: pdfjsLib.PDFDocumentProxy;
       try {
@@ -325,19 +319,10 @@ export async function extractTextFromFile(
       return text;
     } catch (error) {
       console.error(
-        '[documentProcessor] Primary PDF extraction failed, trying fallback worker…',
+        '[documentProcessor] Primary PDF extraction failed:',
         error,
       );
-      let text = await extractPdf(
-        `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`,
-      );
-      if (text.trim().length < 100) {
-         if (onProgress) onProgress('PDF contains no text, attempting OCR fallback...');
-         text = await extractPdfOcr(
-            `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`
-         );
-      }
-      return text;
+      throw new Error('PDF viewer could not be initialised. Please refresh or try a different file.');
     }
   }
 
@@ -655,7 +640,7 @@ export async function processDocument(
   const sanitizedText = rawText.replace(/\x00/g, '');
 
   if (sanitizedText.trim().length === 0) {
-    throw new Error("This document doesn't have textual content.");
+    throw new Error('No readable text found in this document. Try a different file or a clearer scan.');
   }
 
   // Step 2 — optional NLP preprocessing.
