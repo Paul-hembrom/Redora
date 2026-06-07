@@ -270,7 +270,7 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
       const userIds = orgUsers.map((u: any) => u.user_id);
       let bookCount = 0;
       if (userIds.length > 0) {
-        const books = await sql`SELECT count(*) FROM chapters WHERE user_id IN ${sql(userIds)}`;
+        const books = await sql`SELECT count(*) FROM documents WHERE user_id IN ${sql(userIds)}`;
         bookCount = Number(books[0].count);
       }
       if (bookCount >= 10) throw new SubscriptionLimitError('Trial limit reached for books (10 max).');
@@ -376,10 +376,10 @@ function getDocUserFilter(req: any) {
 function getDocAliasUserFilter(req: any, alias: string) {
   if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
     if (alias === 'd') return sql`d.user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})`;
-    if (alias === 'c') return sql`c.user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})`;
+    if (alias === 'c') return sql`c.document_id IN (SELECT id FROM documents WHERE user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}))`;
   }
   if (alias === 'd') return sql`d.user_id = ${req.userId}`;
-  if (alias === 'c') return sql`c.user_id = ${req.userId}`;
+  if (alias === 'c') return sql`c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId})`;
   return sql`user_id = ${req.userId}`;
 }
 
@@ -440,7 +440,7 @@ async function checkFeatureAllowed(orgId: string | undefined, feature: string, u
     if (feature === 'image') count = usage.image_searches_this_month || 0;
     if (feature === 'interactive') count = usage.interactive_lessons_this_month || 0;
     if (feature === 'document') {
-       const docs = await sql`SELECT count(*) FROM chapters WHERE user_id = ${userId}`;
+       const docs = await sql`SELECT count(*) FROM documents WHERE user_id = ${userId}`;
        count = Number(docs[0].count) || 0;
     }
     if (feature === 'chat') return { allowed: true };
@@ -476,7 +476,7 @@ async function checkFeatureAllowed(orgId: string | undefined, feature: string, u
        const userIds = orgUsers.map((u: any) => u.user_id);
        let bookCount = 0;
        if (userIds.length > 0) {
-         const books = await sql`SELECT count(*) FROM chapters WHERE user_id IN ${sql(userIds)}`;
+         const books = await sql`SELECT count(*) FROM documents WHERE user_id IN ${sql(userIds)}`;
          bookCount = Number(books[0].count);
        }
        if (bookCount < 10) return { allowed: true };
@@ -850,7 +850,11 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    let errorMessage = err.message || 'An unknown error occurred';
+    if (errorMessage.includes('column') && errorMessage.includes('does not exist')) {
+      errorMessage = 'Database sync failed. Please try again.';
+    }
+    res.status(500).json({ error: errorMessage });
   }
 });
 
