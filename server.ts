@@ -865,11 +865,24 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     });
     res.json({ success: true, document_id: id });
   } catch (err: any) {
-    let errorMessage = err.message || 'An unknown error occurred';
-    if (errorMessage.includes('column') && errorMessage.includes('does not exist')) {
-      errorMessage = 'Database sync failed. Please try again.';
+    // Log the FULL error so we can see exactly what column/constraint is failing
+    console.error('DOCUMENT UPLOAD FAILED', {
+      message: err.message,
+      code: err.code,
+      routine: err.routine,
+      column: err.column,
+      stack: err.stack
+    });
+
+    let errorMessage = 'Database sync failed. Please try again.';
+    
+    // If it's a missing column, tell us exactly which one
+    if (err.code === '42703') {
+      errorMessage = `Database column missing: ${err.message}`;
+      console.error('MISSING COLUMN:', err.message);
     }
-    res.status(500).json({ error: errorMessage, fullError: err.message });
+    
+    res.status(500).json({ error: errorMessage });
   }
 });
 
