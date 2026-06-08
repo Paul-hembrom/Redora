@@ -1294,16 +1294,67 @@ Return ONLY valid JSON exactly matching this schema:
 Leave "video_id" empty if unsure, do not invent 11-char IDs.
 `;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json'
-      }
-    });
+    let responseText = '{}';
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      });
+      responseText = response.text || '{}';
+    } catch (geminiError: any) {
+      console.warn("Gemini retrieve-videos failed:", geminiError.message, "- trying DeepSeek fallback");
+      const dsKey = process.env.DEEPSEEK_API_KEY || process.env.VITE_DEEPSEEK_API_KEY;
+      let dsSucceeded = false;
 
-    const responseText = response.text || '{}';
-    console.log("Gemini response text:", responseText);
+      if (dsKey) {
+        try {
+          const dsRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${dsKey}`
+            },
+            body: JSON.stringify({
+              model: 'deepseek-chat', // Use deepseek-chat or deepseek-v4-flash depending on config, but deepseek-chat is standard for text
+              messages: [{ role: 'user', content: prompt }],
+              response_format: { type: 'json_object' }
+            })
+          });
+          
+          if (dsRes.ok) {
+            const dsData = await dsRes.json();
+            responseText = dsData.choices[0].message.content || '{}';
+            dsSucceeded = true;
+          } else {
+            console.warn("DeepSeek fallback failed with status:", dsRes.status);
+          }
+        } catch (dsError) {
+          console.warn("DeepSeek fetch failed:", dsError);
+        }
+      }
+
+      if (!dsSucceeded) {
+        console.warn("Using Fallback #2 for retrieve-videos.");
+        const fallbackQueries = [`${title} ${keyConcepts?.slice(0,3).join(' ') || ''}`.trim(), title];
+        responseText = JSON.stringify({
+          chapter: title,
+          learning_intent: summary || title,
+          intent_quality_score: 50,
+          key_concepts: keyConcepts || [],
+          search_queries: fallbackQueries,
+          recommended_videos: fallbackQueries.map(q => ({
+            title: q,
+            search_query_used: q,
+            quality_score: 50
+          }))
+        });
+      }
+    }
+
+    console.log("LLM response text:", responseText);
     let parsedData;
     try {
       parsedData = JSON.parse(responseText.trim().replace(/^```json/, '').replace(/```$/, ''));
