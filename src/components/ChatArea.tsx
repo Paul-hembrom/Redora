@@ -140,6 +140,20 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [isTtsLoading, setIsTtsLoading] = useState(false);
   const ttsAudioRef = useRef<HTMLAudioElement>(null);
+  const [orgName, setOrgName] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/me/context')
+      .then(res => {
+         if (res.ok) return res.json();
+      })
+      .then(data => {
+        if (data && data.context === 'school' && data.orgName) {
+          setOrgName(data.orgName);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handlePlayTTS = async (msg: ChatMessage) => {
     if (playingMessageId === msg.id) {
@@ -342,7 +356,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           title: chapter.title,
           summary: chapter.summary,
           key_concepts: (chapter as any).key_concepts || [],
-          org_context: user?.name || 'General Education'
+          org_context: orgName || user?.name || 'General Education'
         })
       });
 
@@ -453,7 +467,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           subject: 'General Education',
           grade: 'High School',
           keyConcepts: (chapter as any).key_concepts || [],
-          class_context: user?.name,
+          class_context: orgName || undefined,
         })
       });
 

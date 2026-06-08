@@ -747,7 +747,7 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
     let docs;
     if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
       docs = await sql`
-        SELECT d.* FROM documents d
+        SELECT DISTINCT d.* FROM documents d
         JOIN organization_members om ON d.user_id = om.user_id
         WHERE om.organization_id = ${req.orgId}
         ORDER BY d.upload_date DESC
