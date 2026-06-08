@@ -148,7 +148,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
          if (res.ok) return res.json();
       })
       .then(data => {
-        if (data && data.context === 'school' && data.orgName) {
+        if (data && data.orgName) {
           setOrgName(data.orgName);
         }
       })
@@ -467,7 +467,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           subject: 'General Education',
           grade: 'High School',
           keyConcepts: (chapter as any).key_concepts || [],
-          class_context: orgName || undefined,
+          class_context: (document.cookie.includes('sb-org-id=') && orgName) ? orgName : "",
         })
       });
 
