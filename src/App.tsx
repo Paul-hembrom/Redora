@@ -24,7 +24,25 @@ function cn(...inputs: ClassValue[]) {
 
 export default function App() {
   const { user, loading, logout, isOffline } = useAuth();
-  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
+  const [isStudent, setIsStudent] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      fetch('/api/me/context')
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.role === 'student') {
+            setIsStudent(true);
+          } else {
+            setIsStudent(false);
+          }
+        })
+        .catch(console.error);
+    } else {
+      setIsStudent(false);
+    }
+  }, [user]);
+
   const [showLogin, setShowLogin] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -122,6 +140,7 @@ export default function App() {
     const sharedDocId = urlParams.get('sharedDoc');
 
     if (user) {
+      setDocuments([]); // Clear any old docs immediately upon getting a new user context
       if (!navigator.onLine) {
          import('./lib/offline').then(m => m.getCachedDocuments()).then(docs => {
             setDocuments(docs);
@@ -588,6 +607,7 @@ export default function App() {
                 hasNextChapter={hasNextChapter}
                 hasPrevChapter={hasPrevChapter}
                 onNavigateChapter={onNavigateChapter}
+                isStudent={isStudent}
               />
             ) : (
             <div 

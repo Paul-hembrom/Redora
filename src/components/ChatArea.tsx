@@ -63,6 +63,7 @@ interface Props {
   onNavigateChapter?: (direction: 'next' | 'prev') => void;
   hasPrevChapter?: boolean;
   hasNextChapter?: boolean;
+  isStudent?: boolean;
 }
 
 const EMOJIS = ['👍', '👎', '❤️', '😂', '😮', '🔖'];
@@ -122,9 +123,8 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
   );
 }
 
-export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter }: Props) {
+export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
   const { user, isOffline } = useAuth();
-  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -784,7 +784,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
 
       {activeTab === 'video' ? (
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative z-0">
-          <StoryboardScreen chapterId={chapter.id} />
+          <StoryboardScreen chapterId={chapter.id} isStudent={isStudent} />
         </div>
       ) : (
       <>

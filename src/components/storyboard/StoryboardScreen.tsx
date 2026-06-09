@@ -9,11 +9,11 @@ import { BetaBadge } from '../BetaBadge';
 
 interface StoryboardScreenProps {
   chapterId: string;
+  isStudent?: boolean;
 }
 
-export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
+export default function StoryboardScreen({ chapterId, isStudent }: StoryboardScreenProps) {
   const { user } = useAuth();
-  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [job, setJob] = useState<any>(null);
   const [storyboard, setStoryboard] = useState<any>(null);
   const [scenes, setScenes] = useState<any[]>([]);
@@ -192,6 +192,7 @@ export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
                 key={scene.id} 
                 scene={scene} 
                 onRegenerate={handleRegenerateScene} 
+                isStudent={isStudent}
               />
             ))}
           </div>

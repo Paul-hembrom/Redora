@@ -135,29 +135,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Restrict write access for students
-app.use((req, res, next) => {
-  if (req.method === 'GET') {
-    return next();
-  }
-  
-  if (req.path.startsWith('/api/auth/')) {
-    return next();
-  }
-  
-  if (req.path.startsWith('/auth/')) {
-    return next();
-  }
-
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
-     const role = req.cookies?.['sb-role'];
-     if (role === 'student') {
-        return res.status(403).json({ error: "Students have view-only access." });
-     }
-  }
-  
-  next();
-});
 
 export class SubscriptionLimitError extends Error {
   constructor(message: string) {
@@ -388,19 +365,16 @@ const preventStudentModification = (req: any, res: any, next: any) => {
     const role = req.cookies['sb-role'];
     if (role === 'student') {
       const allowedStudentEndpoints = [
-        '/api/auth/logout',
-        '/api/auth/login',
-        '/api/auth/signup',
         '/api/retrieve-videos',
         '/api/chats',
-        '/api/nvidia/chat/completions',
         '/api/tts',
         '/api/stt/transcribe'
       ];
       
       const isTopicsImagesOrLesson = req.path.match(/^\/api\/topics\/[a-zA-Z0-9_\-]+\/(images|start-lesson)$/);
+      const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
       
-      if (!allowedStudentEndpoints.includes(req.path) && !isTopicsImagesOrLesson) {
+      if (!allowedStudentEndpoints.includes(req.path) && !isTopicsImagesOrLesson && !isAuthOrNvidia) {
         return res.status(403).json({ error: 'Students have view-only access.' });
       }
     }
@@ -753,7 +727,12 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
         ORDER BY d.upload_date DESC
       `;
     } else {
-      docs = await sql`SELECT * FROM documents WHERE user_id = ${req.userId} ORDER BY upload_date DESC`;
+      const role = req.cookies?.['sb-role'];
+      if (role === 'student') {
+        docs = [];
+      } else {
+        docs = await sql`SELECT * FROM documents WHERE user_id = ${req.userId} ORDER BY upload_date DESC`;
+      }
     }
     
     // Fetch all chapters for these documents

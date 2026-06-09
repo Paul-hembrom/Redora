@@ -16,11 +16,11 @@ interface Scene {
 interface SceneCardProps {
   scene: Scene;
   onRegenerate: (sceneId: string) => void;
+  isStudent?: boolean;
 }
 
-export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
+export default function SceneCard({ scene, onRegenerate, isStudent }: SceneCardProps) {
   const { user } = useAuth();
-  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [editingField, setEditingField] = useState<'narration' | 'visual_prompt' | null>(null);
   const [editValue, setEditValue] = useState('');

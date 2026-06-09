@@ -71,9 +71,8 @@ const ChapterNode = ({
   cancelEditingSummary: (e: React.MouseEvent) => void;
   copiedSummaryId: string | null;
   handleCopySummary: (e: React.MouseEvent, id: string, summary: string) => void;
+  isStudent?: boolean;
 }) => {
-  const { user } = useAuth();
-  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [localExpanded, setLocalExpanded] = useState(level === 0 || chapter.type === 'part');
   const paddingLeft = `${level * 0.75 + 1}rem`;
   const hasChildren = chapter.children && chapter.children.length > 0;
@@ -191,6 +190,7 @@ const ChapterNode = ({
               cancelEditingSummary={cancelEditingSummary}
               copiedSummaryId={copiedSummaryId}
               handleCopySummary={handleCopySummary}
+              isStudent={isStudent}
             />
           ))}
         </div>
@@ -201,7 +201,6 @@ const ChapterNode = ({
 
 export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary }: Props) {
   const { user } = useAuth();
-  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -230,8 +229,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   }, [editingSummaryId, editingSummaryDraft]);
   
   const [userUsage, setUserUsage] = useState<any>(null);
-
-// ... later in the file ...
+  const isStudent = userUsage?.role === 'student';
 
   const startEditingSummary = (e: React.MouseEvent, chapterId: string, currentSummary: string) => {
     e.stopPropagation();
@@ -877,6 +875,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     cancelEditingSummary={cancelEditingSummary}
                     copiedSummaryId={copiedSummaryId}
                     handleCopySummary={handleCopySummary}
+                    isStudent={isStudent}
                   />
                 ))}
               </div>
