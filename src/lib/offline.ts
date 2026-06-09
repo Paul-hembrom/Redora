@@ -68,6 +68,17 @@ export async function clearCachedUser() {
   await db.delete('user', 'current');
 }
 
+export async function cacheDocuments(docs: any[]) {
+  if (!dbPromise) return;
+  const db = await dbPromise;
+  for (const doc of docs) {
+    await db.put('documents', { id: doc.id, doc, chapters: doc.chapters || [], timestamp: Date.now() });
+    for (const ch of (doc.chapters || [])) {
+       await db.put('chapters', { id: ch.id, chapter: ch, timestamp: Date.now() });
+    }
+  }
+}
+
 export async function cacheDocument(doc: any, chapters: any[]) {
   if (!dbPromise) return;
   const db = await dbPromise;

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
@@ -750,6 +750,17 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             </button>
             <button onClick={handleGenerateFollowUps} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-purple-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get Follow-up Questions">
               <MessageCircleQuestion className="w-3.5 h-3.5" /> Follow-ups
+            </button>
+            <button 
+              onClick={async () => {
+                const lib = await import('../lib/offline');
+                await lib.cacheWholeTopic(chapter);
+                alert('Chapter is now available offline');
+              }} 
+              className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" 
+              title="Make available offline"
+            >
+              <CloudDownload className="w-3.5 h-3.5" /> Save Offline
             </button>
           </div>
           <button

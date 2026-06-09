@@ -632,7 +632,9 @@ app.post('/api/auth/signup', async (req, res) => {
 
     const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
-    res.json({ user: { id, name, email } });
+    const role = req.cookies['sb-role'] || 'user';
+    const orgId = req.cookies['sb-org-id'] || null;
+    res.json({ user: { id, name, email, role, org_id: orgId }, token });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -651,7 +653,9 @@ app.post('/api/auth/login', async (req, res) => {
 
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
-    res.json({ user: { id: user.id, name: user.name, email: user.email } });
+    const role = req.cookies['sb-role'] || 'user';
+    const orgId = req.cookies['sb-org-id'] || null;
+    res.json({ user: { id: user.id, name: user.name, email: user.email, role, org_id: orgId }, token });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

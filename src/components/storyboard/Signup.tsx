@@ -46,7 +46,7 @@ export default function Signup({ onSwitchToLogin }: { onSwitchToLogin: () => voi
       }
       
       if (!res.ok) throw new Error(data.error || 'Signup failed');
-      login(data.user);
+      login({ ...data.user, token: data.token });
     } catch (err: any) {
       setError(err.message);
     } finally {
