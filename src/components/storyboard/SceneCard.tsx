@@ -20,6 +20,7 @@ interface SceneCardProps {
 
 export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
   const { user } = useAuth();
+  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [editingField, setEditingField] = useState<'narration' | 'visual_prompt' | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -31,7 +32,7 @@ export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
   };
 
   const startInlineEdit = (field: 'narration' | 'visual_prompt', value: string) => {
-    if (user?.role === 'student' || isRegenerating) return;
+    if (isStudent || isRegenerating) return;
     setEditingField(field);
     setEditValue(value);
   };
@@ -81,7 +82,7 @@ export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
       <div className="flex-1 p-5 flex flex-col">
         <div className="flex justify-between items-start mb-4">
           <h4 className="text-lg font-semibold text-white/90">Scene {scene.scene_number}</h4>
-          {user?.role !== 'student' && (
+          {!isStudent && (
             <button 
               onClick={handleRegenerate}
               disabled={isRegenerating}
@@ -107,9 +108,9 @@ export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
               />
             ) : (
               <p 
-                className={cn("text-sm font-serif leading-relaxed text-white/80 italic border-l-2 border-cyan-500/30 pl-3", user?.role !== 'student' && "cursor-pointer hover:bg-white/5 rounded-r-md transition-colors")}
-                onClick={() => startInlineEdit('narration', scene.narration)}
-                title={user?.role !== 'student' ? "Click to edit narration" : ""}
+                className={cn("text-sm font-serif leading-relaxed text-white/80 italic border-l-2 border-cyan-500/30 pl-3", !isStudent && "cursor-pointer hover:bg-white/5 rounded-r-md transition-colors")}
+                onClick={() => { if (!isStudent) startInlineEdit('narration', scene.narration) }}
+                title={!isStudent ? "Click to edit narration" : ""}
               >
                 "{scene.narration}"
               </p>
@@ -129,9 +130,9 @@ export default function SceneCard({ scene, onRegenerate }: SceneCardProps) {
               />
             ) : (
               <p 
-                className={cn("text-xs text-white/60 leading-normal", user?.role !== 'student' && "cursor-pointer hover:bg-white/5 rounded-md p-1 -m-1 transition-colors")}
-                onClick={() => startInlineEdit('visual_prompt', scene.visual_prompt)}
-                title={user?.role !== 'student' ? "Click to edit prompt" : ""}
+                className={cn("text-xs text-white/60 leading-normal", !isStudent && "cursor-pointer hover:bg-white/5 rounded-md p-1 -m-1 transition-colors")}
+                onClick={() => { if (!isStudent) startInlineEdit('visual_prompt', scene.visual_prompt) }}
+                title={!isStudent ? "Click to edit prompt" : ""}
               >
                 {scene.visual_prompt}
               </p>

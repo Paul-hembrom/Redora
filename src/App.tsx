@@ -24,6 +24,7 @@ function cn(...inputs: ClassValue[]) {
 
 export default function App() {
   const { user, loading, logout, isOffline } = useAuth();
+  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [showLogin, setShowLogin] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -49,8 +50,12 @@ export default function App() {
 
   const { getRootProps: getEmptyRootProps, getInputProps: getEmptyInputProps, isDragActive: isEmptyDragActive } = useDropzone({
     onDrop: (files) => {
+      if (isStudent) return;
       handleUpload(files, { removeStopWords: false, applyStemming: false });
     },
+    noClick: isStudent,
+    noKeyboard: isStudent,
+    noDrag: isStudent,
     accept: {
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
@@ -212,6 +217,7 @@ export default function App() {
   }
 
   const handleUpload = async (files: File[], options: PreprocessOptions) => {
+    if (isStudent) return;
     setIsUploading(true);
     setUploadError(null);
     try {
@@ -607,7 +613,7 @@ export default function App() {
                 <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-4">
                   {isEmptyDragActive ? "Drop document here" : `Welcome, ${user.name}`}
                 </h2>
-                {user.role === 'student' ? (
+                {isStudent ? (
                   <p className="text-base md:text-lg font-light text-white/60 leading-relaxed mb-10 text-center">
                     You have view-only access. Select a shared document from the sidebar to start reading.
                   </p>

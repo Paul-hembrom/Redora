@@ -73,6 +73,7 @@ const ChapterNode = ({
   handleCopySummary: (e: React.MouseEvent, id: string, summary: string) => void;
 }) => {
   const { user } = useAuth();
+  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [localExpanded, setLocalExpanded] = useState(level === 0 || chapter.type === 'part');
   const paddingLeft = `${level * 0.75 + 1}rem`;
   const hasChildren = chapter.children && chapter.children.length > 0;
@@ -128,7 +129,7 @@ const ChapterNode = ({
 
       {expandedSummaries.has(chapter.id) && (
         <div className="px-8 py-2 text-xs text-white/50 bg-black/10 border-l-2 border-white/5 ml-4 mr-4 mb-2 relative group/summary">
-          {editingSummaryId === chapter.id && user?.role !== 'student' ? (
+          {editingSummaryId === chapter.id && !isStudent ? (
             <div className="flex flex-col gap-2 relative z-10" onClick={(e) => e.stopPropagation()}>
               <textarea
                 value={editingSummaryDraft}
@@ -147,7 +148,7 @@ const ChapterNode = ({
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
                 <ReadAloudButton text={chapter.summary} className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400" />
-                {user?.role !== 'student' && (
+                {!isStudent && (
                   <button
                     onClick={(e) => startEditingSummary(e, chapter.id, chapter.summary)}
                     className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
@@ -200,6 +201,7 @@ const ChapterNode = ({
 
 export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary }: Props) {
   const { user } = useAuth();
+  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
   const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
@@ -573,7 +575,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
 
         {/* Removed PricingModal rendering so it doesn't overlap */}
 
-        {user?.role !== 'student' && (
+        {!isStudent && (
           <div className="flex gap-2 mb-4">
             <div 
               {...getRootProps()} 
@@ -743,7 +745,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                 </button>
-                {user?.role !== 'student' && (
+                {!isStudent && (
                   <button 
                     onClick={(e) => handleShare(e, doc)}
                     className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}
@@ -778,7 +780,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>
                 </button>
-                {user?.role !== 'student' && onClearChats && (
+                {!isStudent && onClearChats && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onClearChats(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-yellow-400 hover:bg-white/5 rounded-md transition-all"
@@ -787,7 +789,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     <MessageSquare className="w-3.5 h-3.5" />
                   </button>
                 )}
-                {user?.role !== 'student' && onDeleteDocument && (
+                {!isStudent && onDeleteDocument && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
@@ -806,11 +808,11 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     {doc.tags?.map(tag => (
                       <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/60">
                         {tag}
-                        {user?.role !== 'student' && <button onClick={(e) => { e.stopPropagation(); handleRemoveTag(doc, tag); }} className="hover:text-red-400"><X className="w-3 h-3" /></button>}
+                        {!isStudent && <button onClick={(e) => { e.stopPropagation(); handleRemoveTag(doc, tag); }} className="hover:text-red-400"><X className="w-3 h-3" /></button>}
                       </span>
                     ))}
                   </div>
-                  {user?.role !== 'student' && (
+                  {!isStudent && (
                     editingTagsFor === doc.id ? (
                       <div className="flex flex-col gap-2 mt-1">
                         <input 

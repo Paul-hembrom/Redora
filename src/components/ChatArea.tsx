@@ -124,6 +124,7 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
 
 export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter }: Props) {
   const { user, isOffline } = useAuth();
+  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -707,7 +708,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             </div>
           )}
           <div className={cn("flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 pr-2", isOffline && "opacity-50 pointer-events-none")}>
-            {user?.role !== 'student' && (
+            {!isStudent && (
               <button 
                 onClick={() => setShowInteractiveLesson(true)}
                 className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
@@ -723,7 +724,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             >
               <Film className="w-3.5 h-3.5" /> Pipeline
             </button>
-            {user?.role !== 'student' && (
+            {!isStudent && (
               <button 
                 onClick={handleGenerateVideoLesson} 
                 className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
@@ -735,7 +736,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
             </button>
-            {user?.role !== 'student' && (
+            {!isStudent && (
               <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
             )}
             <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">

@@ -13,6 +13,7 @@ interface StoryboardScreenProps {
 
 export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
   const { user } = useAuth();
+  const isStudent = user?.role === 'student' || document.cookie.includes('sb-role=student');
   const [job, setJob] = useState<any>(null);
   const [storyboard, setStoryboard] = useState<any>(null);
   const [scenes, setScenes] = useState<any[]>([]);
@@ -82,7 +83,7 @@ export default function StoryboardScreen({ chapterId }: StoryboardScreenProps) {
         <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2 justify-center">Generate Video Lesson <BetaBadge /></h3>
         <p className="text-white/60 mb-8 max-w-md">Transform this chapter into a fully narrated video lesson with cinematic visuals and diagram animations.</p>
         
-        {user?.role === 'student' ? (
+        {isStudent ? (
           <div className="px-6 py-3 bg-white/5 text-white/50 rounded-lg text-sm border border-white/10">
             Waiting for teacher to generate lesson...
           </div>

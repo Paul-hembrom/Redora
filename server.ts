@@ -384,7 +384,7 @@ function getDocAliasUserFilter(req: any, alias: string) {
 }
 
 const preventStudentModification = (req: any, res: any, next: any) => {
-  if (req.path.startsWith('/api/') && ['POST', 'PUT', 'DELETE'].includes(req.method)) {
+  if (req.path.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const role = req.cookies['sb-role'];
     if (role === 'student') {
       const allowedStudentEndpoints = [
