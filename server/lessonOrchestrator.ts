@@ -19,7 +19,7 @@ export async function createInteractiveLesson(topicId: string, orgId: string, us
   // Try to find an existing storyboard for this topic/chapter
   const storyboards = await sql`
     SELECT id FROM storyboards 
-    WHERE chapter_id = ${lookupChapterId} 
+    WHERE chapter_id = ${lookupChapterId} AND status = 'completed'
     ORDER BY created_at DESC 
     LIMIT 1
   `;
@@ -55,9 +55,10 @@ export async function createInteractiveLesson(topicId: string, orgId: string, us
           duration: scene.estimated_duration_seconds || 15
         });
       } else if (scene.image_url) {
+        const isVideo = scene.model_used?.startsWith('veo') || scene.image_url.endsWith('.mp4');
         steps.push({
           id: scene.id || uuidv4(),
-          type: 'image',
+          type: isVideo ? 'video' : 'image',
           url: scene.image_url,
           caption: scene.narration || scene.visual_prompt || '',
           narrationText: scene.narration || '',

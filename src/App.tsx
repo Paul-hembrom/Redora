@@ -598,6 +598,7 @@ export default function App() {
             return activeChapter ? (
               <ChatArea 
                 chapter={activeChapter}
+                documentId={selectedDoc?.id}
                 onClearChats={() => {
                   if (isLibraryChatActive) {
                     // Do nothing for virtual chats

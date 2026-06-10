@@ -1102,7 +1102,12 @@ app.post('/api/chapters/:id/generate-lesson', authenticate, async (req: any, res
     }
 
     const chapterId = req.params.id;
-    const { org_id = 'default_org', document_id = 'doc123' } = req.body;
+    let { org_id } = req.body;
+    if (!org_id || org_id === 'default') org_id = orgId || 'default_org';
+
+    const chaps = await sql`SELECT document_id FROM chapters WHERE id = ${chapterId}`;
+    if (!chaps.length) return res.status(404).json({ error: 'Chapter not found' });
+    const document_id = chaps[0].document_id;
     
     const jobId = uuidv4();
     await sql`

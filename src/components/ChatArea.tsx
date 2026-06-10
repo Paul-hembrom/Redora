@@ -59,6 +59,7 @@ const QuizQuestion = ({ q, index }: { q: any, index: number }) => {
 
 interface Props {
   chapter: Chapter;
+  documentId?: string;
   onClearChats: () => void;
   persona: ReadingPersona;
   onNavigateChapter?: (direction: 'next' | 'prev') => void;
@@ -137,7 +138,7 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
   );
 }
 
-export default function ChatArea({ chapter, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
+export default function ChatArea({ chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
   const { user, isOffline } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [input, setInput] = useState('');
@@ -156,6 +157,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
   const [isTtsLoading, setIsTtsLoading] = useState(false);
   const ttsAudioRef = useRef<HTMLAudioElement>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
+  const [canGenerateVideo, setCanGenerateVideo] = useState(true);
 
   useEffect(() => {
     fetch('/api/me/context')
@@ -163,8 +165,9 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
          if (res.ok) return res.json();
       })
       .then(data => {
-        if (data && data.orgName) {
-          setOrgName(data.orgName);
+        if (data) {
+          if (data.orgName) setOrgName(data.orgName);
+          if (data.videosLimit === 0) setCanGenerateVideo(false);
         }
       })
       .catch(() => {});
@@ -450,7 +453,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ org_id: 'default' })
+        body: JSON.stringify({ org_id: orgName || 'default', document_id: documentId })
       });
       
       const data = await res.json();
@@ -753,7 +756,7 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             >
               <Film className="w-3.5 h-3.5" /> Pipeline
             </button>
-            {!isStudent && (
+            {!isStudent && canGenerateVideo && (
               <button 
                 onClick={handleGenerateVideoLesson} 
                 className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"

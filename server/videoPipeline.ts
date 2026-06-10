@@ -68,9 +68,16 @@ export async function processVideoLessonJob(job_id: string, chapter_id: string, 
       WHERE id = ${job_id}
     `;
 
+    await sql`
+      UPDATE storyboards
+      SET status = 'completed'
+      WHERE id = ${sbId}
+    `;
+
   } catch (err: any) {
     console.error('Job failed', err);
     await sql`UPDATE generation_jobs SET status = 'failed', error_message = ${err.message} WHERE id = ${job_id}`;
+    await sql`UPDATE storyboards SET status = 'failed' WHERE generation_job_id = ${job_id}`;
   }
 }
 
@@ -92,13 +99,12 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
   }
 
   let image_url = 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?w=800&q=80';
-  let model_used = 'veo';
+  let model_used = 'fallback_image';
 
   if (renderer === 'manim') {
     try {
       image_url = await renderManimScene(visual_prompt);
       model_used = 'manim';
-      await sql`UPDATE scenes SET status = 'completed' WHERE id = ${scene_id}`;
     } catch (error) {
       console.error('Manim failed, falling back to Veo', error);
       renderer = 'veo';
