@@ -26,6 +26,16 @@ export default defineConfig(({mode}) => {
                 expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
                 cacheableResponse: { statuses: [0, 200] }
               }
+            },
+            {
+              urlPattern: /^https:\/\/.*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'external-cache',
+                networkTimeoutSeconds: 5,
+                expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
+                cacheableResponse: { statuses: [0, 200] }
+              }
             }
           ]
         },

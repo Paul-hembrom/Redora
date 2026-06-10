@@ -34,17 +34,48 @@ interface ReadoraDB extends DBSchema {
       timestamp: number;
     };
   };
+  topic_chats: {
+    key: string; // chapterId
+    value: {
+      id: string;
+      messages: any[];
+      timestamp: number;
+    };
+  };
+  topic_videos: {
+    key: string; // chapterId
+    value: {
+      id: string;
+      videos: any[];
+      timestamp: number;
+    };
+  };
+  topic_images: {
+    key: string; // chapterId
+    value: {
+      id: string;
+      images: any[];
+      timestamp: number;
+    };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<ReadoraDB>> | null = null;
 
 if (typeof window !== 'undefined') {
-  dbPromise = openDB<ReadoraDB>('readora-offline-db', 1, {
-    upgrade(db) {
-      db.createObjectStore('user', { keyPath: 'id' });
-      db.createObjectStore('documents', { keyPath: 'id' });
-      db.createObjectStore('chapters', { keyPath: 'id' });
-      db.createObjectStore('media', { keyPath: 'url' });
+  dbPromise = openDB<ReadoraDB>('readora-offline-db', 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        db.createObjectStore('user', { keyPath: 'id' });
+        db.createObjectStore('documents', { keyPath: 'id' });
+        db.createObjectStore('chapters', { keyPath: 'id' });
+        db.createObjectStore('media', { keyPath: 'url' });
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore('topic_chats', { keyPath: 'id' });
+        db.createObjectStore('topic_videos', { keyPath: 'id' });
+        db.createObjectStore('topic_images', { keyPath: 'id' });
+      }
     },
   });
 }
@@ -128,4 +159,43 @@ export async function getCachedChapter(chapterId: string) {
     const db = await dbPromise;
     const entry = await db.get('chapters', chapterId);
     return entry ? entry.chapter : null;    
+}
+
+export async function cacheTopicChats(chapterId: string, messages: any[]) {
+    if (!dbPromise) return;
+    const db = await dbPromise;
+    await db.put('topic_chats', { id: chapterId, messages, timestamp: Date.now() });
+}
+
+export async function getCachedTopicChats(chapterId: string) {
+    if (!dbPromise) return null;
+    const db = await dbPromise;
+    const entry = await db.get('topic_chats', chapterId);
+    return entry ? entry.messages : null;
+}
+
+export async function cacheTopicVideos(chapterId: string, videos: any[]) {
+    if (!dbPromise) return;
+    const db = await dbPromise;
+    await db.put('topic_videos', { id: chapterId, videos, timestamp: Date.now() });
+}
+
+export async function getCachedTopicVideos(chapterId: string) {
+    if (!dbPromise) return null;
+    const db = await dbPromise;
+    const entry = await db.get('topic_videos', chapterId);
+    return entry ? entry.videos : null;
+}
+
+export async function cacheTopicImages(chapterId: string, images: any[]) {
+    if (!dbPromise) return;
+    const db = await dbPromise;
+    await db.put('topic_images', { id: chapterId, images, timestamp: Date.now() });
+}
+
+export async function getCachedTopicImages(chapterId: string) {
+    if (!dbPromise) return null;
+    const db = await dbPromise;
+    const entry = await db.get('topic_images', chapterId);
+    return entry ? entry.images : null;
 }

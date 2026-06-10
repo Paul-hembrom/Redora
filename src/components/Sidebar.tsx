@@ -771,8 +771,24 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                      }
                      doc.chapters.forEach(flatten);
                      
-                     const { cacheDocument } = await import('../lib/offline');
+                     const { cacheDocument, cacheTopicChats, cacheTopicVideos, cacheTopicImages } = await import('../lib/offline');
                      await cacheDocument(doc, flatChaps);
+                     
+                     for (const ch of flatChaps) {
+                         try {
+                           const res = await fetch(`/api/chats/${ch.id}`);
+                           if (res.ok) {
+                               const history = await res.json();
+                               if (Array.isArray(history) && history.length > 0) {
+                                  await cacheTopicChats(ch.id, history);
+                                  const videos = history.flatMap((m: any) => m.recommended_videos || []);
+                                  if (videos.length > 0) await cacheTopicVideos(ch.id, videos);
+                                  const images = history.flatMap((m: any) => m.images || []);
+                                  if (images.length > 0) await cacheTopicImages(ch.id, images);
+                               }
+                           }
+                         } catch(err) { console.error('Failed to cache chats for', ch.id, err); }
+                     }                     
                      alert('Document saved for offline view!');
                   }}
                   className="p-1.5 text-white/30 hover:text-emerald-400 hover:bg-white/5 rounded-md transition-all"

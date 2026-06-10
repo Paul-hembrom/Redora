@@ -17,6 +17,7 @@ import { InteractiveLesson } from './InteractiveLesson';
 import { BetaBadge } from './BetaBadge';
 
 import { useAuth } from '../contexts/AuthContext';
+import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -73,6 +74,8 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
   const [showCC, setShowCC] = useState(false);
   const [loadingCC, setLoadingCC] = useState(false);
 
+  const { isOffline } = useAuth();
+
   const toggleCC = async () => {
     if (!showCC && !captions) {
       setLoadingCC(true);
@@ -93,24 +96,35 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
 
   return (
     <div className="bg-black/20 rounded-xl overflow-hidden border border-white/5 flex flex-col hover:border-cyan-500/30 transition-colors shadow-xl relative aspect-video flex-shrink-0 min-w-[280px]">
-      <div className="aspect-video bg-black relative">
-        <iframe 
-          src={`https://www.youtube.com/embed/${video.video_id}`} 
-          title={video.title} 
-          className="w-full h-full absolute inset-0 border-0"
-          allowFullScreen
-        />
-        <button 
-          onClick={toggleCC}
-          className={cn(
-            "absolute top-2 right-2 p-1.5 rounded text-xs font-bold transition-colors z-10 shadow-lg backdrop-blur-md border",
-            showCC ? "bg-cyan-500 text-white border-cyan-400" : "bg-black/60 text-white/70 border-white/20 hover:text-white hover:bg-black/80"
-          )}
-        >
-          {loadingCC ? '...' : 'CC'}
-        </button>
+      <div className="aspect-video bg-black relative flex items-center justify-center">
+        {isOffline ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900 border border-white/10 p-4 text-center">
+            <Video className="w-8 h-8 text-white/30 mb-2" />
+            <p className="text-white/80 text-sm font-medium mb-1 line-clamp-2">{video.title}</p>
+            <p className="text-white/40 text-xs mb-2 truncate">ID: {video.video_id}</p>
+            <p className="text-cyan-400/50 text-[10px] font-mono select-all truncate max-w-[80%]">youtube.com/watch?v={video.video_id}</p>
+          </div>
+        ) : (
+          <>
+            <iframe 
+              src={`https://www.youtube.com/embed/${video.video_id}`} 
+              title={video.title} 
+              className="w-full h-full absolute inset-0 border-0"
+              allowFullScreen
+            />
+            <button 
+              onClick={toggleCC}
+              className={cn(
+                "absolute top-2 right-2 p-1.5 rounded text-xs font-bold transition-colors z-10 shadow-lg backdrop-blur-md border",
+                showCC ? "bg-cyan-500 text-white border-cyan-400" : "bg-black/60 text-white/70 border-white/20 hover:text-white hover:bg-black/80"
+              )}
+            >
+              {loadingCC ? '...' : 'CC'}
+            </button>
+          </>
+        )}
       </div>
-      {showCC && captions && (
+      {showCC && captions && !isOffline && (
         <div className="bg-black/90 p-3 max-h-[150px] overflow-y-auto w-full text-xs text-white/80 border-t border-white/10 custom-scrollbar absolute bottom-0 left-0 z-20">
           {captions.length > 0 ? captions.map((c, i) => (
             <span key={i} className="mr-1">{c.text}</span>
@@ -228,11 +242,26 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
           setMessages(data);
         }
       })
-      .catch(err => {
+      .catch(async err => {
         console.error(err);
-        setError('Failed to load chat history.');
+        const cachedChats = await getCachedTopicChats(chapter.id);
+        if (cachedChats && cachedChats.length > 0) {
+          setMessages(cachedChats);
+        } else {
+          setError('Failed to load chat history.');
+        }
       });
   }, [chapter.id]);
+
+  useEffect(() => {
+    if (messages.length > 0 && !chapter.id.startsWith('lib_') && !isOffline) {
+      cacheTopicChats(chapter.id, messages).catch(console.error);
+      const videos = messages.flatMap(m => m.recommended_videos || []);
+      if (videos.length > 0) cacheTopicVideos(chapter.id, videos).catch(console.error);
+      const images = messages.flatMap(m => m.images || []);
+      if (images.length > 0) cacheTopicImages(chapter.id, images).catch(console.error);
+    }
+  }, [messages, chapter.id, isOffline]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
