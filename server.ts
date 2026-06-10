@@ -371,10 +371,9 @@ const preventStudentModification = (req: any, res: any, next: any) => {
         '/api/stt/transcribe'
       ];
       
-      const isTopicsImagesOrLesson = req.path.match(/^\/api\/topics\/[a-zA-Z0-9_\-]+\/(images|start-lesson)$/);
       const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
       
-      if (!allowedStudentEndpoints.includes(req.path) && !isTopicsImagesOrLesson && !isAuthOrNvidia) {
+      if (!allowedStudentEndpoints.includes(req.path) && !isAuthOrNvidia) {
         return res.status(403).json({ error: 'Students have view-only access.' });
       }
     }

@@ -291,7 +291,7 @@ export async function extractTextFromFile(
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
 
-                await page.render({ canvasContext: context, viewport }).promise;
+                await page.render({ canvasContext: context, viewport, canvas: canvas }).promise;
                 
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
                 const base64Data = dataUrl.split(',')[1];

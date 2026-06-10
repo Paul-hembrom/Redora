@@ -24,10 +24,12 @@ function cn(...inputs: ClassValue[]) {
 
 export default function App() {
   const { user, loading, logout, isOffline } = useAuth();
-  const [isStudent, setIsStudent] = useState(false);
+  const [isStudent, setIsStudent] = useState(user?.role === 'student');
 
   useEffect(() => {
-    if (user) {
+    if (user?.role === 'student') {
+      setIsStudent(true);
+    } else if (user) {
       fetch('/api/me/context')
         .then(res => res.json())
         .then(data => {

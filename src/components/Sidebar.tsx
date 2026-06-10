@@ -32,6 +32,7 @@ interface Props {
   onToggleLibrarySelection: (docId: string) => void;
   onOpenLibraryChat: () => void;
   onUpdateSummary?: (chapterId: string, summary: string) => void;
+  isStudent?: boolean;
 }
 
 interface ChapterNodeProps {
@@ -62,6 +63,7 @@ const ChapterNode = ({
   cancelEditingSummary,
   copiedSummaryId,
   handleCopySummary,
+  isStudent
 }: ChapterNodeProps & {
   editingSummaryId: string | null;
   editingSummaryDraft: string;
@@ -199,7 +201,7 @@ const ChapterNode = ({
   );
 };
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, isStudent: propIsStudent }: Props) {
   const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
@@ -229,7 +231,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   }, [editingSummaryId, editingSummaryDraft]);
   
   const [userUsage, setUserUsage] = useState<any>(null);
-  const isStudent = userUsage?.role === 'student';
+  const isStudent = propIsStudent ?? (userUsage?.role === 'student');
 
   const startEditingSummary = (e: React.MouseEvent, chapterId: string, currentSummary: string) => {
     e.stopPropagation();

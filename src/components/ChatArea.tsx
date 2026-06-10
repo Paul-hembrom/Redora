@@ -782,14 +782,16 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
             <Download className="w-4 h-4" />
             <span className="text-xs font-medium hidden sm:inline">Export Chat</span>
           </button>
-          <button
-            onClick={onClearChats}
-            className="p-2 text-white/40 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2"
-            title="Clear all chats for this document"
-          >
-            <Trash2 className="w-4 h-4" />
-            <span className="text-xs font-medium hidden sm:inline">Clear Chats</span>
-          </button>
+          {!isStudent && (
+            <button
+              onClick={onClearChats}
+              className="p-2 text-white/40 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2"
+              title="Clear all chats for this document"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="text-xs font-medium hidden sm:inline">Clear Chats</span>
+            </button>
+          )}
         </ScrollableActionBar>
       </div>
 
@@ -860,13 +862,15 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                   )}
                   {renderActionData(msg)}
                   <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/bubble:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleTogglePin(msg)}
-                      className={cn("p-1.5 rounded-md transition-all", msg.pinned ? "text-cyan-400 bg-cyan-500/20" : "text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40")}
-                      title={msg.pinned ? "Unpin message" : "Pin message"}
-                    >
-                      {msg.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-                    </button>
+                    {!isStudent && (
+                      <button
+                        onClick={() => handleTogglePin(msg)}
+                        className={cn("p-1.5 rounded-md transition-all", msg.pinned ? "text-cyan-400 bg-cyan-500/20" : "text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40")}
+                        title={msg.pinned ? "Unpin message" : "Pin message"}
+                      >
+                        {msg.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
                     {msg.role === 'model' && (
                       <button
                         onClick={() => handlePlayTTS(msg)}
@@ -901,11 +905,11 @@ export default function ChatArea({ chapter, onClearChats, persona, onNavigateCha
                   {EMOJIS.map(emoji => {
                     const count = msg.reactions?.[emoji]?.length || 0;
                     const isReacted = user && msg.reactions?.[emoji]?.includes(user.id);
-                    if (count === 0) return (
+                    if (count === 0) return !isStudent ? (
                       <button key={emoji} onClick={() => handleReact(msg.id, emoji)} className="opacity-0 group-hover:opacity-100 transition-opacity text-sm p-1 hover:scale-125 focus:opacity-100 grayscale hover:grayscale-0">{emoji}</button>
-                    );
+                    ) : null;
                     return (
-                      <button key={emoji} onClick={() => handleReact(msg.id, emoji)} className={cn("flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-colors", isReacted ? "bg-cyan-500/20 border-cyan-500/30 text-cyan-400" : "bg-white/5 border-white/10 text-white/70 hover:bg-white/10")}>
+                      <button key={emoji} disabled={isStudent} onClick={() => handleReact(msg.id, emoji)} className={cn("flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-colors", isReacted ? "bg-cyan-500/20 border-cyan-500/30 text-cyan-400" : "bg-white/5 border-white/10 text-white/70 hover:bg-white/10", isStudent && "cursor-default opacity-80")}>
                         <span>{emoji}</span><span className="text-[10px]">{count}</span>
                       </button>
                     );
