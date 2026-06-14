@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!navigator.onLine) {
           throw new Error('Offline');
         }
-        const res = await fetch('/api/auth/me');
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
         if (!res.ok) throw new Error('Unauthorized');
         const data = await res.json();
         

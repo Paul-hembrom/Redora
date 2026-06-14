@@ -28,7 +28,8 @@ const preventStudentModification = (req: any, res: any, next: any) => {
         '/api/retrieve-videos',
         '/api/chats',
         '/api/tts',
-        '/api/stt/transcribe'
+        '/api/stt/transcribe',
+        '/auth/token-exchange'
       ];
       
       const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
@@ -46,10 +47,9 @@ app.use(preventStudentModification);
 // --- Trust Proxy for Secure Cookies Behind Vercel ---
 app.set('trust proxy', 1);
 
-// --- Gateway Token Exchange Route ---
+// DO NOT REMOVE – Gateway token exchange for teachers/students
 app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) => {
-  console.log('token-exchange route HIT');
-  console.log('method:', req.method);
+  console.log(`[Token Exchange] Route hit via ${req.method} from ${req.ip}`);
   // Disable caching
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -129,9 +129,8 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
       ...(cookieDomain ? { domain: cookieDomain } : {})
     };
 
-    console.log('Setting tokens. Local token prefix:', localToken.substring(0, 15));
-    console.log('Local userId:', userId, 'email:', email);
-
+    console.log(`[Token Exchange] Success. Setting cookies for user ${userId} (${email}) with role: ${role || 'N/A'}, org_id: ${org_id || 'N/A'}`);
+    
     // If verification succeeds, set the cookie exactly as your existing login does
     res.cookie('token', localToken, cookieOptions);
     
@@ -143,6 +142,7 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
       res.cookie('sb-org-id', org_id, cookieOptions);
     }
 
+    console.log('[Token Exchange] Redirecting to workspace (/)');
     // Redirect to the home page (the user's workspace will load automatically)
     res.redirect('/');
   } catch (err) {
