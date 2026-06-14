@@ -321,17 +321,20 @@ const authenticate = async (req: any, res: any, next: any) => {
   
   const orgId = req.cookies['sb-org-id'];
   req.orgId = null;
+  req.orgRole = 'personal';
+
   if (orgId) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (orgId === 'demo' || orgId === 'default_org') {
        req.orgId = orgId;
     } else if (uuidRegex.test(orgId)) {
       try {
-        const membership = await sql`SELECT 1 FROM organization_members WHERE organization_id = ${orgId} AND user_id = ${req.userId}`;
+        const membership = await sql`SELECT role FROM organization_members WHERE organization_id = ${orgId} AND user_id = ${req.userId}`;
         if (membership.length === 0) {
            return res.status(403).json({ error: 'Forbidden: Not a member of this organization' });
         }
         req.orgId = orgId;
+        req.orgRole = membership[0].role;
       } catch (err: any) {
         if (!err.message || !err.message.includes('does not exist')) {
            console.error('Org access check error:', err);
@@ -340,6 +343,24 @@ const authenticate = async (req: any, res: any, next: any) => {
       }
     }
   }
+
+  // Securely block students from modifying data
+  if (req.orgRole === 'student' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const allowedStudentEndpoints = [
+      '/api/retrieve-videos',
+      '/api/chats',
+      '/api/tts',
+      '/api/stt/transcribe'
+    ];
+    const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
+    const isAllowedExact = allowedStudentEndpoints.includes(req.path);
+    const isMemoryEndpoint = req.path.match(/^\/api\/topics\/[^\/]+\/memory$/);
+    
+    if (!isAllowedExact && !isAuthOrNvidia && !isMemoryEndpoint) {
+      return res.status(403).json({ error: 'Students have view-only access.' });
+    }
+  }
+
   next();
 };
 
@@ -359,28 +380,6 @@ function getDocAliasUserFilter(req: any, alias: string) {
   if (alias === 'c') return sql`c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId})`;
   return sql`user_id = ${req.userId}`;
 }
-
-const preventStudentModification = (req: any, res: any, next: any) => {
-  if (req.path.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
-    const role = req.cookies['sb-role'];
-    if (role === 'student') {
-      const allowedStudentEndpoints = [
-        '/api/retrieve-videos',
-        '/api/chats',
-        '/api/tts',
-        '/api/stt/transcribe'
-      ];
-      
-      const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
-      
-      if (!allowedStudentEndpoints.includes(req.path) && !isAuthOrNvidia) {
-        return res.status(403).json({ error: 'Students have view-only access.' });
-      }
-    }
-  }
-  next();
-};
-app.use(preventStudentModification);
 
 // --- Trial & Feature Gating limits ---
 async function checkFeatureAllowed(orgId: string | undefined, feature: string, userId: string): Promise<{allowed: boolean, reason?: string}> {
@@ -489,8 +488,8 @@ app.get('/api/me/role', (req, res) => {
 
 app.get('/api/me/context', authenticate, async (req: any, res) => {
   try {
-    const orgId = req.cookies['sb-org-id'];
-    const role = req.cookies['sb-role'] || 'user';
+    const orgId = req.orgId || req.cookies['sb-org-id'];
+    const role = req.orgRole || req.cookies['sb-role'] || 'user';
     const userId = req.userId;
 
     if (orgId) {

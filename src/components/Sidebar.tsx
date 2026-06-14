@@ -231,7 +231,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   }, [editingSummaryId, editingSummaryDraft]);
   
   const [userUsage, setUserUsage] = useState<any>(null);
-  const isStudent = propIsStudent ?? (userUsage?.role === 'student');
+  const isStudent = propIsStudent || (userUsage?.role === 'student');
 
   const startEditingSummary = (e: React.MouseEvent, chapterId: string, currentSummary: string) => {
     e.stopPropagation();
