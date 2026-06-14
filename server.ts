@@ -33,9 +33,9 @@ const preventStudentModification = (req: any, res: any, next: any) => {
       ];
       
       const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
-      const isAllowedExact = allowedStudentEndpoints.includes(req.path);
+      const isAllowed = allowedStudentEndpoints.some(endpoint => req.path.startsWith(endpoint));
       
-      if (!isAllowedExact && !isAuthOrNvidia) {
+      if (!isAllowed && !isAuthOrNvidia) {
         return res.status(403).json({ error: 'Students have view-only access.' });
       }
     }
