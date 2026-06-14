@@ -130,8 +130,7 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
 
     console.log('Redirecting to /');
     // Redirect to the home page (the user's workspace will load automatically)
-    const redirectUrl = `/?_nocache=${Date.now()}`;
-    res.redirect(redirectUrl);
+    res.redirect(`/?_nocache=${Date.now()}`);
   } catch (err: any) {
     console.error('Exchange error:', err.message, err.stack);
     return res.status(401).send('Invalid token');
