@@ -131,7 +131,7 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
     const cookieOptions: any = { 
       httpOnly: true, 
       secure: true, 
-      sameSite: 'none',
+      sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
       ...(cookieDomain ? { domain: cookieDomain } : {})
@@ -164,7 +164,8 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
 
 // Database readiness check
 app.use((req, res, next) => {
-  if (!dbReady && (req.path.startsWith('/api/') || req.path.startsWith('/auth/'))) {
+  const isTokenExchange = req.path === '/auth/token-exchange' || req.path === '/api/auth/token-exchange';
+  if (!dbReady && !isTokenExchange && (req.path.startsWith('/api/') || req.path.startsWith('/auth/'))) {
     return res.status(503).json({ error: 'Database service unavailable' });
   }
   next();
