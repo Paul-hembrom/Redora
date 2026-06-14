@@ -19,6 +19,31 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
 
+// --- Student Blocking Middleware ---
+const preventStudentModification = (req: any, res: any, next: any) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const role = req.cookies['sb-role'];
+    if (role === 'student') {
+      const allowedStudentEndpoints = [
+        '/api/retrieve-videos',
+        '/api/chats',
+        '/api/tts',
+        '/api/stt/transcribe'
+      ];
+      
+      const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
+      const isAllowedExact = allowedStudentEndpoints.includes(req.path);
+      const isMemoryEndpoint = req.path.match(/^\/api\/topics\/[^\/]+\/memory$/);
+      
+      if (!isAllowedExact && !isAuthOrNvidia && !isMemoryEndpoint) {
+        return res.status(403).json({ error: 'Students have view-only access.' });
+      }
+    }
+  }
+  next();
+};
+app.use(preventStudentModification);
+
 // --- Trust Proxy for Secure Cookies Behind Vercel ---
 app.set('trust proxy', 1);
 
@@ -341,23 +366,6 @@ const authenticate = async (req: any, res: any, next: any) => {
            return res.status(500).json({ error: 'Server error check org membership' });
         }
       }
-    }
-  }
-
-  // Securely block students from modifying data
-  if (req.orgRole === 'student' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
-    const allowedStudentEndpoints = [
-      '/api/retrieve-videos',
-      '/api/chats',
-      '/api/tts',
-      '/api/stt/transcribe'
-    ];
-    const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
-    const isAllowedExact = allowedStudentEndpoints.includes(req.path);
-    const isMemoryEndpoint = req.path.match(/^\/api\/topics\/[^\/]+\/memory$/);
-    
-    if (!isAllowedExact && !isAuthOrNvidia && !isMemoryEndpoint) {
-      return res.status(403).json({ error: 'Students have view-only access.' });
     }
   }
 
