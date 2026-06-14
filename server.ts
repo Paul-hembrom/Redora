@@ -19,31 +19,6 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
 
-// --- Student Blocking Middleware ---
-const preventStudentModification = (req: any, res: any, next: any) => {
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
-    const role = req.cookies['sb-role'];
-    if (role === 'student') {
-      const allowedStudentEndpoints = [
-        '/api/retrieve-videos',
-        '/api/chats',
-        '/api/tts',
-        '/api/stt/transcribe',
-        '/auth/token-exchange'
-      ];
-      
-      const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
-      const isAllowed = allowedStudentEndpoints.some(endpoint => req.path.startsWith(endpoint));
-      
-      if (!isAllowed && !isAuthOrNvidia) {
-        return res.status(403).json({ error: 'Students have view-only access.' });
-      }
-    }
-  }
-  next();
-};
-app.use(preventStudentModification);
-
 // --- Trust Proxy for Secure Cookies Behind Vercel ---
 app.set('trust proxy', 1);
 
@@ -161,6 +136,34 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
     return res.status(401).send('Invalid token');
   }
 });
+
+
+// --- Student Blocking Middleware ---
+const preventStudentModification = (req: any, res: any, next: any) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const role = req.cookies['sb-role'];
+    if (role === 'student') {
+      const allowedStudentEndpoints = [
+        '/api/retrieve-videos',
+        '/api/chats',
+        '/api/tts',
+        '/api/stt/transcribe',
+        '/auth/token-exchange'
+      ];
+      
+      const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
+      const isAllowed = allowedStudentEndpoints.some(endpoint => req.path.startsWith(endpoint));
+      
+      if (!isAllowed && !isAuthOrNvidia) {
+        return res.status(403).json({ error: 'Students have view-only access.' });
+      }
+    }
+  }
+  next();
+};
+app.use(preventStudentModification);
+
+
 
 // Database readiness check
 app.use((req, res, next) => {
