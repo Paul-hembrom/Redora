@@ -49,7 +49,15 @@ app.set('trust proxy', 1);
 
 // DO NOT REMOVE – Gateway token exchange for teachers/students
 app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) => {
-  console.log(`[Token Exchange] Route hit via ${req.method} from ${req.ip}`);
+  console.log('=== TOKEN-EXCHANGE HIT ===');
+  console.log('Method:', req.method);
+  console.log('Query params:', req.query);
+  console.log('Cookies present:', Object.keys(req.cookies || {}));
+  console.log('access_token present:', !!req.query.access_token);
+  console.log('token present:', !!req.query.token);
+  console.log('role:', req.query.role);
+  console.log('org_id:', req.query.org_id);
+
   // Disable caching
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -129,7 +137,10 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
       ...(cookieDomain ? { domain: cookieDomain } : {})
     };
 
-    console.log(`[Token Exchange] Success. Setting cookies for user ${userId} (${email}) with role: ${role || 'N/A'}, org_id: ${org_id || 'N/A'}`);
+    console.log('Supabase token verified. User ID:', userId);
+    console.log('Generated local token (first 20 chars):', localToken.substring(0, 20));
+    console.log('Setting cookies with domain:', cookieDomain || 'none');
+    console.log('Cookie options:', JSON.stringify(cookieOptions));
     
     // If verification succeeds, set the cookie exactly as your existing login does
     res.cookie('token', localToken, cookieOptions);
@@ -142,11 +153,11 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
       res.cookie('sb-org-id', org_id, cookieOptions);
     }
 
-    console.log('[Token Exchange] Redirecting to workspace (/)');
+    console.log('Redirecting to /');
     // Redirect to the home page (the user's workspace will load automatically)
     res.redirect('/');
-  } catch (err) {
-    console.error('Exchange error:', err);
+  } catch (err: any) {
+    console.error('Exchange error:', err.message, err.stack);
     return res.status(401).send('Invalid token');
   }
 });
