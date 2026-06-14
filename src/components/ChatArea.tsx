@@ -18,6 +18,8 @@ import { BetaBadge } from './BetaBadge';
 
 import { useAuth } from '../contexts/AuthContext';
 import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -223,6 +225,24 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       }
     } catch(err) {
       console.error(err);
+    }
+  };
+
+  const exportReport = async (msgId: string) => {
+    const el = document.getElementById(`msg-report-${msgId}`);
+    if (!el) return;
+    try {
+      const canvas = await html2canvas(el, { scale: 2, useCORS: true, logging: false });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`insight-report-${msgId.substring(0, 6)}.pdf`);
+    } catch (e) {
+      console.error('Failed to export PDF', e);
     }
   };
 
@@ -868,7 +888,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
               )}>
                 {msg.role === 'user' ? 'U' : <Sparkles className="w-4 h-4 md:w-5 md:h-5" />}
               </div>
-              <div className={cn("flex-1 space-y-4 md:space-y-5 min-w-0", msg.role === 'user' ? "text-right" : "")}>
+              <div id={`msg-report-${msg.id}`} className={cn("flex-1 space-y-4 md:space-y-5 min-w-0", msg.role === 'user' ? "text-right" : "")}>
                 <div className={cn(
                   "inline-block p-4 md:p-5 rounded-2xl max-w-[90%] md:max-w-[85%] text-left shadow-sm overflow-hidden relative group/bubble transition-colors",
                   msg.role === 'user' 
@@ -1003,7 +1023,12 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     transition={{ delay: 0.3 }}
                     className="mt-6 text-left bg-white/[0.02] border border-white/5 rounded-xl p-5"
                   >
-                    <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase mb-4">Relationship Graph</p>
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase m-0">Relationship Graph</p>
+                      <button onClick={() => exportReport(msg.id)} className="text-[10px] flex items-center gap-1.5 px-2 py-1 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded hover:bg-cyan-500/20 transition-colors uppercase tracking-wider font-semibold">
+                        <Download className="w-3 h-3" /> Export Report
+                      </button>
+                    </div>
                     <RelationshipGraph data={msg.relationshipGraph} />
                   </motion.div>
                 )}
