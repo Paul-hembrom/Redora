@@ -143,18 +143,21 @@ const preventStudentModification = (req: any, res: any, next: any) => {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const role = req.cookies['sb-role'];
     if (role === 'student') {
-      const allowedStudentEndpoints = [
+      const allowedStudentPrefixes = [
+        '/api/auth/',
+        '/auth/token-exchange',
         '/api/retrieve-videos',
         '/api/chats',
         '/api/tts',
         '/api/stt/transcribe',
-        '/auth/token-exchange'
+        '/api/nvidia/'
       ];
       
-      const isAuthOrNvidia = req.path.startsWith('/api/auth/') || req.path.startsWith('/api/nvidia/');
-      const isAllowed = allowedStudentEndpoints.some(endpoint => req.path.startsWith(endpoint));
+      const isAllowedPrefix = allowedStudentPrefixes.some(prefix => req.path.startsWith(prefix));
+      const isStartLesson = req.path.match(/^\/api\/topics\/[^/]+\/start-lesson$/);
+      const isMemory = req.path.match(/^\/api\/topics\/[^/]+\/memory$/);
       
-      if (!isAllowed && !isAuthOrNvidia) {
+      if (!isAllowedPrefix && !isStartLesson && !isMemory) {
         return res.status(403).json({ error: 'Students have view-only access.' });
       }
     }

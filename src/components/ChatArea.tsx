@@ -760,15 +760,13 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             </div>
           )}
           <div className={cn("flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 pr-2", isOffline && "opacity-50 pointer-events-none")}>
-            {!isStudent && (
-              <button 
-                onClick={() => setShowInteractiveLesson(true)}
-                className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
-                title="Start Interactive Lesson"
-              >
-                <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson <BetaBadge />
-              </button>
-            )}
+            <button 
+              onClick={() => setShowInteractiveLesson(true)}
+              className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+              title="Start Interactive Lesson"
+            >
+              <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson <BetaBadge />
+            </button>
             <button 
               onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
               className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
