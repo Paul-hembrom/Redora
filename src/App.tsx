@@ -140,19 +140,30 @@ export default function App() {
     }
   }, [user]);
 
+  const [isDocsLoading, setIsDocsLoading] = useState(true);
+
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const sharedDocId = urlParams.get('sharedDoc');
 
     if (user) {
+      setIsDocsLoading(true);
       setDocuments([]); // Clear any old docs immediately upon getting a new user context
       if (!navigator.onLine) {
          import('./lib/offline').then(m => m.getCachedDocuments()).then(docs => {
             setDocuments(docs);
+            setIsDocsLoading(false);
          });
          return;
       }
-      fetch('/api/documents')
+      
+      // Sequence initialization: fetch context, then documents
+      fetch('/api/me/context')
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to fetch org context');
+          return res.json();
+        })
+        .then(() => fetch('/api/documents'))
         .then(res => {
           if (res.status === 401) {
             logout();
@@ -194,7 +205,10 @@ export default function App() {
             setDocuments([]);
           }
         })
-        .catch(err => console.error('Failed to fetch documents', err));
+        .catch(err => console.error('Failed to fetch documents', err))
+        .finally(() => setIsDocsLoading(false));
+    } else {
+      setIsDocsLoading(false);
     }
   }, [user, logout]);
 
@@ -203,7 +217,8 @@ export default function App() {
     return <Pricing />;
   }
 
-  if (loading) {
+  // Using loading from auth context + isDocsLoading for initial state fetch
+  if (loading || (user && isDocsLoading)) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center">
         <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.2)] mb-4">
@@ -265,7 +280,7 @@ export default function App() {
       const data = await response.json();
       
       // Update UI 
-      handleUpdateSummary(docId, chapterId, data.summary);
+      handleUpdateSummary(chapterId, data.summary);
       if (data.title && data.title !== 'Section' && data.title !== 'Topic') {
          // Optionally update title if generated
          setDocuments(prev => prev.map(d => {

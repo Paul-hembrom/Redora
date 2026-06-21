@@ -47,7 +47,7 @@ interface ChapterNodeProps {
   expandedSummaries: Set<string>;
   toggleSummary: (e: React.MouseEvent, id: string) => void;
   onSelectChapter: (docId: string, chapterId: string) => void;
-  onSummarizeChapter?: (chapterId: string) => void;
+  onSummarizeChapter?: (docId: string, chapterId: string) => void;
   summarizingChapters?: Set<string>;
 }
 
@@ -132,7 +132,7 @@ const ChapterNode = ({
           {/* Summarize Magic Button */}
           {!chapter.isGenerating && !hasSummary && !isSummarizing && onSummarizeChapter && (
             <div
-               onClick={(e) => { e.stopPropagation(); onSummarizeChapter(chapter.id); }}
+               onClick={(e) => { e.stopPropagation(); onSummarizeChapter(docId, chapter.id); }}
                className="p-1 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium transition-colors mr-1 flex items-center gap-1 opacity-100 uppercase tracking-widest cursor-pointer group-hover:scale-105"
                title="Generate Summary"
             >
@@ -235,7 +235,7 @@ const ChapterNode = ({
   );
 };
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, isStudent: propIsStudent }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, onSummarizeChapter, summarizingChapters, isStudent: propIsStudent }: Props) {
   const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
