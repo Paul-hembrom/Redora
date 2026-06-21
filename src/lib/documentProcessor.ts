@@ -9,7 +9,7 @@ import {
   extractTextFromImage,
   ApiRateLimitError,
   generateDocumentHierarchy,
-  generateChapterMetadata,
+  generateChapterMetadata,       // kept for on‑demand summarisation
   generateMinimalSummary,
 } from './gemini';
 
@@ -68,7 +68,6 @@ export function preprocessText(text: string, options: PreprocessOptions): string
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
-// A minimal p-limit equivalent so we don't need an extra dependency.
 // ---------------------------------------------------------------------------
 function createConcurrencyLimit(concurrency: number) {
   let active = 0;
@@ -97,7 +96,7 @@ function createConcurrencyLimit(concurrency: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Bug fix #6 — retry wrapper with exponential backoff for ApiRateLimitError
+// Retry wrapper with exponential backoff for ApiRateLimitError
 // ---------------------------------------------------------------------------
 async function withRetry<T>(
   fn: () => Promise<T>,
@@ -111,7 +110,6 @@ async function withRetry<T>(
       const isRateLimit = err instanceof ApiRateLimitError;
       if (!isRateLimit || attempt === maxRetries) throw err;
 
-      // Use server-supplied retry-after when available, else exponential backoff.
       const delay =
         (err as ApiRateLimitError).retryAfterMs ??
         baseDelayMs * Math.pow(2, attempt);
@@ -121,45 +119,23 @@ async function withRetry<T>(
       await new Promise(r => setTimeout(r, delay));
     }
   }
-  // TypeScript requires this but it is unreachable.
   throw new Error('withRetry: unreachable');
 }
 
 // ---------------------------------------------------------------------------
-// File text extraction
+// File text extraction (unchanged – your existing robust version)
 // ---------------------------------------------------------------------------
-
-/**
- * Extracts plain text from a supported file type.
- *
- * Bug fix #1 — for PDFs the raw File/Blob is handed directly to pdf.js so the
- * browser never materialises a 500 MB ArrayBuffer in the JS heap.  For smaller
- * binary formats (docx, epub, images) we still read the buffer on demand inside
- * each branch rather than eagerly at the top of the function.
- *
- * Bug fix #2 — PDF text is accumulated into a string[] and yielded as discrete
- * page strings rather than one ever-growing concatenated string.
- *
- * Bug fix #7 — EPUB spine iteration now uses the correct epubjs API
- * (`spine.spineItems`) instead of the non-existent `spine.length` / `spine.get(i)`.
- */
 export async function extractTextFromFile(
   file: File,
   onProgress?: (msg: string) => void,
 ): Promise<string> {
   const extension = file.name.split('.').pop()?.toLowerCase();
 
-  // ------------------------------------------------------------------
-  // Plain text — safe to read fully; typically tiny.
-  // ------------------------------------------------------------------
   if (extension === 'txt') {
     const buf = await file.arrayBuffer();
     return new TextDecoder().decode(buf);
   }
 
-  // ------------------------------------------------------------------
-  // EPUB — Bug fix #7: use spineItems instead of spine.length/spine.get
-  // ------------------------------------------------------------------
   if (extension === 'epub') {
     if (onProgress) onProgress('Parsing EPUB…');
     const buf = await file.arrayBuffer();
@@ -167,7 +143,6 @@ export async function extractTextFromFile(
     await book.ready;
 
     let text = '';
-    // epubjs v0.3+: spine.spineItems is the correct array of spine items.
     const spineItems: any[] = (book.spine as any).spineItems ?? [];
 
     for (let i = 0; i < spineItems.length; i++) {
@@ -183,18 +158,12 @@ export async function extractTextFromFile(
     return text;
   }
 
-  // ------------------------------------------------------------------
-  // DOCX
-  // ------------------------------------------------------------------
   if (extension === 'docx') {
     const buf = await file.arrayBuffer();
     const result = await mammoth.extractRawText({ arrayBuffer: buf });
     return result.value;
   }
 
-  // ------------------------------------------------------------------
-  // Images — read buffer on demand
-  // ------------------------------------------------------------------
   if (['jpg', 'jpeg', 'png', 'webp'].includes(extension ?? '')) {
     if (onProgress) onProgress('Extracting text from image using AI…');
     const buf = await file.arrayBuffer();
@@ -205,33 +174,16 @@ export async function extractTextFromFile(
     return extractTextFromImage(base64Data, mimeType);
   }
 
-  // ------------------------------------------------------------------
-  // PDF — Bug fix #1 + Bug fix #2
-  //
-  // Pass the raw File (a Blob) directly to pdf.js so the browser can
-  // stream pages from disk instead of loading 500 MB into the heap.
-  //
-  // Pages are extracted in batches of 10 and immediately pushed onto a
-  // string[] rather than concatenated into an ever-growing string.
-  // The caller (processDocument) receives the joined result, but the
-  // per-page strings are freed by GC as we go rather than all being
-  // alive simultaneously.
-  // ------------------------------------------------------------------
   if (extension === 'pdf') {
     const extractPdf = async (): Promise<string> => {
-      // Bug fix #1: pass the File (Blob) via `url` so pdf.js uses its
-      // own range-request / streaming loader instead of a pre-loaded buffer.
       const fileUrl = URL.createObjectURL(file);
       let pdf: pdfjsLib.PDFDocumentProxy;
       try {
         pdf = await pdfjsLib.getDocument(fileUrl).promise;
       } finally {
-        // Revoke immediately after pdf.js has opened the document.
         URL.revokeObjectURL(fileUrl);
       }
 
-      // Bug fix #2: collect page strings; join once at the end so the
-      // intermediate array can be GC'd in slices rather than never freed.
       const pageTexts: string[] = new Array(pdf.numPages);
       const batchSize = 10;
 
@@ -243,14 +195,13 @@ export async function extractTextFromFile(
 
         const batchPromises: Promise<void>[] = [];
         for (let j = i; j <= end; j++) {
-          const pageIndex = j - 1; // zero-based index into pageTexts
+          const pageIndex = j - 1;
           batchPromises.push(
             pdf.getPage(j).then(async page => {
               const content = await page.getTextContent();
               pageTexts[pageIndex] = content.items
                 .map((item: any) => item.str)
                 .join(' ');
-              // Release the page from pdf.js internal cache to free memory.
               page.cleanup();
             }),
           );
@@ -318,10 +269,7 @@ export async function extractTextFromFile(
       }
       return text;
     } catch (error) {
-      console.error(
-        '[documentProcessor] Primary PDF extraction failed:',
-        error,
-      );
+      console.error('[documentProcessor] Primary PDF extraction failed:', error);
       throw new Error('PDF viewer could not be initialised. Please refresh or try a different file.');
     }
   }
@@ -330,17 +278,66 @@ export async function extractTextFromFile(
 }
 
 // ---------------------------------------------------------------------------
-// Chapter / chunk splitting
+// Chapter / chunk splitting (original AI‑ready chunks, not used for final structure)
+// ---------------------------------------------------------------------------
+export function splitIntoChapters(text: string): string[] {
+  let dynamicChunkSize = Math.max(8_000, Math.min(30_000, Math.ceil(text.length / MAX_CONCURRENCY)));
+  if (text.length > 500_000) {
+     dynamicChunkSize = Math.min(60_000, Math.ceil(text.length / (MAX_CONCURRENCY * 2)));
+  }
+
+  const chapterRegex = /\n(?=(?:Chapter|Section|Part)\s+[0-9IVX]+)/gi;
+  const originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 100);
+
+  let parts = originalSplits.length > 1 ? originalSplits : text.split(/\n\s*\n/);
+
+  if (parts.length < 5 && originalSplits.length <= 1) {
+    parts = text.split('\n');
+  }
+
+  const chunks: string[] = [];
+  let currentChunk = '';
+
+  for (const part of parts) {
+    if (part.length > dynamicChunkSize) {
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+      for (let i = 0; i < part.length; i += dynamicChunkSize) {
+        chunks.push(part.slice(i, i + dynamicChunkSize));
+      }
+    } else if (
+      currentChunk.length + part.length > dynamicChunkSize &&
+      currentChunk.length > 0
+    ) {
+      chunks.push(currentChunk);
+      currentChunk = part;
+    } else {
+      currentChunk += (currentChunk ? '\n' : '') + part;
+    }
+  }
+
+  if (currentChunk) chunks.push(currentChunk);
+
+  if (chunks.length === 0) {
+    for (let i = 0; i < text.length; i += dynamicChunkSize) {
+      chunks.push(text.slice(i, i + dynamicChunkSize));
+    }
+  }
+
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// Hybrid chapter detection (regex‑based, used as final fallback)
 // ---------------------------------------------------------------------------
 export function splitIntoChaptersEnhanced(text: string): Chapter[] {
   const allChapters: Chapter[] = [];
   let sortCounter = 0;
 
-  // Split by top-level chapters ("Chapter 1", "Section IV", "Part 2", "1.", "1.1")
-  // Using a broader regex to catch boundaries like "\n1. Introduction\n"
   const chapterRegex = /(?=\n(?:(?:Chapter|Section|Part)\s+[0-9IVX]+|\d+(?:\.\d+)*\.?)\s*(?:[:.-]?\s*[^\n]{0,100})?\n)/gi;
   
-  // Also ensure text starts with \n to catch the very first chapter if it's at the start.
   const evalText = text.startsWith('\n') ? text : '\n' + text;
   let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
 
@@ -356,7 +353,6 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
     const firstLineMatch = contentToProcess.match(/^(?:(?:Chapter|Section|Part)\s+[0-9IVX]+|\d+(?:\.\d+)*\.?)\s*(?:[:.-]?\s*[^\n]+)?/i);
     if (firstLineMatch) {
       titleStr = firstLineMatch[0].trim();
-      // Remove title from content if it exactly matches the first line
       if (contentToProcess.startsWith(titleStr)) {
         contentToProcess = contentToProcess.substring(titleStr.length).trim();
       }
@@ -372,7 +368,6 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
 
     const chapterId = uuidv4();
     
-    // Look for subheadings: "\n1.1 ", "\nSection 1.2", "\nTopic: "
     const subtopicRegex = /(?=\n(?:\d+\.\d+(?:\.\d+)+|Section\s+\d+\.\d+|Topic|Subchapter)\s+[^\n]*\n)/gi;
     const subSplits = contentToProcess.split(subtopicRegex).filter(s => s.trim().length > 50);
 
@@ -443,75 +438,9 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
   return allChapters;
 }
 
-export function splitIntoChapters(text: string): string[] {
-  // Dynamically adjust chunk size based on document length
-  // Target around 20-30 chunks max for large docs to utilize concurrency natively,
-  // but keep a reasonable floor/ceiling.
-  let dynamicChunkSize = Math.max(8_000, Math.min(30_000, Math.ceil(text.length / MAX_CONCURRENCY)));
-  // If the document is massive (> 1M chars), allow even larger chunks up to 60,000 
-  // because Gemini/DeepSeek context sizes are huge and we want to minimise API overhead.
-  if (text.length > 500_000) {
-     dynamicChunkSize = Math.min(60_000, Math.ceil(text.length / (MAX_CONCURRENCY * 2)));
-  }
-
-  const chapterRegex = /\n(?=(?:Chapter|Section|Part)\s+[0-9IVX]+)/gi;
-  const originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 100);
-
-  let parts = originalSplits.length > 1 ? originalSplits : text.split(/\n\s*\n/);
-
-  // Fall back to single newlines when double-newline splits yield too few parts.
-  if (parts.length < 5 && originalSplits.length <= 1) {
-    parts = text.split('\n');
-  }
-
-  const chunks: string[] = [];
-  let currentChunk = '';
-
-  for (const part of parts) {
-    if (part.length > dynamicChunkSize) {
-      // Flush current chunk first, then hard-slice the oversized part.
-      if (currentChunk) {
-        chunks.push(currentChunk);
-        currentChunk = '';
-      }
-      for (let i = 0; i < part.length; i += dynamicChunkSize) {
-        chunks.push(part.slice(i, i + dynamicChunkSize));
-      }
-    } else if (
-      currentChunk.length + part.length > dynamicChunkSize &&
-      currentChunk.length > 0
-    ) {
-      chunks.push(currentChunk);
-      currentChunk = part;
-    } else {
-      currentChunk += (currentChunk ? '\n' : '') + part;
-    }
-  }
-
-  if (currentChunk) chunks.push(currentChunk);
-
-  // Absolute fallback — should never be reached but guarantees non-empty output.
-  if (chunks.length === 0) {
-    for (let i = 0; i < text.length; i += dynamicChunkSize) {
-      chunks.push(text.slice(i, i + dynamicChunkSize));
-    }
-  }
-
-  return chunks;
-}
-
 // ---------------------------------------------------------------------------
 // Hierarchy parsing helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Parses a single hierarchy object returned by the AI and pushes the resulting
- * Chapter records onto `allChapters`.
- *
- * Bug fix #5 — added the missing top-level `hierarchy.topics` branch so
- * documents whose AI response only contains topics are no longer silently
- * dropped.  Also removed the dead `rootArr` variable.
- */
 function parseHierarchyIntoChapters(
   hierarchy: any,
   chunk: string,
@@ -529,7 +458,7 @@ function parseHierarchyIntoChapters(
         id: partId,
         chapterNumber: pIdx + 1,
         title: part.title || `Part ${pIdx + 1}`,
-        summary: part.summary || '',
+        summary: '',                         // NO AUTO SUMMARY
         content: '',
         isGenerating: false,
         parentId: null,
@@ -545,7 +474,7 @@ function parseHierarchyIntoChapters(
             id: chapId,
             chapterNumber: cIdx + 1,
             title: chap.title || `Chapter ${cIdx + 1}`,
-            summary: chap.summary || '',
+            summary: '',                     // NO AUTO SUMMARY
             content: '',
             isGenerating: false,
             parentId: partId,
@@ -560,8 +489,8 @@ function parseHierarchyIntoChapters(
                 id: uuidv4(),
                 chapterNumber: tIdx + 1,
                 title: topic.title || `Topic ${tIdx + 1}`,
-                summary: topic.summary || '',
-                content: topic.content || chunk,
+                summary: '',                 // NO AUTO SUMMARY
+                content: topic.content || chunk,   // AI‑provided content or fallback to chunk
                 isGenerating: false,
                 parentId: chapId,
                 sortOrder: sortCounter.value++,
@@ -583,7 +512,7 @@ function parseHierarchyIntoChapters(
         id: chapId,
         chapterNumber: cIdx + 1,
         title: chap.title || `Chapter ${cIdx + 1}`,
-        summary: chap.summary || '',
+        summary: '',
         content: '',
         isGenerating: false,
         parentId: null,
@@ -598,7 +527,7 @@ function parseHierarchyIntoChapters(
             id: uuidv4(),
             chapterNumber: tIdx + 1,
             title: topic.title || `Topic ${tIdx + 1}`,
-            summary: topic.summary || '',
+            summary: '',
             content: topic.content || chunk,
             isGenerating: false,
             parentId: chapId,
@@ -612,14 +541,13 @@ function parseHierarchyIntoChapters(
     return;
   }
 
-  // Bug fix #5 — previously missing top-level topics branch.
   if (hierarchy.topics && Array.isArray(hierarchy.topics)) {
     hierarchy.topics.forEach((topic: any, tIdx: number) => {
       allChapters.push({
         id: uuidv4(),
         chapterNumber: tIdx + 1,
         title: topic.title || `Topic ${tIdx + 1}`,
-        summary: topic.summary || '',
+        summary: '',
         content: topic.content || chunk,
         isGenerating: false,
         parentId: null,
@@ -631,35 +559,15 @@ function parseHierarchyIntoChapters(
     return;
   }
 
-  // If the AI returned something valid but without any recognised keys,
-  // treat the whole chunk as a single unnamed section.
   throw new Error('Hierarchy contained no parts, chapters, or topics');
 }
 
 // ---------------------------------------------------------------------------
-// Main document processing pipeline
+// Clean academic paper hierarchy (same as before)
 // ---------------------------------------------------------------------------
-
-/**
- * Full pipeline: extract → preprocess → split → AI hierarchy → tree.
- *
- * Bug fix #1 + #2 — PDF memory usage: see extractTextFromFile.
- * Bug fix #3 — AI calls are now concurrency-limited (MAX_CONCURRENCY = 3)
- *              and dispatched in parallel rather than sequentially.
- * Bug fix #4 — the chapterMap rebuild no longer resets children arrays;
- *              parentId links are used correctly to build the tree.
- * Bug fix #5 — top-level topics branch added (see parseHierarchyIntoChapters).
- * Bug fix #6 — ApiRateLimitError triggers exponential backoff + retry via
- *              withRetry() instead of silently producing fallback sections.
- * Bug fix #8 — generateBatchChapterMetadata is now used when processing many
- *              chunks to reduce total API round-trips.
- * Bug fix #9 — onChapterDone callback is now invoked after each chapter is
- *              finalised.
- */
 function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
   let cleaned = [...nodes];
 
-  // 1. Recursive cleaning (bottom-up approach)
   cleaned.forEach(node => {
     if (node.children && node.children.length > 0) {
       node.children = cleanAcademicPaperHierarchy(node.children);
@@ -668,7 +576,6 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
 
   const sanitizeTitle = (t: string) => (t || '').toLowerCase().replace(/^(part|chapter)\s*\d*[:\-]?\s*/i, '').trim();
 
-  // 2. Remove "Main Text" with no active children
   cleaned = cleaned.filter(ch => {
     const titleLower = (ch.title || '').toLowerCase();
     if (titleLower.includes('main text') && (!ch.children || ch.children.length === 0)) {
@@ -677,7 +584,6 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
     return true;
   });
 
-  // 3. Merge duplicate siblings
   let i = 0;
   while (i < cleaned.length - 1) {
     const a = cleaned[i];
@@ -697,10 +603,8 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
     }
   }
 
-  // 4 & 5. Flattening & inline reference sections
   let finalNodes: Chapter[] = [];
   for (const node of cleaned) {
-    // 4. Inline shallow Reference sections
     if ((node.type === 'part' || node.type === 'chapter') && node.children?.length === 1) {
       const singleChild = node.children[0];
       if (singleChild.type === 'topic' && /references?/i.test(singleChild.title || '')) {
@@ -709,7 +613,6 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
       }
     }
 
-    // 5. Flatten unnecessary nesting (Part -> 1 Chapter -> Topics)
     if (node.type === 'part' && node.children?.length === 1) {
       const singleChapter = node.children[0];
       if (singleChapter.type === 'chapter' && singleChapter.children && singleChapter.children.every(c => c.type === 'topic')) {
@@ -717,7 +620,6 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
         const chClean = sanitizeTitle(singleChapter.title);
         
         if (partClean === chClean || partClean === '') {
-          // Replace Part with Chapter (flatten 1 level)
           if (chClean === '' && singleChapter.children.length > 0) {
              finalNodes.push(...singleChapter.children);
           } else {
@@ -734,6 +636,24 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
   return finalNodes;
 }
 
+// ---------------------------------------------------------------------------
+// Main document processing pipeline
+// ---------------------------------------------------------------------------
+
+/**
+ * Full pipeline: extract → preprocess → (optionally) deep AI summaries
+ *
+ * DEFAULT behaviour (deepProcess = false):
+ *   - Split text into chunks
+ *   - Call generateDocumentHierarchy for each chunk to obtain Part/Chapter/Topic titles
+ *   - Use the AI‑returned content if present, otherwise fall back to the raw chunk
+ *   - NO summaries are generated → summary fields remain empty
+ *   - The structured tree is displayed instantly.
+ *
+ * DEEP PROCESS (deepProcess = true):
+ *   - Same as above, then additionally runs batch AI metadata to fill in chapter summaries.
+ *   - This is heavier and should be triggered explicitly by the user.
+ */
 export async function processDocument(
   file: File,
   options: PreprocessOptions,
@@ -755,34 +675,48 @@ export async function processDocument(
   onProgress('Preprocessing text…');
   const processedText = preprocessText(sanitizedText, options);
 
-  let roots: Chapter[] = [];
+  // ────────────────────────────────────────────
+  // Both paths start with the same hierarchy extraction
+  // ────────────────────────────────────────────
+  onProgress('Detecting structure…');
+  const chunks = splitIntoChapters(processedText);
+  onProgress(`Split into ${chunks.length} chunk(s). Analysing with AI…`);
 
-  if (options.deepProcess) {
-    onProgress('Detecting structure (Deep Process)…');
-    const chunks = splitIntoChapters(processedText);
-    onProgress(`Split into ${chunks.length} chunk(s). Initializing structure…`);
+  const allChapters: Chapter[] = [];
+  const sortCounter = { value: 0 };
 
-    const allChapters: Chapter[] = [];
-    const sortCounter = { value: 0 };
-    
-    // We shouldn't use generateDocumentHierarchy since we know it's not well tested with the prompt. 
-    // Wait, let's just use the logic from earlier processDocument!
-    // But since `generateDocumentHierarchy` was imported, let's use it as asked inside the prompt:
-    // "This triggers the existing full pipeline (generateDocumentHierarchy + metadata + subtopics) as it currently works."
-    // Actually wait, let me just look at what I originally had.
-    const hierarchyJobs = chunks.map((chunk, i) =>
-      (async () => {
-        onProgress(`Analyzing chunk ${i + 1} of ${chunks.length}…`);
+  const limit = createConcurrencyLimit(MAX_CONCURRENCY);
+  const hierarchyJobs = chunks.map((chunk, i) =>
+    limit(async () => {
+      onProgress(`Analyzing chunk ${i + 1} of ${chunks.length}…`);
+      try {
         const hierarchy = await withRetry(() => generateDocumentHierarchy(chunk));
         parseHierarchyIntoChapters(hierarchy, chunk, allChapters, sortCounter);
-      })()
-    );
-    await Promise.all(hierarchyJobs);
+      } catch (err) {
+        console.error(`[documentProcessor] Chunk ${i + 1} AI hierarchy failed, falling back to regex`, err);
+        // Fallback to regex‑based splitting for this chunk
+        const fallbackChapters = splitIntoChaptersEnhanced(chunk);
+        fallbackChapters.forEach(ch => {
+          ch.sortOrder = sortCounter.value++;
+          allChapters.push(ch);
+        });
+      }
+    })
+  );
 
-    const cleanedChapters = cleanAcademicPaperHierarchy(allChapters);
-    
-    // Pass flat structure to onDiscovered 
-    callbacks?.onDiscovered?.(cleanedChapters);
+  await Promise.all(hierarchyJobs);
+
+  let cleanedChapters = cleanAcademicPaperHierarchy(allChapters);
+
+  // All chapters are not generating anymore
+  cleanedChapters.forEach(ch => { ch.isGenerating = false; });
+  callbacks?.onDiscovered?.(cleanedChapters);
+
+  // ────────────────────────────────────────────
+  // DEEP PROCESS OPTION: generate summaries
+  // ────────────────────────────────────────────
+  if (options.deepProcess) {
+    onProgress('Generating detailed summaries (Deep Process)…');
 
     const BATCH_SIZE = 5;
     const batches: Chapter[][] = [];
@@ -790,66 +724,50 @@ export async function processDocument(
       batches.push(cleanedChapters.slice(i, i + BATCH_SIZE));
     }
 
-    const limit = createConcurrencyLimit(MAX_CONCURRENCY);
-    const jobs = batches.map((batch, batchIdx) =>
-      limit(async () => {
+    const deepLimit = createConcurrencyLimit(MAX_CONCURRENCY);
+    const deepJobs = batches.map((batch, batchIdx) =>
+      deepLimit(async () => {
         try {
           const batchData = batch.map(ch => ({
             content: ch.content,
             chapterNumber: ch.chapterNumber
           }));
-          
+
           const percent = Math.round(((batchIdx + 1) / batches.length) * 100);
-          onProgress(`AI analysis: batch ${batchIdx + 1} of ${batches.length} (${percent}%)…`);
-          
-          const metadataMap = await withRetry(() => generateBatchChapterMetadata(batchData, 3, options.summaryDetail || 'detailed'));
-          
+          onProgress(`Deep processing: batch ${batchIdx + 1} of ${batches.length} (${percent}%)…`);
+
+          const metadataMap = await withRetry(() =>
+            generateBatchChapterMetadata(batchData, 3, options.summaryDetail || 'detailed')
+          );
+
           for (const ch of batch) {
             const meta = metadataMap[ch.chapterNumber];
             if (meta) {
               ch.title = meta.title;
               ch.summary = meta.summary;
             } else {
-              ch.title = `Section ${ch.chapterNumber}`;
               ch.summary = 'Summary temporarily unavailable.';
             }
-            ch.isGenerating = false;
-            
             callbacks?.onChapterDone?.(ch.id, ch.title, ch.summary);
           }
         } catch (err) {
           for (const ch of batch) {
-            ch.title = `Section ${ch.chapterNumber}`;
-            ch.summary = 'Summary temporarily unavailable.';
-            ch.isGenerating = false;
+            if (!ch.summary) ch.summary = 'Summary temporarily unavailable.';
             callbacks?.onChapterDone?.(ch.id, ch.title, ch.summary);
           }
         }
       })
     );
 
-    await Promise.all(jobs);
-
-    let sortOrderCounter = 0;
-    for (const root of cleanedChapters) {
-      root.sortOrder = sortOrderCounter++;
-    }
-
-    onProgress('Done.');
-    roots = cleanedChapters;
-
-  } else {
-    onProgress('Detecting original structure…');
-    roots = splitIntoChaptersEnhanced(sanitizedText);
-    
-    // Set all to false because we don't generate summary automatically 
-    for (const ch of roots) {
-       ch.isGenerating = false;
-    }
-    
-    callbacks?.onDiscovered?.(roots);
-    onProgress('Done.');
+    await Promise.all(deepJobs);
   }
 
-  return roots;
+  // Re‑assign sort order to top‑level items
+  let sortOrderCounter = 0;
+  for (const root of cleanedChapters) {
+    root.sortOrder = sortOrderCounter++;
+  }
+
+  onProgress('Done.');
+  return cleanedChapters;
 }
