@@ -909,11 +909,28 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
           <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
             <Sparkles className="w-5 h-5" />
           </div>
-          <div className="flex-1 space-y-3 pt-1 min-w-0">
-            <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
-            <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
-            </div>
+          <div className="flex-1 space-y-6 pt-1 min-w-0">
+            {chapter.summary && (
+              <div className="space-y-3">
+                <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
+                <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+            
+            {chapter.content && (
+              <div className="space-y-3 pt-2">
+                <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase">Original Text</p>
+                <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
+                  {chapter.content}
+                </div>
+              </div>
+            )}
+            
+            {!chapter.summary && !chapter.content && (
+               <p className="text-white/40 italic text-sm">No content available for this section.</p>
+            )}
           </div>
         </motion.div>
 

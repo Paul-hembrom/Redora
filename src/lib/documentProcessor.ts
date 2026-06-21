@@ -336,9 +336,13 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
   const allChapters: Chapter[] = [];
   let sortCounter = 0;
 
-  // Split by top-level chapters ("Chapter 1", "Section IV", "Part 2")
-  const chapterRegex = /(?=\n(?:Chapter|Section|Part)\s+[0-9IVX]+(?:[:.-]?\s*[^\n]*)?\n)/gi;
-  let originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 50);
+  // Split by top-level chapters ("Chapter 1", "Section IV", "Part 2", "1.", "1.1")
+  // Using a broader regex to catch boundaries like "\n1. Introduction\n"
+  const chapterRegex = /(?=\n(?:(?:Chapter|Section|Part)\s+[0-9IVX]+|\d+(?:\.\d+)*\.?)\s*(?:[:.-]?\s*[^\n]{0,100})?\n)/gi;
+  
+  // Also ensure text starts with \n to catch the very first chapter if it's at the start.
+  const evalText = text.startsWith('\n') ? text : '\n' + text;
+  let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
 
   if (originalSplits.length <= 1) {
     originalSplits = [text];
@@ -349,13 +353,18 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
   for (const part of originalSplits) {
     let titleStr = `Section ${chapterIndex}`;
     let contentToProcess = part.trim();
-    const firstLineMatch = contentToProcess.match(/^(?:Chapter|Section|Part)\s+[0-9IVX]+(?:[:.-]?\s*[^\n]+)?/i);
+    const firstLineMatch = contentToProcess.match(/^(?:(?:Chapter|Section|Part)\s+[0-9IVX]+|\d+(?:\.\d+)*\.?)\s*(?:[:.-]?\s*[^\n]+)?/i);
     if (firstLineMatch) {
       titleStr = firstLineMatch[0].trim();
+      // Remove title from content if it exactly matches the first line
+      if (contentToProcess.startsWith(titleStr)) {
+        contentToProcess = contentToProcess.substring(titleStr.length).trim();
+      }
     } else {
       const firstLine = contentToProcess.split('\n')[0].trim();
       if (firstLine && firstLine.length < 80) {
         titleStr = firstLine;
+        contentToProcess = contentToProcess.substring(firstLine.length).trim();
       } else if (originalSplits.length === 1) {
         titleStr = "Document Summary";
       }
@@ -364,7 +373,7 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
     const chapterId = uuidv4();
     
     // Look for subheadings: "\n1.1 ", "\nSection 1.2", "\nTopic: "
-    const subtopicRegex = /(?=\n(?:\d+\.\d+(?:\.\d+)?|Section\s+\d+\.\d+|Topic|Subchapter)\s+[^\n]*\n)/gi;
+    const subtopicRegex = /(?=\n(?:\d+\.\d+(?:\.\d+)+|Section\s+\d+\.\d+|Topic|Subchapter)\s+[^\n]*\n)/gi;
     const subSplits = contentToProcess.split(subtopicRegex).filter(s => s.trim().length > 50);
 
     if (subSplits.length > 1) {
@@ -386,14 +395,17 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
       for (let i = 1; i < subSplits.length; i++) {
         const sub = subSplits[i].trim();
         let subTitle = `Topic ${chapterIndex}.${i}`;
-        const subFirstLineMatch = sub.match(/^(?:\d+\.\d+(?:\.\d+)?|Section\s+\d+\.\d+|Topic|Subchapter)\s+[^\n]*/i);
+        const subFirstLineMatch = sub.match(/^(?:\d+\.\d+(?:\.\d+)+|Section\s+\d+\.\d+|Topic|Subchapter)\s+[^\n]*/i);
         
+        let subContent = sub;
         if (subFirstLineMatch) {
           subTitle = subFirstLineMatch[0].trim();
+          subContent = sub.substring(subTitle.length).trim();
         } else {
           const firstLine = sub.split('\n')[0].trim();
           if (firstLine && firstLine.length < 80) {
             subTitle = firstLine;
+            subContent = sub.substring(firstLine.length).trim();
           }
         }
 
@@ -402,7 +414,7 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
           chapterNumber: i,
           title: subTitle,
           summary: '',
-          content: sub,
+          content: subContent,
           isGenerating: false,
           parentId: chapterId,
           sortOrder: sortCounter++,
@@ -828,7 +840,7 @@ export async function processDocument(
 
   } else {
     onProgress('Detecting original structure…');
-    roots = splitIntoChaptersEnhanced(processedText);
+    roots = splitIntoChaptersEnhanced(sanitizedText);
     
     // Set all to false because we don't generate summary automatically 
     for (const ch of roots) {
