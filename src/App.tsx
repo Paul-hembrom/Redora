@@ -240,6 +240,52 @@ export default function App() {
       <Signup onSwitchToLogin={() => setShowLogin(true)} />;
   }
 
+  const [summarizingChapters, setSummarizingChapters] = useState<Set<string>>(new Set());
+
+  const handleSummarizeChapter = async (docId: string, chapterId: string) => {
+    if (isStudent) return; // Optional check
+
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return;
+    const chapter = doc.chapters.find(c => c.id === chapterId);
+    if (!chapter) return;
+
+    setSummarizingChapters(prev => new Set(prev).add(chapterId));
+
+    try {
+      const response = await fetch(`/api/chapters/${chapterId}/summarize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summaryDetail: 'detailed' })
+      });
+      if (!response.ok) {
+         const data = await response.json();
+         throw new Error(data.error || 'Failed to summarize');
+      }
+      const data = await response.json();
+      
+      // Update UI 
+      handleUpdateSummary(docId, chapterId, data.summary);
+      if (data.title && data.title !== 'Section' && data.title !== 'Topic') {
+         // Optionally update title if generated
+         setDocuments(prev => prev.map(d => {
+            if (d.id !== docId) return d;
+            const updatedChaps = d.chapters.map(c => c.id === chapterId ? { ...c, title: data.title } : c);
+            return { ...d, chapters: updatedChaps };
+         }));
+      }
+    } catch (err: any) {
+       console.error("Summarize error:", err);
+       alert(`Summarize failed: ${err.message}`);
+    } finally {
+       setSummarizingChapters(prev => {
+         const next = new Set(prev);
+         next.delete(chapterId);
+         return next;
+       });
+    }
+  };
+
   const handleUpload = async (files: File[], options: PreprocessOptions) => {
     if (isStudent) return;
     setIsUploading(true);
@@ -264,11 +310,16 @@ export default function App() {
               }
             }
           },
-          onChapterDone: (idx, title, summary) => {
+          onChapterDone: (idOrIdx: any, title: string, summary: string) => {
             setDocuments(prev => prev.map(d => {
               if (d.id !== tempDocId) return d;
               const nextChap = [...d.chapters];
-              nextChap[idx] = { ...nextChap[idx], title, summary, isGenerating: false };
+              
+              // Find by id if idOrIdx is string (we changed to passing ID, but handle both)
+              let targetIdx = typeof idOrIdx === 'number' ? idOrIdx : nextChap.findIndex(c => c.id === idOrIdx);
+              if (targetIdx >= 0 && targetIdx < nextChap.length) {
+                 nextChap[targetIdx] = { ...nextChap[targetIdx], title, summary, isGenerating: false };
+              }
               return { ...d, chapters: nextChap };
             }));
           }
@@ -560,6 +611,8 @@ export default function App() {
             onToggleLibrarySelection={handleToggleLibrarySelection}
             onOpenLibraryChat={handleOpenLibraryChat}
             onUpdateSummary={handleUpdateSummary}
+            onSummarizeChapter={handleSummarizeChapter}
+            summarizingChapters={summarizingChapters}
             onOpenTerminology={(doc) => {
               setTerminologyDoc(doc);
               setIsTerminologyModalOpen(true);

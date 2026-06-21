@@ -33,6 +33,8 @@ interface Props {
   onOpenLibraryChat: () => void;
   onUpdateSummary?: (chapterId: string, summary: string) => void;
   onOpenTerminology?: (doc: Document) => void;
+  onSummarizeChapter?: (docId: string, chapterId: string) => void;
+  summarizingChapters?: Set<string>;
   isStudent?: boolean;
 }
 
@@ -45,6 +47,8 @@ interface ChapterNodeProps {
   expandedSummaries: Set<string>;
   toggleSummary: (e: React.MouseEvent, id: string) => void;
   onSelectChapter: (docId: string, chapterId: string) => void;
+  onSummarizeChapter?: (chapterId: string) => void;
+  summarizingChapters?: Set<string>;
 }
 
 const ChapterNode = ({ 
@@ -64,6 +68,8 @@ const ChapterNode = ({
   cancelEditingSummary,
   copiedSummaryId,
   handleCopySummary,
+  onSummarizeChapter,
+  summarizingChapters,
   isStudent
 }: ChapterNodeProps & {
   editingSummaryId: string | null;
@@ -79,6 +85,9 @@ const ChapterNode = ({
   const [localExpanded, setLocalExpanded] = useState(level === 0 || chapter.type === 'part');
   const paddingLeft = `${level * 0.75 + 1}rem`;
   const hasChildren = chapter.children && chapter.children.length > 0;
+  
+  const isSummarizing = summarizingChapters?.has(chapter.id);
+  const hasSummary = !!chapter.summary && chapter.summary.trim() !== '' && chapter.summary !== 'Generating summary...';
   
   return (
     <div className="flex flex-col">
@@ -119,6 +128,28 @@ const ChapterNode = ({
           {chapter.isGenerating && (
             <Loader2 className="w-3 h-3 text-cyan-400 animate-spin shrink-0 mr-1" />
           )}
+
+          {/* Summarize Magic Button */}
+          {!chapter.isGenerating && !hasSummary && !isSummarizing && onSummarizeChapter && (
+            <div
+               onClick={(e) => { e.stopPropagation(); onSummarizeChapter(chapter.id); }}
+               className="p-1 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium transition-colors mr-1 flex items-center gap-1 opacity-100 uppercase tracking-widest cursor-pointer group-hover:scale-105"
+               title="Generate Summary"
+            >
+               <Sparkles className="w-3 h-3" />
+            </div>
+          )}
+          {isSummarizing && (
+            <div className="px-1.5 py-0.5 rounded text-amber-400 text-[10px] font-medium flex items-center gap-1 mr-1">
+               <Loader2 className="w-3 h-3 animate-spin" />
+            </div>
+          )}
+          {hasSummary && !isSummarizing && (
+            <div className="text-emerald-400 text-[10px] font-medium mr-1 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+               <Check className="w-3 h-3" />
+            </div>
+          )}
+          
           <span 
                onClick={(e) => { e.stopPropagation(); toggleSummary(e, chapter.id); }}
                className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -193,6 +224,8 @@ const ChapterNode = ({
               cancelEditingSummary={cancelEditingSummary}
               copiedSummaryId={copiedSummaryId}
               handleCopySummary={handleCopySummary}
+              onSummarizeChapter={onSummarizeChapter}
+              summarizingChapters={summarizingChapters}
               isStudent={isStudent}
             />
           ))}
@@ -500,6 +533,10 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 <input type="checkbox" checked={options.applyStemming} onChange={e => setOptions({...options, applyStemming: e.target.checked})} className="accent-cyan-500 w-4 h-4 rounded border-white/20 bg-transparent" />
                 <span className="group-hover:text-white transition-colors">Apply Stemming</span>
               </label>
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <input type="checkbox" checked={options.deepProcess || false} onChange={e => setOptions({...options, deepProcess: e.target.checked})} className="accent-cyan-500 w-4 h-4 rounded border-white/20 bg-transparent" />
+                <span className="group-hover:text-amber-400 transition-colors text-amber-500 font-medium">Deep Process: Generate Full Course</span>
+              </label>
             </div>
             {userUsage && userUsage.usage && (
               <div className="space-y-3 pt-3 border-t border-white/5">
@@ -771,6 +808,40 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     <BookA className="w-3.5 h-3.5" />
                   </button>
                 )}
+                {!isStudent && (
+                  <button
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       if (confirm('Deep Process will queue all chapters for AI summarization. This may overwrite existing summaries. Continue?')) {
+                         // A simple way to trigger “Deep Process” on an existing doc 
+                         // is to call summarize endpoint on all chapters consecutively.
+                         doc.chapters.forEach(ch => {
+                           if (onSummarizeChapter && ch.type === 'chapter') {
+                             setTimeout(() => {
+                               onSummarizeChapter(doc.id, ch.id);
+                             }, 1000);
+                           }
+                         });
+                         // And do topics... wait, if I want to not spam, I can leave this to user.
+                         // But the "Deep process" request says: 
+                         // "The “Deep Process” option can also be run on books processed with the hybrid method to fill in all summaries at once."
+                         const performDeepProcess = async () => {
+                           for (const ch of doc.chapters) {
+                             if (onSummarizeChapter) {
+                               onSummarizeChapter(doc.id, ch.id);
+                               await new Promise(r => setTimeout(r, 2000));
+                             }
+                           }
+                         };
+                         performDeepProcess();
+                       }
+                     }}
+                     className="p-1.5 text-white/30 hover:text-amber-400 hover:bg-white/5 rounded-md transition-all"
+                     title="Deep Process (Generate All Summaries)"
+                  >
+                     <Layers className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={async (e) => {
                      e.stopPropagation();
@@ -884,28 +955,43 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                   </span>
                 </div>
                 
-                {expandedChaptersList.has(doc.id) && doc.chapters.map(chapter => (
-                  <ChapterNode 
-                    key={chapter.id}
-                    chapter={chapter}
-                    docId={doc.id}
-                    level={0}
-                    selectedChapterId={selectedChapterId}
-                    expandedChaptersList={expandedChaptersList}
-                    expandedSummaries={expandedSummaries}
-                    toggleSummary={toggleSummary}
-                    onSelectChapter={onSelectChapter}
-                    editingSummaryId={editingSummaryId}
-                    editingSummaryDraft={editingSummaryDraft}
-                    setEditingSummaryDraft={setEditingSummaryDraft}
-                    startEditingSummary={startEditingSummary}
-                    saveSummary={saveSummary}
-                    cancelEditingSummary={cancelEditingSummary}
-                    copiedSummaryId={copiedSummaryId}
-                    handleCopySummary={handleCopySummary}
-                    isStudent={isStudent}
-                  />
-                ))}
+                {expandedChaptersList.has(doc.id) && (() => {
+                  const roots: any[] = [];
+                  const map = new Map();
+                  doc.chapters.forEach(c => map.set(c.id, { ...c, children: [] }));
+                  doc.chapters.forEach(c => {
+                     const n = map.get(c.id);
+                     if (n.parentId && map.has(n.parentId)) {
+                       map.get(n.parentId).children.push(n);
+                     } else {
+                       roots.push(n);
+                     }
+                  });
+                  return roots.map(chapter => (
+                    <ChapterNode 
+                      key={chapter.id}
+                      chapter={chapter}
+                      docId={doc.id}
+                      level={0}
+                      selectedChapterId={selectedChapterId}
+                      expandedChaptersList={expandedChaptersList}
+                      expandedSummaries={expandedSummaries}
+                      toggleSummary={toggleSummary}
+                      onSelectChapter={onSelectChapter}
+                      editingSummaryId={editingSummaryId}
+                      editingSummaryDraft={editingSummaryDraft}
+                      setEditingSummaryDraft={setEditingSummaryDraft}
+                      startEditingSummary={startEditingSummary}
+                      saveSummary={saveSummary}
+                      cancelEditingSummary={cancelEditingSummary}
+                      copiedSummaryId={copiedSummaryId}
+                      handleCopySummary={handleCopySummary}
+                      onSummarizeChapter={onSummarizeChapter}
+                      summarizingChapters={summarizingChapters}
+                      isStudent={isStudent}
+                    />
+                  ));
+                })()}
               </div>
             )}
           </div>

@@ -4,6 +4,7 @@ export interface PreprocessOptions {
   removeStopWords: boolean;
   applyStemming: boolean;
   summaryDetail?: 'brief' | 'detailed' | 'academic';
+  deepProcess?: boolean;
 }
 
 export interface Chapter {

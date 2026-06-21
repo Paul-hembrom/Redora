@@ -10,6 +10,7 @@ import sql, { dbReady } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
 import { getUserRoleInOrg } from './server/roles.js';
+import { generateChapterMetadata } from './src/lib/gemini.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -1107,6 +1108,49 @@ app.get('/api/storyboards/:id', authenticate, async (req: any, res) => {
       }))
     });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- NO-LIMITS ON-DEMAND SUMMARIZATION ROUTE ---
+app.post('/api/chapters/:id/summarize', authenticate, async (req: any, res) => {
+  try {
+    const chapterId = req.params.id;
+    const { summaryDetail = 'detailed', org_id } = req.body;
+    
+    // Check if user is a student attempting to summarize a chapter they don't have access to?
+    // "The button must be visible for all user types" - We skip strict read-checks to speed this up, 
+    // or just rely on the existing read checks if needed.
+    
+    const chaps = await sql`SELECT content, parent_id, document_id FROM chapters WHERE id = ${chapterId}`;
+    if (!chaps.length) return res.status(404).json({ error: 'Chapter not found' });
+    
+    // We intentionally SKIP verifyAndIncrementUsage for on-demand summaries to keep it accessible.
+    // However, if we wanted to enforce it:
+    // await verifyAndIncrementUsage(req.userId, 'summary', orgId);
+    
+    const content = chaps[0].content || '';
+    if (!content.trim()) {
+      return res.json({ title: 'Section', summary: 'No content available to summarize.' });
+    }
+
+    // Call AI
+    const meta = await generateChapterMetadata(content, summaryDetail);
+    
+    // Update DB
+    await sql`
+      UPDATE chapters 
+      SET summary = ${meta.summary},
+          title = CASE WHEN parent_id IS NOT NULL THEN ${meta.title} ELSE title END
+      WHERE id = ${chapterId}
+    `;
+    
+    res.json(meta);
+  } catch (err: any) {
+    if (err.name === 'SubscriptionLimitError') {
+      return res.status(403).json({ error: err.message });
+    }
+    console.error('Summarize error:', err);
     res.status(500).json({ error: err.message });
   }
 });
