@@ -7,6 +7,7 @@ import Login from './components/Login';
 import Signup from './components/storyboard/Signup';
 import Pricing from './components/Pricing';
 import GlobalSearchModal from './components/GlobalSearchModal';
+import TerminologyExtractorModal from './components/TerminologyExtractorModal';
 import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
 import { generateChatResponse } from './lib/gemini';
@@ -48,6 +49,8 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isTerminologyModalOpen, setIsTerminologyModalOpen] = useState(false);
+  const [terminologyDoc, setTerminologyDoc] = useState<Document | null>(null);
   
   const [librarySelection, setLibrarySelection] = useState<Set<string>>(new Set());
   const [isLibraryChatActive, setIsLibraryChatActive] = useState(false);
@@ -522,6 +525,12 @@ export default function App() {
         }}
       />
 
+      <TerminologyExtractorModal
+        isOpen={isTerminologyModalOpen}
+        onClose={() => setIsTerminologyModalOpen(false)}
+        document={terminologyDoc}
+      />
+
       <div className="flex flex-1 overflow-hidden relative">
         {/* Mobile Sidebar Overlay */}
         {isSidebarOpen && (
@@ -551,6 +560,10 @@ export default function App() {
             onToggleLibrarySelection={handleToggleLibrarySelection}
             onOpenLibraryChat={handleOpenLibraryChat}
             onUpdateSummary={handleUpdateSummary}
+            onOpenTerminology={(doc) => {
+              setTerminologyDoc(doc);
+              setIsTerminologyModalOpen(true);
+            }}
           />
         </div>
         

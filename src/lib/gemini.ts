@@ -860,6 +860,36 @@ function writeString(view: DataView, offset: number, str: string) {
 }
 
 // ──────────────────────────────────────────────
+// Extra Terminology Extractor function
+// ──────────────────────────────────────────────
+export async function extractTerminology(content: string, customPrompt?: string): Promise<{ term: string; definition: string }[]> {
+  const defaultTask = "Identify and extract the most important technical terms, vocabulary, jargon, names of systems, key equations, concepts, or events from the provided text, and provide clear, precise, and educational definitions suited for study and flashcards.";
+  const prompt = `
+Task: ${customPrompt || defaultTask}
+
+Source Text Content:
+${content.substring(0, 30000)}
+
+IMPORTANT: You must return ONLY a valid JSON object matching this structure:
+{
+  "terms": [
+    { "term": "Term Name", "definition": "A clear, concise, and thorough definition or explanation of the term." }
+  ]
+}
+No markdown formatting, no explanations outside of the JSON block.
+  `.trim();
+
+  try {
+    const raw = await callLLM(prompt, undefined, 'json_object');
+    const parsed = JSON.parse(raw);
+    return parsed.terms || [];
+  } catch (error: any) {
+    if (error instanceof ApiRateLimitError) throw error;
+    throw new Error(error.message || "Failed to extract terminology.");
+  }
+}
+
+// ──────────────────────────────────────────────
 // 12. Ultra-minimal fallback summarizer
 // ──────────────────────────────────────────────
 export async function generateMinimalSummary(text: string): Promise<string> {

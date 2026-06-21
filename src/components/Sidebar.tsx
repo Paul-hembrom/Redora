@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles, BookA } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
@@ -32,6 +32,7 @@ interface Props {
   onToggleLibrarySelection: (docId: string) => void;
   onOpenLibraryChat: () => void;
   onUpdateSummary?: (chapterId: string, summary: string) => void;
+  onOpenTerminology?: (doc: Document) => void;
   isStudent?: boolean;
 }
 
@@ -201,7 +202,7 @@ const ChapterNode = ({
   );
 };
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, isStudent: propIsStudent }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, isStudent: propIsStudent }: Props) {
   const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
@@ -761,6 +762,15 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
+                {onOpenTerminology && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); onOpenTerminology(doc); }}
+                    className="p-1.5 text-white/30 hover:text-emerald-400 hover:bg-white/5 rounded-md transition-all"
+                    title="Extract Key Terminology"
+                  >
+                    <BookA className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={async (e) => {
                      e.stopPropagation();

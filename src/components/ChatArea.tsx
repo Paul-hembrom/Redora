@@ -653,9 +653,57 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       );
     } else if (msg.type === 'glossary') {
       const terms = msg.actionData.terms || [];
+      const exportGlossaryJSON = (tList: any[]) => {
+        const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(tList, null, 2))}`;
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute('href', jsonString);
+        downloadAnchor.setAttribute('download', `glossary-${chapter.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+      };
+
+      const exportGlossaryCSV = (tList: any[]) => {
+        const csvContent = tList.map(t => {
+          const escapedTerm = t.term.replace(/"/g, '""');
+          const escapedDef = t.definition.replace(/"/g, '""');
+          return `"${escapedTerm}","${escapedDef}"`;
+        }).join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute('href', url);
+        downloadAnchor.setAttribute('download', `anki-${chapter.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.csv`);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+        URL.revokeObjectURL(url);
+      };
+
       return (
         <div className="mt-4 space-y-3">
-          <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-widest mb-3 flex items-center gap-2"><BookA className="w-4 h-4" /> Glossary of Terms</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+              <BookA className="w-4 h-4" /> Glossary of Terms
+            </h3>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => exportGlossaryJSON(terms)}
+                className="text-[10px] font-medium px-2 py-1 bg-white/5 border border-white/10 hover:bg-white/10 text-white/80 rounded transition-all flex items-center gap-1 cursor-pointer"
+                title="Download JSON list"
+              >
+                <Download className="w-3 h-3" /> JSON
+              </button>
+              <button 
+                onClick={() => exportGlossaryCSV(terms)}
+                className="text-[10px] font-semibold px-2 py-1 bg-emerald-500/10 border border-emerald-500/25 hover:bg-emerald-500/25 text-emerald-400 rounded transition-all flex items-center gap-1 cursor-pointer"
+                title="Download CSV for Anki Flashcards"
+              >
+                <Download className="w-3 h-3" /> Export Anki
+              </button>
+            </div>
+          </div>
           {terms.map((t: any, i: number) => (
             <div key={i} className="flex flex-col md:flex-row gap-2 bg-black/20 border border-white/5 rounded-lg p-3">
               <span className="font-semibold text-emerald-300 md:w-1/3 shrink-0">{t.term}</span>
