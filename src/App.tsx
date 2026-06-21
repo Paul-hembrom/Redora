@@ -70,6 +70,8 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
+  
+  const [summarizingChapters, setSummarizingChapters] = useState<Set<string>>(new Set());
 
   const { getRootProps: getEmptyRootProps, getInputProps: getEmptyInputProps, isDragActive: isEmptyDragActive } = useDropzone({
     onDrop: (files) => {
@@ -254,8 +256,6 @@ export default function App() {
       <Login onSwitchToSignup={() => setShowLogin(false)} /> : 
       <Signup onSwitchToLogin={() => setShowLogin(true)} />;
   }
-
-  const [summarizingChapters, setSummarizingChapters] = useState<Set<string>>(new Set());
 
   const handleSummarizeChapter = async (docId: string, chapterId: string) => {
     if (isStudent) return; // Optional check
@@ -469,6 +469,7 @@ export default function App() {
 
   const flattenChapters = (chapters: any[] = []): any[] => {
     let result: any[] = [];
+    if (!Array.isArray(chapters)) return result;
     chapters.forEach(ch => {
       result.push(ch);
       if (ch.children) result = result.concat(flattenChapters(ch.children));
@@ -518,8 +519,9 @@ export default function App() {
     }
   };
 
-  const selectedDoc = documents.find(d => d.id === selectedDocId);
-  const selectedChapter = selectedDoc ? flattenChapters(selectedDoc.chapters).find(c => c.id === selectedChapterId) : undefined;
+  const safeDocuments = Array.isArray(documents) ? documents : [];
+  const selectedDoc = safeDocuments.find(d => d.id === selectedDocId);
+  const selectedChapter = selectedDoc && Array.isArray(selectedDoc.chapters) ? flattenChapters(selectedDoc.chapters).find(c => c.id === selectedChapterId) : undefined;
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#050505] text-white font-sans overflow-hidden">
@@ -608,7 +610,7 @@ export default function App() {
         
         <div className={`absolute md:static inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out flex ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
           <Sidebar 
-            documents={documents}
+            documents={safeDocuments}
             selectedDocId={selectedDocId}
             selectedChapterId={selectedChapterId}
             onSelectChapter={handleSelectChapter}
@@ -640,7 +642,7 @@ export default function App() {
             let activeChapter = selectedChapter;
 
             if (isLibraryChatActive && librarySelection.size > 1) {
-              const selectedDocs = documents.filter(d => librarySelection.has(d.id));
+              const selectedDocs = safeDocuments.filter(d => librarySelection.has(d.id));
               const sortedIds = selectedDocs.map(d => d.id).sort();
               const contentStr = selectedDocs.map(d => `--- DOCUMENT: ${d.name} ---\n\n` + flattenChapters(d.chapters).map((c: any) => `${c.title}:\n${c.content}`).join('\n\n')).join('\n\n\n');
               

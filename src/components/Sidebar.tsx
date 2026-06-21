@@ -422,7 +422,8 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   };
 
   const handleDownload = (doc: Document) => {
-    const content = doc.chapters.map(ch => `${ch.chapterNumber}. ${ch.title}\n\n${ch.content}`).join('\n\n---\n\n');
+    const safeChaptersToExport = Array.isArray(doc.chapters) ? doc.chapters : [];
+    const content = safeChaptersToExport.map(ch => `${ch.chapterNumber}. ${ch.title}\n\n${ch.content}`).join('\n\n---\n\n');
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -434,15 +435,20 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     URL.revokeObjectURL(url);
   };
 
-  const sortedDocs = [...documents]
+  const safeDocs = Array.isArray(documents) ? documents : [];
+  const sortedDocs = [...safeDocs]
     .filter(d => {
-      const matchesName = d.name.toLowerCase().includes(filterText.toLowerCase());
-      const matchesTags = d.tags?.some(t => t.toLowerCase().includes(filterText.toLowerCase()));
+      const docName = d?.name || '';
+      const docTags = Array.isArray(d?.tags) ? d.tags : [];
+      const matchesName = docName.toLowerCase().includes(filterText.toLowerCase());
+      const matchesTags = docTags.some(t => typeof t === 'string' && t.toLowerCase().includes(filterText.toLowerCase()));
       return matchesName || matchesTags;
     })
     .sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime();
+      const dateA = a?.uploadDate ? new Date(a.uploadDate).getTime() : 0;
+      const dateB = b?.uploadDate ? new Date(b.uploadDate).getTime() : 0;
+      if (sortBy === 'name') return (a?.name || '').localeCompare(b?.name || '');
+      return dateB - dateA;
     });
 
   // Extract percentage from uploadProgress string e.g. "(45%)"
@@ -815,18 +821,16 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                        if (confirm('Deep Process will queue all chapters for AI summarization. This may overwrite existing summaries. Continue?')) {
                          // A simple way to trigger “Deep Process” on an existing doc 
                          // is to call summarize endpoint on all chapters consecutively.
-                         doc.chapters.forEach(ch => {
+                         const safeChap = Array.isArray(doc.chapters) ? doc.chapters : [];
+                         safeChap.forEach(ch => {
                            if (onSummarizeChapter && ch.type === 'chapter') {
                              setTimeout(() => {
                                onSummarizeChapter(doc.id, ch.id);
                              }, 1000);
                            }
                          });
-                         // And do topics... wait, if I want to not spam, I can leave this to user.
-                         // But the "Deep process" request says: 
-                         // "The “Deep Process” option can also be run on books processed with the hybrid method to fill in all summaries at once."
                          const performDeepProcess = async () => {
-                           for (const ch of doc.chapters) {
+                           for (const ch of safeChap) {
                              if (onSummarizeChapter) {
                                onSummarizeChapter(doc.id, ch.id);
                                await new Promise(r => setTimeout(r, 2000));
@@ -850,7 +854,8 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                        flatChaps.push(ch);
                        if (ch.children) ch.children.forEach(flatten);
                      }
-                     doc.chapters.forEach(flatten);
+                     const safeExpChaps = Array.isArray(doc.chapters) ? doc.chapters : [];
+                     safeExpChaps.forEach(flatten);
                      
                      const { cacheDocument, cacheTopicChats, cacheTopicVideos, cacheTopicImages } = await import('../lib/offline');
                      await cacheDocument(doc, flatChaps);
@@ -951,15 +956,16 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <span className="flex items-center gap-1.5 uppercase tracking-wider">
                     {expandedChaptersList.has(doc.id) ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                    Chapters ({doc.chapters.length})
+                    Chapters ({Array.isArray(doc.chapters) ? doc.chapters.length : 0})
                   </span>
                 </div>
                 
                 {expandedChaptersList.has(doc.id) && (() => {
                   const roots: any[] = [];
                   const map = new Map();
-                  doc.chapters.forEach(c => map.set(c.id, { ...c, children: [] }));
-                  doc.chapters.forEach(c => {
+                  const chaptersData = Array.isArray(doc.chapters) ? doc.chapters : [];
+                  chaptersData.forEach(c => map.set(c.id, { ...c, children: [] }));
+                  chaptersData.forEach(c => {
                      const n = map.get(c.id);
                      if (n.parentId && map.has(n.parentId)) {
                        map.get(n.parentId).children.push(n);
