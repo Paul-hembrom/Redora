@@ -9,6 +9,7 @@ import {
   extractTextFromImage,
   ApiRateLimitError,
   generateDocumentHierarchy,
+  generateOutline,
   generateChapterMetadata,       // kept for on‑demand summarisation
   generateMinimalSummary,
 } from './gemini';
@@ -678,6 +679,118 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
   return finalNodes;
 }
 
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function extractByOutline(text: string, outline: {title: string, subtopics: string[]}[]): Chapter[] {
+  const chapters: Chapter[] = [];
+  let sortCounter = 0;
+  
+  // Clean up title whitespace
+  const cleanOutline = outline.map(c => ({
+    title: c.title.trim(),
+    subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean)
+  })).filter(c => c.title);
+
+  const chapterMatchs = cleanOutline.map(c => {
+    let idx = text.indexOf(c.title);
+    if (idx === -1) {
+      const regexStr = c.title.split(/\s+/).map(escapeRegExp).join('\\s+');
+      const regex = new RegExp(regexStr, 'i');
+      const match = text.match(regex);
+      if (match && match.index !== undefined) idx = match.index;
+    }
+    return { outline: c, idx };
+  }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
+  
+  for (let i = 0; i < chapterMatchs.length; i++) {
+    const match = chapterMatchs[i];
+    const nextMatch = i + 1 < chapterMatchs.length ? chapterMatchs[i+1] : null;
+    
+    let chapterEnd = nextMatch ? nextMatch.idx : text.length;
+    let chapterContent = text.substring(match.idx, chapterEnd).trim();
+    
+    let chapterRegex = new RegExp(`^${match.outline.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
+    chapterContent = chapterContent.replace(chapterRegex, '').trim();
+    
+    const chapId = uuidv4();
+    const subtopics: Chapter[] = [];
+    
+    if (match.outline.subtopics && match.outline.subtopics.length > 0) {
+      const topicMatchs = match.outline.subtopics.map(t => {
+        let idx = chapterContent.indexOf(t);
+        if (idx === -1) {
+          const regexStr = t.split(/\s+/).map(escapeRegExp).join('\\s+');
+          const regex = new RegExp(regexStr, 'i');
+          const m = chapterContent.match(regex);
+          if (m && m.index !== undefined) {
+             idx = m.index;
+          }
+        }
+        return { title: t, idx };
+      }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
+      
+      if (topicMatchs.length > 0) {
+        const preambleContent = chapterContent.substring(0, topicMatchs[0].idx).trim();
+        if (preambleContent.length > 20) {
+          subtopics.push({
+            id: uuidv4(),
+            chapterNumber: 0,
+            title: `${match.outline.title} - Introduction`,
+            summary: '',
+            content: preambleContent,
+            isGenerating: false,
+            parentId: chapId,
+            sortOrder: sortCounter++,
+            type: 'topic',
+            children: []
+          });
+        }
+        
+        for (let j = 0; j < topicMatchs.length; j++) {
+          const tMatch = topicMatchs[j];
+          const nextTMatch = j + 1 < topicMatchs.length ? topicMatchs[j+1] : null;
+          const endIdx = nextTMatch ? nextTMatch.idx : chapterContent.length;
+          
+          let topicContent = chapterContent.substring(tMatch.idx, endIdx).trim();
+          let topicRegex = new RegExp(`^${tMatch.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
+          topicContent = topicContent.replace(topicRegex, '').trim();
+          
+          subtopics.push({
+            id: uuidv4(),
+            chapterNumber: j + 1,
+            title: tMatch.title,
+            summary: '',
+            content: topicContent,
+            isGenerating: false,
+            parentId: chapId,
+            sortOrder: sortCounter++,
+            type: 'topic',
+            children: []
+          });
+        }
+        chapterContent = ''; // Content is distributed to topics
+      }
+    }
+    
+    chapters.push({
+      id: chapId,
+      chapterNumber: i + 1,
+      title: match.outline.title,
+      summary: '',
+      content: chapterContent, // Will be empty if subtopics extracted it
+      isGenerating: false,
+      parentId: null,
+      sortOrder: sortCounter++,
+      type: 'chapter',
+      children: subtopics
+    });
+  }
+  
+  return chapters;
+}
+
 // ---------------------------------------------------------------------------
 // Main document processing pipeline
 // ---------------------------------------------------------------------------
@@ -721,14 +834,29 @@ export async function processDocument(
   const processedText = preprocessText(sanitizedText, options);
 
   // ────────────────────────────────────────────
-  // PRIMARY EXTRACTION: Regex (splitIntoChaptersEnhanced)
+  // PRIMARY EXTRACTION: AI Outline + Deterministic Split
   // ────────────────────────────────────────────
-  onProgress('Detecting structure…');
-  let initialChapters = splitIntoChaptersEnhanced(processedText);
+  onProgress('Analyzing document structure with AI…');
+  let outline = await generateOutline(processedText);
+  let initialChapters: Chapter[] = [];
+  
+  if (outline && outline.length > 0) {
+    onProgress(`Detected ${outline.length} chapters. Extracting content…`);
+    initialChapters = extractByOutline(processedText, outline);
+    if (initialChapters.length === 0) {
+      onProgress('Outline extraction failed to match text, falling back to regex…');
+      initialChapters = splitIntoChaptersEnhanced(processedText);
+    }
+  } else {
+    onProgress('No clear outline found by AI, falling back to regex pattern matching…');
+    initialChapters = splitIntoChaptersEnhanced(processedText);
+  }
+
   let cleanedChapters: Chapter[] = [];
   
-  if (initialChapters.length >= 2 && !options.deepProcess) {
-    onProgress(`Detected ${initialChapters.length} sections automatically.`);
+  if (initialChapters.length >= 1 && !options.deepProcess) {
+    // If it found mostly structural markers or at least 1 structure.
+    onProgress(`Processing ${initialChapters.length} sections.`);
     cleanedChapters = cleanAcademicPaperHierarchy(initialChapters);
     cleanedChapters.forEach(ch => { ch.isGenerating = false; });
     callbacks?.onDiscovered?.(cleanedChapters);

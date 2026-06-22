@@ -637,6 +637,29 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
   }
 }
 
+export async function generateOutline(text: string): Promise<{title: string, subtopics: string[]}[]> {
+  const prompt = `You are a document structure analyst. Extract the table of contents from the following text.
+Return a JSON array of chapter objects. Each object must have:
+"title": the exact chapter/unit/section heading as it appears in the text.
+"subtopics": an array of strings, each an exact subtopic heading under that chapter (preserve numbering like "a. Input", "1.1 Introduction").
+If the text contains only chapters with no subtopics, the "subtopics" array may be empty.
+If no clear chapter structure is found, return an empty array.
+Do NOT include any content text, only headings.
+
+Text:
+${text.substring(0, 40000)}`;
+
+  try {
+    const raw = await callLLM(prompt, "You are a document structure analyst.", "application/json");
+    const jsonStr = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const result = JSON.parse(jsonStr);
+    return Array.isArray(result) ? result : [];
+  } catch (err) {
+    console.error("[generateOutline] Failed to generate outline", err);
+    return [];
+  }
+}
+
 // ── generateDocumentHierarchy – with JSON repair ────────────────────
 export async function generateDocumentHierarchy(content: string, detectedHeadings?: string[], retries = 3): Promise<any> {
   const headingsPrompt = detectedHeadings && detectedHeadings.length > 0 
