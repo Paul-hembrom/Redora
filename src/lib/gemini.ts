@@ -338,7 +338,7 @@ async function callNvidiaVisionFallback(base64Data: string, mimeType: string, pr
 // ──────────────────────────────────────────────
 // 7. Unified callers – try paid API first, fall back to NVIDIA
 // ──────────────────────────────────────────────
-async function callLLM(
+export async function callLLM(
   prompt: string,
   systemInstruction?: string,
   responseFormat?: 'json_object' | 'text',

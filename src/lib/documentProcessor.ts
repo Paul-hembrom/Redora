@@ -12,6 +12,7 @@ import {
   generateOutline,
   generateChapterMetadata,
   generateMinimalSummary,
+  callLLM
 } from './gemini';
 
 // ---------------------------------------------------------------------------
@@ -706,20 +707,19 @@ function escapeRegExp(string: string) {
 // ---------------------------------------------------------------------------
 // EXTRACT BY OUTLINE (MANUAL SPLITTER + NAVIGATION STRIPPER)
 // ---------------------------------------------------------------------------
-export function extractByOutline(text: string, outline: {title: string, subtopics: string[]}[]): Chapter[] {
+export async function extractByOutline(text: string, outline: {title: string, subtopics: string[]}[]): Promise<Chapter[]> {
   const chapters: Chapter[] = [];
   let sortCounter = 0;
 
+  // Skip past the Table of Contents
   let contentStartIndex = 0;
   const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
   const tocMatch = text.match(tocRegex);
   if (tocMatch && tocMatch.index !== undefined) {
-    // Search for the first real chapter heading after the TOC
     const firstRealChapterMatch = text.substring(tocMatch.index).match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z][A-Za-z\s]+/i);
     if (firstRealChapterMatch && firstRealChapterMatch.index !== undefined) {
       contentStartIndex = tocMatch.index + firstRealChapterMatch.index;
     } else {
-      // Fallback: skip 5000 characters to be safe
       contentStartIndex = tocMatch.index + 5000;
     }
   }
@@ -730,7 +730,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       const lineStart = text.lastIndexOf('\n', pos);
       const lineEnd = text.indexOf('\n', pos + title.length);
       const line = text.substring(lineStart + 1, lineEnd === -1 ? undefined : lineEnd).trim();
-      if (/^(?:Next:|Previous:)/i.test(line) || /Download PDF/i.test(line)) {
+      if (/^(?:next|previous)\s*[:\-]?\s*/i.test(line) || /download\s*pdf/i.test(line)) {
         pos = text.indexOf(title, pos + title.length);
         continue;
       }
@@ -762,6 +762,8 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     let chapterEnd = nextMatch ? nextMatch.idx : text.length;
     let chapterContent = text.substring(match.idx, chapterEnd).trim();
     
+    chapterContent = chapterContent.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
+    
     let chapterRegex = new RegExp(`^${match.outline.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
     chapterContent = chapterContent.replace(chapterRegex, '').trim();
 
@@ -770,6 +772,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     let mainContent = chapterContent;
     let exerciseContent = '';
 
+    // Extract Exercise block if it exists
     const exerciseRegex = /\n\s*(?:Exercise|Exercises|Practice)\b/i; 
     const exerciseMatch = chapterContent.match(exerciseRegex);
     if (exerciseMatch && exerciseMatch.index !== undefined) {
@@ -777,18 +780,16 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
     }
 
+    // --- ULTRA-FLEXIBLE REGEX TRIAL ---
     const subtopicRegex = /\n\s*([a-zA-Z]\.\s*[A-Za-z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s*[A-Za-z][A-Za-z0-9\s]+|[ivx]+\.\s*[A-Za-z][A-Za-z0-9\s]+|(?:[A-Za-z]+)\s+[A-Za-z][A-Za-z0-9\s]+):?/g;
     let matchArr;
     const sections: { title: string, start: number, end: number }[] = [];
     
     while ((matchArr = subtopicRegex.exec(mainContent)) !== null) {
-        sections.push({
-            title: matchArr[1].trim(),
-            start: matchArr.index,
-            end: -1
-        });
+        sections.push({ title: matchArr[1].trim(), start: matchArr.index, end: -1 });
     }
-    
+
+    // If Regex matched subtopics, use them
     if (sections.length > 0) {
         for (let k = 0; k < sections.length; k++) {
             const nextSection = sections[k + 1];
@@ -800,49 +801,89 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
             const titleRegex = new RegExp(`^${sec.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
             secContent = secContent.replace(titleRegex, '').trim();
 
+            if (secContent.length > 10) {
+                subtopics.push({
+                    id: uuidv4(), chapterNumber: subtopics.length + 1,
+                    title: sec.title, summary: '',
+                    content: secContent, isGenerating: false,
+                    parentId: chapId, sortOrder: sortCounter++,
+                    type: 'topic', children: []
+                });
+            }
+        }
+    } 
+    // --- DEEPSEEK FALLBACK (Triggered if Regex finds nothing) ---
+    else if (mainContent.length > 200 && !mainContent.includes("Subject:") && !mainContent.includes("Class:")) {
+        try {
+            const aiPrompt = `
+                Analyze the following textbook chapter text. 
+                1. Extract the main introductory text (the paragraphs before the first sub-heading).
+                2. Extract all sub-headings (like a. Abacus, b. Napier's Bone, 1.1 Introduction).
+                3. For each sub-heading, return the exact text that belongs to that section.
+                
+                Return ONLY a JSON object in this format:
+                {
+                    "mainIntro": "The full text of the main introduction...",
+                    "subTopics": [
+                        { "title": "a. Abacus", "content": "The exact text under Abacus..." },
+                        { "title": "b. Napier's Bone", "content": "The exact text under Napier's Bone..." }
+                    ]
+                }
+                
+                Chapter Text:
+                ${mainContent.substring(0, 70000)}
+            `;
+            
+            const aiResponseRaw = await callLLM(aiPrompt, undefined, 'json_object');
+            const aiResponse = JSON.parse(aiResponseRaw);
+            
+            // Update mainContent to the AI extracted introduction
+            mainContent = aiResponse.mainIntro || mainContent;
+
+            // Push AI extracted subtopics
+            if (aiResponse.subTopics && aiResponse.subTopics.length > 0) {
+                for (const aiSub of aiResponse.subTopics) {
+                    subtopics.push({
+                        id: uuidv4(), chapterNumber: subtopics.length + 1,
+                        title: aiSub.title, summary: '',
+                        content: aiSub.content, isGenerating: false,
+                        parentId: chapId, sortOrder: sortCounter++,
+                        type: 'topic', children: []
+                    });
+                }
+            }
+        } catch (err) {
+            console.warn("DeepSeek sub-topic extraction failed for chapter", match.outline.title, err);
+            // Ultimate fallback: Push a single massive topic to prevent losing text
             subtopics.push({
-                id: uuidv4(),
-                chapterNumber: subtopics.length + 1,
-                title: sec.title,
+                id: uuidv4(), chapterNumber: 1,
+                title: `${match.outline.title} - Full Content`,
                 summary: '',
-                content: secContent,
-                isGenerating: false,
-                parentId: chapId,
-                sortOrder: sortCounter++,
-                type: 'topic',
-                children: []
+                content: mainContent, isGenerating: false,
+                parentId: chapId, sortOrder: sortCounter++,
+                type: 'topic', children: []
             });
         }
-        
-        mainContent = mainContent.substring(0, sections[0].start).trim();
     }
+    // --------------------------------------------
 
+    // Push Exercise node if it exists
     if (exerciseContent) {
       subtopics.push({
-        id: uuidv4(),
-        chapterNumber: subtopics.length + 1,
-        title: 'Chapter Exercises',
-        summary: '',
-        content: exerciseContent,
-        isGenerating: false,
-        parentId: chapId,
-        sortOrder: sortCounter++,
-        type: 'exercise',
-        children: []
+        id: uuidv4(), chapterNumber: subtopics.length + 1,
+        title: 'Chapter Exercises', summary: '',
+        content: exerciseContent, isGenerating: false,
+        parentId: chapId, sortOrder: sortCounter++,
+        type: 'exercise', children: []
       });
     }
 
     chapters.push({
-      id: chapId,
-      chapterNumber: i + 1,
-      title: match.outline.title,
-      summary: '',
-      content: mainContent,
-      isGenerating: false,
-      parentId: null,
-      sortOrder: sortCounter++,
-      type: 'chapter',
-      children: subtopics
+      id: chapId, chapterNumber: i + 1,
+      title: match.outline.title, summary: '',
+      content: mainContent, isGenerating: false,
+      parentId: null, sortOrder: sortCounter++,
+      type: 'chapter', children: subtopics
     });
   }
   
@@ -907,7 +948,7 @@ export async function processDocument(
   // --------------------------------------------------------------------------
   if (outline && outline.length > 0) {
     onProgress(`Detected ${outline.length} chapters. Extracting content via precise position mapping…`);
-    finalChapters = extractByOutline(processedText, outline);
+    finalChapters = await extractByOutline(processedText, outline);
     
     // If extraction returned nothing despite valid outline, fallback to regex
     if (finalChapters.length === 0) {
