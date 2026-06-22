@@ -382,11 +382,12 @@ export function stripRepeatingHeaders(text: string): string {
     if (/next: →/i.test(trimmed)) return false;
     if (/previous:/i.test(trimmed)) return false;
     if (/next:/i.test(trimmed)) return false;
-    
-    // Strip isolated page numbers or repeated headers like "EUREKA LOGIC..."
-    if (/^eureka\s+logic/i.test(trimmed)) return false;
+    if (/download pdf\s*\d*/i.test(trimmed)) return false; // "Download PDF 1"
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 80) return false;
-    
+    if (/^eureka\s+logic/i.test(trimmed) && trimmed.length < 50) return false;
+    // New: Remove any line that starts with "Page Preview" or "Table of Contents"
+    if (/^page\s+preview/i.test(trimmed)) return false;
+    if (/^table\s+of\s+contents/i.test(trimmed)) return false;
     return true;
   }).join('\n');
 }
@@ -713,7 +714,14 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
   const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
   const tocMatch = text.match(tocRegex);
   if (tocMatch && tocMatch.index !== undefined) {
-    contentStartIndex = tocMatch.index + 3000;
+    // Search for the first real chapter heading after the TOC
+    const firstRealChapterMatch = text.substring(tocMatch.index).match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z][A-Za-z\s]+/i);
+    if (firstRealChapterMatch && firstRealChapterMatch.index !== undefined) {
+      contentStartIndex = tocMatch.index + firstRealChapterMatch.index;
+    } else {
+      // Fallback: skip 5000 characters to be safe
+      contentStartIndex = tocMatch.index + 5000;
+    }
   }
 
   const findChapterIndex = (text: string, title: string, startSearch: number): number => {
@@ -769,7 +777,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
     }
 
-    const subtopicRegex = /\n\s*([a-zA-Z]\.\s*[A-Za-z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s*[A-Za-z][A-Za-z0-9\s]+|[ivx]+\.\s*[A-Za-z][A-Za-z0-9\s]+):?/g;
+    const subtopicRegex = /\n\s*([a-zA-Z]\.\s*[A-Za-z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s*[A-Za-z][A-Za-z0-9\s]+|[ivx]+\.\s*[A-Za-z][A-Za-z0-9\s]+|(?:[A-Za-z]+)\s+[A-Za-z][A-Za-z0-9\s]+):?/g;
     let matchArr;
     const sections: { title: string, start: number, end: number }[] = [];
     
@@ -881,6 +889,18 @@ export async function processDocument(
   // --------------------------------------------------------------------------
   onProgress('Analyzing document structure with AI…');
   let outline = await generateOutline(processedText);
+  // Filter out any chapters that are just "Section X" or "Unit X" without a descriptive name
+  if (outline && outline.length > 0) {
+    outline = outline.filter(ch => {
+      const title = ch.title.trim();
+      // Keep real chapters (must have at least 2 words, or contain a specific keyword)
+      const words = title.split(/\s+/);
+      if (words.length < 2) return false; // e.g., "Section 1" is just two words, but we want to filter it
+      if (/^Section\s+\d+$/i.test(title)) return false; // Specific filter for "Section 1"
+      if (/^Unit\s+\d+$/i.test(title)) return false; // Filter out "Unit 1" without a description
+      return true;
+    });
+  }
 
   // --------------------------------------------------------------------------
   // Step C: If Outline is found, use exact position matching
