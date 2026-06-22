@@ -367,6 +367,9 @@ export function stripRepeatingHeaders(text: string): string {
     if (/download pdf/i.test(trimmed)) return false;
     if (/← previous/i.test(trimmed)) return false;
     if (/next: →/i.test(trimmed)) return false;
+    if (/previous:/i.test(trimmed)) return false;
+    if (/next:/i.test(trimmed)) return false;
+    if (/download pdf\s*\d+/i.test(trimmed)) return false;
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 50) return false;
     return true;
   }).join('\n');
@@ -687,20 +690,34 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
   const chapters: Chapter[] = [];
   let sortCounter = 0;
   
-  // Clean up title whitespace
+  // --- FIX: Find where the actual content starts (skip the Table of Contents) ---
+  let contentStartIndex = 0;
+  const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
+  const tocMatch = text.match(tocRegex);
+  if (tocMatch && tocMatch.index !== undefined) {
+    // Try to find the first real chapter heading that follows the TOC
+    const firstRealChapter = text.substring(tocMatch.index).match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
+    if (firstRealChapter && firstRealChapter.index !== undefined) {
+      contentStartIndex = tocMatch.index + firstRealChapter.index;
+    } else {
+      contentStartIndex = tocMatch.index + 2000; // Fallback: skip ahead a substantial amount
+    }
+  }
+  // ----------------------------------------------------------------------------
+
   const cleanOutline = outline.map(c => ({
     title: c.title.trim(),
     subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean)
   })).filter(c => c.title);
 
+  // Search for the title starting from the calculated contentStartIndex
   const chapterMatchs = cleanOutline.map(c => {
-    let idx = text.indexOf(c.title);
+    let idx = text.indexOf(c.title, contentStartIndex);
     if (idx === -1) {
-      // Fuzzy regex search as requested
       const regexStr = c.title.split(/\s+/).map(escapeRegExp).join('\\s+');
       const regex = new RegExp(regexStr, 'i');
-      const match = text.match(regex);
-      if (match && match.index !== undefined) idx = match.index;
+      const match = text.substring(contentStartIndex).match(regex);
+      if (match && match.index !== undefined) idx = contentStartIndex + match.index;
     }
     return { outline: c, idx };
   }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
