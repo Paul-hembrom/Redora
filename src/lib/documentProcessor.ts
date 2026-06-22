@@ -331,27 +331,31 @@ export function splitIntoChapters(text: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Preprocessing filters for textbooks
+// PREPROCESSING FILTERS
 // ---------------------------------------------------------------------------
-export function stripFrontMatter(text: string): string {
-  // Remove the leading filename and "Download PDF" if it appears at the very start
-  const startsWithPdfNoise = /^[\s\n]*[^\n]*?(?:computer class|class)\s*\d+\.pdf[\s\n]*Download PDF/i.test(text);
-  if (startsWithPdfNoise) {
-    const dropIndex = text.indexOf('Download PDF') + 'Download PDF'.length;
-    const nextNewline = text.indexOf('\n', dropIndex);
-    return nextNewline > -1 ? text.slice(nextNewline + 1).trim() : text.slice(dropIndex).trim();
-  }
 
-  // Existing check for publisher info
-  const checkArea = text.slice(0, 1000);
-  if (/(?:publisher|author|edition|isbn|copyright|all rights reserved)/i.test(checkArea)) {
-    const dropIndex = 500;
-    const nextNewline = text.indexOf('\n', dropIndex);
-    return nextNewline > -1 ? text.slice(nextNewline + 1).trim() : text.slice(dropIndex).trim();
+/** 
+ * UPDATED: Aggressively strips PDF noise, cover pages, and "Download PDF" 
+ * to allow the extractor to start cleanly.
+ */
+export function stripFrontMatter(text: string): string {
+  // Aggressively strip the first 2000 chars if it looks like cover page/filename/PDF noise
+  const checkArea = text.slice(0, 2000);
+  if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s*logic/i.test(checkArea)) {
+    // Try to find the first real Unit/Chapter heading to start the text
+    const firstUnit = text.match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
+    if (firstUnit && firstUnit.index !== undefined) {
+      return text.slice(firstUnit.index).trim();
+    }
+    // Fallback: drop the first 2000 characters
+    return text.slice(2000).trim();
   }
   return text;
 }
 
+/** 
+ * UPDATED: Stricter regex to strip page numbers, repeated headers, and navigation links.
+ */
 export function stripRepeatingHeaders(text: string): string {
   const lines = text.split('\n');
   const lineCounts = new Map<string, number>();
@@ -376,11 +380,14 @@ export function stripRepeatingHeaders(text: string): string {
     if (/download pdf/i.test(trimmed)) return false;
     if (/← previous/i.test(trimmed)) return false;
     if (/next: →/i.test(trimmed)) return false;
-    // Catch navigation links perfectly
     if (/previous:/i.test(trimmed)) return false;
     if (/next:/i.test(trimmed)) return false;
-    if (/download pdf\s*\d*/i.test(trimmed)) return false; // "Download PDF 1", etc.
+    if (/download pdf\s*\d*/i.test(trimmed)) return false; // Matches "Download PDF 1"
+    
+    // Strip isolated page numbers or repeated headers like "EUREKA LOGIC..."
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 50) return false;
+    if (/^eureka\s+logic/i.test(trimmed) && trimmed.length < 50) return false;
+    
     return true;
   }).join('\n');
 }
@@ -696,41 +703,29 @@ function escapeRegExp(string: string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// ---------------------------------------------------------------------------
+// UPDATED: EXTRACT BY OUTLINE (MANUAL SPLITTER + NAVIGATION STRIPPER)
+// ---------------------------------------------------------------------------
 export function extractByOutline(text: string, outline: {title: string, subtopics: string[]}[]): Chapter[] {
   const chapters: Chapter[] = [];
   let sortCounter = 0;
-  
-  // --- Skip the Table of Contents ---
+
+  // Skip past the Table of Contents entirely
   let contentStartIndex = 0;
   const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
   const tocMatch = text.match(tocRegex);
   if (tocMatch && tocMatch.index !== undefined) {
-    // Start searching 2000 chars after the TOC, to be safe
-    contentStartIndex = tocMatch.index + 2000; 
+    contentStartIndex = tocMatch.index + 3000; // Jump way past TOC
   }
 
-  // --- Filter out backmatter ---
-  const BACKMATTER_TITLES = ['abbreviations', 'bibliography', 'model questions', 'index', 'references'];
-  const cleanOutline = outline
-    .map(c => ({
-      title: c.title.trim(),
-      subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean)
-    }))
-    .filter(c => c.title && !BACKMATTER_TITLES.some(bt => c.title.toLowerCase().includes(bt)));
-
-  // --- Harden title searching to skip navigation lines ---
+  // Helper to find chapters skipping navigation links
   const findChapterIndex = (text: string, title: string, startSearch: number): number => {
     let pos = text.indexOf(title, startSearch);
     while (pos !== -1) {
       const lineStart = text.lastIndexOf('\n', pos);
       const lineEnd = text.indexOf('\n', pos + title.length);
       const line = text.substring(lineStart + 1, lineEnd === -1 ? undefined : lineEnd).trim();
-
-      // Skip matching lines if they contain any of this junk
-      if (/^(?:next|previous)\s*[:\-]?\s*/i.test(line) ||
-          /download\s*pdf/i.test(line) ||
-          /← previous/i.test(line) ||
-          /next: →/i.test(line)) {
+      if (/^(?:next|previous)\s*[:\-]?\s*/i.test(line) || /download\s*pdf/i.test(line)) {
         pos = text.indexOf(title, pos + title.length);
         continue;
       }
@@ -739,10 +734,15 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     return -1;
   };
 
+  // Filter out backmatter so Abbreviations/Bibliography don't take over
+  const BACKMATTER_TITLES = ['abbreviations', 'bibliography', 'model questions', 'index', 'references'];
+  const cleanOutline = outline
+    .map(c => ({ title: c.title.trim(), subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean) }))
+    .filter(c => c.title && !BACKMATTER_TITLES.some(bt => c.title.toLowerCase().includes(bt)));
+
   const chapterMatchs = cleanOutline.map(c => {
     let idx = findChapterIndex(text, c.title, contentStartIndex);
     if (idx === -1) {
-      // Fallback to fuzzy regex if plain text match fails
       const regexStr = c.title.split(/\s+/).map(escapeRegExp).join('\\s+');
       const regex = new RegExp(regexStr, 'i');
       const match = text.substring(contentStartIndex).match(regex);
@@ -751,7 +751,6 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     return { outline: c, idx };
   }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
   
-  // Process each chapter (existing for-loop with Exercise extraction and subtopic logic)
   for (let i = 0; i < chapterMatchs.length; i++) {
     const match = chapterMatchs[i];
     const nextMatch = i + 1 < chapterMatchs.length ? chapterMatchs[i+1] : null;
@@ -759,18 +758,18 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     let chapterEnd = nextMatch ? nextMatch.idx : text.length;
     let chapterContent = text.substring(match.idx, chapterEnd).trim();
     
-    // Remove leading navigation junk again just in case
+    // Remove leading navigation junk
     chapterContent = chapterContent.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
-
+    
     let chapterRegex = new RegExp(`^${match.outline.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
     chapterContent = chapterContent.replace(chapterRegex, '').trim();
-    
+
     const chapId = uuidv4();
     const subtopics: Chapter[] = [];
-    
-    // Split content to get "Exercise" section
     let mainContent = chapterContent;
     let exerciseContent = '';
+
+    // Split out the Exercise section
     const exerciseRegex = /\n\s*(?:Exercise|Exercises|Practice)\b/i; 
     const exerciseMatch = chapterContent.match(exerciseRegex);
     if (exerciseMatch && exerciseMatch.index !== undefined) {
@@ -778,57 +777,57 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
     }
 
-    // Process subtopics (keeping existing logic)
-    if (match.outline.subtopics && match.outline.subtopics.length > 0) {
-      const topicMatchs = match.outline.subtopics.map(t => {
-        let idx = mainContent.indexOf(t);
-        if (idx === -1) {
-          const regexStr = t.split(/\s+/).map(escapeRegExp).join('\\s+');
-          const regex = new RegExp(regexStr, 'i');
-          const m = mainContent.match(regex);
-          if (m && m.index !== undefined) idx = m.index;
-        }
-        return { title: t, idx };
-      }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
-      
-      if (topicMatchs.length > 0) {
-        const preambleContent = mainContent.substring(0, topicMatchs[0].idx).trim();
-        if (preambleContent.length > 20) {
-          subtopics.push({
-            id: uuidv4(), chapterNumber: 0,
-            title: `${match.outline.title} - Introduction`,
-            summary: '', content: preambleContent,
-            isGenerating: false, parentId: chapId,
-            sortOrder: sortCounter++, type: 'topic', children: []
-          });
-        }
-        
-        for (let j = 0; j < topicMatchs.length; j++) {
-          const tMatch = topicMatchs[j];
-          const nextTMatch = j + 1 < topicMatchs.length ? topicMatchs[j+1] : null;
-          const endIdx = nextTMatch ? nextTMatch.idx : mainContent.length;
-          
-          let topicContent = mainContent.substring(tMatch.idx, endIdx).trim();
-          let topicRegex = new RegExp(`^${tMatch.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
-          topicContent = topicContent.replace(topicRegex, '').trim();
-          
-          subtopics.push({
-            id: uuidv4(), chapterNumber: j + 1,
-            title: tMatch.title, summary: '',
-            content: topicContent, isGenerating: false,
-            parentId: chapId, sortOrder: sortCounter++,
-            type: 'topic', children: []
-          });
-        }
-        mainContent = ''; 
-      }
+    // --- THE NEW FORCEFUL SUB-TOPIC SPLITTER ---
+    // We look for patterns like "a. Abacus", "b. Napier's Bone", "1.1 Introduction"
+    const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+):?/g;
+    let matchArr;
+    const sections: { title: string, start: number, end: number }[] = [];
+    
+    while ((matchArr = subtopicRegex.exec(mainContent)) !== null) {
+        sections.push({
+            title: matchArr[1].trim(),
+            start: matchArr.index,
+            end: -1 // will be set later
+        });
     }
+    
+    // Assign ends to the sections
+    if (sections.length > 0) {
+        for (let k = 0; k < sections.length; k++) {
+            const nextSection = sections[k + 1];
+            sections[k].end = nextSection ? nextSection.start : mainContent.length;
+        }
 
-    // Add Exercise Chat node
+        // Extract content for each subtopic and push to the children array
+        for (const sec of sections) {
+            let secContent = mainContent.substring(sec.start, sec.end).trim();
+            // Remove the title line from the actual content
+            const titleRegex = new RegExp(`^${sec.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
+            secContent = secContent.replace(titleRegex, '').trim();
+
+            if (secContent.length > 10) {
+                subtopics.push({
+                    id: uuidv4(),
+                    chapterNumber: subtopics.length + 1,
+                    title: sec.title,
+                    summary: '',
+                    content: secContent,
+                    isGenerating: false,
+                    parentId: chapId,
+                    sortOrder: sortCounter++,
+                    type: 'topic',
+                    children: []
+                });
+            }
+        }
+    }
+    // --------------------------------------------
+
+    // Push Exercise node if it exists
     if (exerciseContent) {
       subtopics.push({
         id: uuidv4(),
-        chapterNumber: match.outline.subtopics ? match.outline.subtopics.length + 1 : 1,
+        chapterNumber: subtopics.length + 1,
         title: 'Chapter Exercises',
         summary: '',
         content: exerciseContent,
@@ -841,11 +840,16 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     }
 
     chapters.push({
-      id: chapId, chapterNumber: i + 1,
-      title: match.outline.title, summary: '',
-      content: mainContent, isGenerating: false,
-      parentId: null, sortOrder: sortCounter++,
-      type: 'chapter', children: subtopics
+      id: chapId,
+      chapterNumber: i + 1,
+      title: match.outline.title,
+      summary: '',
+      content: mainContent, // Main intro + content that wasn't split
+      isGenerating: false,
+      parentId: null,
+      sortOrder: sortCounter++,
+      type: 'chapter',
+      children: subtopics // THIS NOW CONTAINS "a. Abacus", "b. Napier's Bone", etc!
     });
   }
   
@@ -853,7 +857,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
 }
 
 // ---------------------------------------------------------------------------
-// Main document processing pipeline (Refactored to strict Step A-E)
+// Main document processing pipeline
 // ---------------------------------------------------------------------------
 
 /**
