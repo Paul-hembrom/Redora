@@ -339,12 +339,15 @@ export function splitIntoChapters(text: string): string[] {
  * to allow the extractor to start cleanly.
  */
 export function stripFrontMatter(text: string): string {
+  // Aggressively strip the first 3000 chars if it looks like cover page/filename/PDF noise
   const checkArea = text.slice(0, 3000);
-  if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s*logic/i.test(checkArea)) {
+  if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s+logic/i.test(checkArea)) {
+    // Try to find the first real Unit/Chapter heading to start the text
     const firstUnit = text.match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
     if (firstUnit && firstUnit.index !== undefined) {
       return text.slice(firstUnit.index).trim();
     }
+    // Fallback: drop the first 3000 characters
     return text.slice(3000).trim();
   }
   return text;
@@ -381,7 +384,8 @@ export function stripRepeatingHeaders(text: string): string {
     if (/next:/i.test(trimmed)) return false;
     
     // Strip isolated page numbers or repeated headers like "EUREKA LOGIC..."
-    if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 50) return false;
+    if (/^eureka\s+logic/i.test(trimmed)) return false;
+    if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 80) return false;
     
     return true;
   }).join('\n');
@@ -765,7 +769,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
     }
 
-    const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+|[ivx]+\.\s+[A-Z][A-Za-z0-9\s]+|[A-Z]\.\s+[A-Z][A-Za-z0-9\s]+):?/g;
+    const subtopicRegex = /\n\s*([a-zA-Z]\.\s*[A-Za-z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s*[A-Za-z][A-Za-z0-9\s]+|[ivx]+\.\s*[A-Za-z][A-Za-z0-9\s]+):?/g;
     let matchArr;
     const sections: { title: string, start: number, end: number }[] = [];
     
