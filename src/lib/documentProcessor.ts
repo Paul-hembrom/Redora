@@ -754,20 +754,30 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     const chapId = uuidv4();
     const subtopics: Chapter[] = [];
     
+    // --- NEW: Detect and split the Exercise section ---
+    let mainContent = chapterContent;
+    let exerciseContent = '';
+    const exerciseRegex = /\n\s*(?:Exercise|Exercises|Practice)\b/i;
+    const exerciseMatch = chapterContent.match(exerciseRegex);
+    if (exerciseMatch && exerciseMatch.index !== undefined) {
+      mainContent = chapterContent.substring(0, exerciseMatch.index).trim();
+      exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
+    }
+
     if (match.outline.subtopics && match.outline.subtopics.length > 0) {
       const topicMatchs = match.outline.subtopics.map(t => {
-        let idx = chapterContent.indexOf(t);
+        let idx = mainContent.indexOf(t);
         if (idx === -1) {
           const regexStr = t.split(/\s+/).map(escapeRegExp).join('\\s+');
           const regex = new RegExp(regexStr, 'i');
-          const m = chapterContent.match(regex);
+          const m = mainContent.match(regex);
           if (m && m.index !== undefined) { idx = m.index; }
         }
         return { title: t, idx };
       }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
       
       if (topicMatchs.length > 0) {
-        const preambleContent = chapterContent.substring(0, topicMatchs[0].idx).trim();
+        const preambleContent = mainContent.substring(0, topicMatchs[0].idx).trim();
         if (preambleContent.length > 20) {
           subtopics.push({
             id: uuidv4(), chapterNumber: 0,
@@ -781,9 +791,9 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
         for (let j = 0; j < topicMatchs.length; j++) {
           const tMatch = topicMatchs[j];
           const nextTMatch = j + 1 < topicMatchs.length ? topicMatchs[j+1] : null;
-          const endIdx = nextTMatch ? nextTMatch.idx : chapterContent.length;
+          const endIdx = nextTMatch ? nextTMatch.idx : mainContent.length;
           
-          let topicContent = chapterContent.substring(tMatch.idx, endIdx).trim();
+          let topicContent = mainContent.substring(tMatch.idx, endIdx).trim();
           let topicRegex = new RegExp(`^${tMatch.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
           topicContent = topicContent.replace(topicRegex, '').trim();
           
@@ -795,14 +805,30 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
             type: 'topic', children: []
           });
         }
-        chapterContent = '';
+        mainContent = '';
       }
+    }
+    
+    // --- Push Exercise as a dedicated chat node ---
+    if (exerciseContent) {
+      subtopics.push({
+        id: uuidv4(),
+        chapterNumber: match.outline.subtopics ? match.outline.subtopics.length + 1 : 1,
+        title: 'Chapter Exercises',
+        summary: '',
+        content: exerciseContent,
+        isGenerating: false,
+        parentId: chapId,
+        sortOrder: sortCounter++,
+        type: 'exercise',
+        children: []
+      });
     }
     
     chapters.push({
       id: chapId, chapterNumber: i + 1,
       title: match.outline.title, summary: '',
-      content: chapterContent, isGenerating: false,
+      content: mainContent, isGenerating: false,
       parentId: null, sortOrder: sortCounter++,
       type: 'chapter', children: subtopics
     });

@@ -122,7 +122,10 @@ const ChapterNode = ({
               chapter.isGenerating ? "bg-cyan-400 opacity-100 animate-pulse" : "bg-current opacity-50"
             )} />
           )}
-          <span className="truncate">{chapter.isGenerating ? 'Generating...' : chapter.title}</span>
+          <span className="truncate flex items-center gap-1.5">
+            {chapter.type === 'exercise' && <span className="text-base leading-none">📝</span>}
+            {chapter.isGenerating ? 'Generating...' : chapter.title}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           {chapter.isGenerating && (
