@@ -383,9 +383,11 @@ export function stripRepeatingHeaders(text: string): string {
     if (/next: →/i.test(trimmed)) return false;
     if (/previous:/i.test(trimmed)) return false;
     if (/next:/i.test(trimmed)) return false;
-    if (/download pdf\s*\d*/i.test(trimmed)) return false; // "Download PDF 1"
+    // Strip isolated page numbers or repeated headers like "EUREKA LOGIC..."
+    if (/^eureka\s+logic/i.test(trimmed)) return false;
+    // This regex specifically catches lines like "- 7 16", "- 7 17" which are breaking the sub-topic detection
+    if (/^[-]?\s*\d+\s+\d+$/i.test(trimmed)) return false;
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 80) return false;
-    if (/^eureka\s+logic/i.test(trimmed) && trimmed.length < 50) return false;
     // New: Remove any line that starts with "Page Preview" or "Table of Contents"
     if (/^page\s+preview/i.test(trimmed)) return false;
     if (/^table\s+of\s+contents/i.test(trimmed)) return false;
@@ -781,7 +783,7 @@ export async function extractByOutline(text: string, outline: {title: string, su
     }
 
     // --- ULTRA-FLEXIBLE REGEX TRIAL ---
-    const subtopicRegex = /\n\s*([a-zA-Z]\.\s*[A-Za-z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s*[A-Za-z][A-Za-z0-9\s]+|[ivx]+\.\s*[A-Za-z][A-Za-z0-9\s]+|(?:[A-Za-z]+)\s+[A-Za-z][A-Za-z0-9\s]+):?/g;
+    const subtopicRegex = /\n\s*([a-zA-Z]\.\s*[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s*[A-Z][A-Za-z0-9\s]+|[ivx]+\.\s*[A-Z][A-Za-z0-9\s]+):?/g;
     let matchArr;
     const sections: { title: string, start: number, end: number }[] = [];
     
@@ -930,15 +932,11 @@ export async function processDocument(
   // --------------------------------------------------------------------------
   onProgress('Analyzing document structure with AI…');
   let outline = await generateOutline(processedText);
-  // Filter out any chapters that are just "Section X" or "Unit X" without a descriptive name
+  // Filter out completely generic headings that have no real descriptive title
   if (outline && outline.length > 0) {
     outline = outline.filter(ch => {
       const title = ch.title.trim();
-      // Keep real chapters (must have at least 2 words, or contain a specific keyword)
-      const words = title.split(/\s+/);
-      if (words.length < 2) return false; // e.g., "Section 1" is just two words, but we want to filter it
-      if (/^Section\s+\d+$/i.test(title)) return false; // Specific filter for "Section 1"
-      if (/^Unit\s+\d+$/i.test(title)) return false; // Filter out "Unit 1" without a description
+      if (/^(Section|Unit)\s+[0-9IVX]+$/i.test(title)) return false;
       return true;
     });
   }
