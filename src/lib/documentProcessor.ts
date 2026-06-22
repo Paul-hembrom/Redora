@@ -339,15 +339,12 @@ export function splitIntoChapters(text: string): string[] {
  * to allow the extractor to start cleanly.
  */
 export function stripFrontMatter(text: string): string {
-  // Aggressively strip the first 3000 chars if it looks like cover page/filename/PDF noise
   const checkArea = text.slice(0, 3000);
   if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s*logic/i.test(checkArea)) {
-    // Try to find the first real Unit/Chapter heading to start the text
     const firstUnit = text.match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
     if (firstUnit && firstUnit.index !== undefined) {
       return text.slice(firstUnit.index).trim();
     }
-    // Fallback: drop the first 3000 characters
     return text.slice(3000).trim();
   }
   return text;
@@ -382,11 +379,9 @@ export function stripRepeatingHeaders(text: string): string {
     if (/next: →/i.test(trimmed)) return false;
     if (/previous:/i.test(trimmed)) return false;
     if (/next:/i.test(trimmed)) return false;
-    if (/download pdf\s*\d*/i.test(trimmed)) return false; // Matches "Download PDF 1"
     
     // Strip isolated page numbers or repeated headers like "EUREKA LOGIC..."
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 50) return false;
-    if (/^eureka\s+logic/i.test(trimmed) && trimmed.length < 50) return false;
     
     return true;
   }).join('\n');
@@ -710,22 +705,20 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
   const chapters: Chapter[] = [];
   let sortCounter = 0;
 
-  // Skip past the Table of Contents entirely
   let contentStartIndex = 0;
   const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
   const tocMatch = text.match(tocRegex);
   if (tocMatch && tocMatch.index !== undefined) {
-    contentStartIndex = tocMatch.index + 3000; // Jump way past TOC
+    contentStartIndex = tocMatch.index + 3000;
   }
 
-  // Helper to find chapters skipping navigation links
   const findChapterIndex = (text: string, title: string, startSearch: number): number => {
     let pos = text.indexOf(title, startSearch);
     while (pos !== -1) {
       const lineStart = text.lastIndexOf('\n', pos);
       const lineEnd = text.indexOf('\n', pos + title.length);
       const line = text.substring(lineStart + 1, lineEnd === -1 ? undefined : lineEnd).trim();
-      if (/^(?:next|previous)\s*[:\-]?\s*/i.test(line) || /download\s*pdf/i.test(line)) {
+      if (/^(?:Next:|Previous:)/i.test(line) || /Download PDF/i.test(line)) {
         pos = text.indexOf(title, pos + title.length);
         continue;
       }
@@ -734,7 +727,6 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     return -1;
   };
 
-  // Filter out backmatter so Abbreviations/Bibliography don't take over
   const BACKMATTER_TITLES = ['abbreviations', 'bibliography', 'model questions', 'index', 'references'];
   const cleanOutline = outline
     .map(c => ({ title: c.title.trim(), subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean) }))
@@ -758,9 +750,6 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     let chapterEnd = nextMatch ? nextMatch.idx : text.length;
     let chapterContent = text.substring(match.idx, chapterEnd).trim();
     
-    // Remove leading navigation junk
-    chapterContent = chapterContent.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
-    
     let chapterRegex = new RegExp(`^${match.outline.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
     chapterContent = chapterContent.replace(chapterRegex, '').trim();
 
@@ -769,7 +758,6 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     let mainContent = chapterContent;
     let exerciseContent = '';
 
-    // Split out the Exercise section
     const exerciseRegex = /\n\s*(?:Exercise|Exercises|Practice)\b/i; 
     const exerciseMatch = chapterContent.match(exerciseRegex);
     if (exerciseMatch && exerciseMatch.index !== undefined) {
@@ -777,9 +765,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
     }
 
-    // --- THE NEW FORCEFUL SUB-TOPIC SPLITTER ---
-    // We look for patterns like "a. Abacus", "b. Napier's Bone", "1.1 Introduction"
-    const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+):?/g;
+    const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+|[ivx]+\.\s+[A-Z][A-Za-z0-9\s]+):?/g;
     let matchArr;
     const sections: { title: string, start: number, end: number }[] = [];
     
@@ -787,43 +773,38 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
         sections.push({
             title: matchArr[1].trim(),
             start: matchArr.index,
-            end: -1 // will be set later
+            end: -1
         });
     }
     
-    // Assign ends to the sections
     if (sections.length > 0) {
         for (let k = 0; k < sections.length; k++) {
             const nextSection = sections[k + 1];
             sections[k].end = nextSection ? nextSection.start : mainContent.length;
         }
 
-        // Extract content for each subtopic and push to the children array
         for (const sec of sections) {
             let secContent = mainContent.substring(sec.start, sec.end).trim();
-            // Remove the title line from the actual content
             const titleRegex = new RegExp(`^${sec.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
             secContent = secContent.replace(titleRegex, '').trim();
 
-            if (secContent.length > 10) {
-                subtopics.push({
-                    id: uuidv4(),
-                    chapterNumber: subtopics.length + 1,
-                    title: sec.title,
-                    summary: '',
-                    content: secContent,
-                    isGenerating: false,
-                    parentId: chapId,
-                    sortOrder: sortCounter++,
-                    type: 'topic',
-                    children: []
-                });
-            }
+            subtopics.push({
+                id: uuidv4(),
+                chapterNumber: subtopics.length + 1,
+                title: sec.title,
+                summary: '',
+                content: secContent,
+                isGenerating: false,
+                parentId: chapId,
+                sortOrder: sortCounter++,
+                type: 'topic',
+                children: []
+            });
         }
+        
+        mainContent = mainContent.substring(0, sections[0].start).trim();
     }
-    // --------------------------------------------
 
-    // Push Exercise node if it exists
     if (exerciseContent) {
       subtopics.push({
         id: uuidv4(),
@@ -844,12 +825,12 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       chapterNumber: i + 1,
       title: match.outline.title,
       summary: '',
-      content: mainContent, // Main intro + content that wasn't split
+      content: mainContent,
       isGenerating: false,
       parentId: null,
       sortOrder: sortCounter++,
       type: 'chapter',
-      children: subtopics // THIS NOW CONTAINS "a. Abacus", "b. Napier's Bone", etc!
+      children: subtopics
     });
   }
   
