@@ -332,9 +332,9 @@ export function splitIntoChapters(text: string): string[] {
 // ---------------------------------------------------------------------------
 // Hybrid chapter detection (regex‑based, used as final fallback)
 // ---------------------------------------------------------------------------
-export function splitIntoChaptersEnhanced(text: string): Chapter[] {
+export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCounterStart = 0): Chapter[] {
   const allChapters: Chapter[] = [];
-  let sortCounter = 0;
+  let sortCounter = sortCounterStart;
 
   const chapterRegex = /(?=\n(?:(?:Chapter|Section|Part)\s+[0-9IVX]+|\d+(?:\.\d+)*\.?)\s*(?:[:.-]?\s*[^\n]{0,100})?\n)/gi;
   
@@ -345,7 +345,7 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
     originalSplits = [text];
   }
 
-  let chapterIndex = 1;
+  let chapterIndex = titleOffset + 1;
 
   for (const part of originalSplits) {
     let titleStr = `Section ${chapterIndex}`;
@@ -362,7 +362,7 @@ export function splitIntoChaptersEnhanced(text: string): Chapter[] {
         titleStr = firstLine;
         contentToProcess = contentToProcess.substring(firstLine.length).trim();
       } else if (originalSplits.length === 1) {
-        titleStr = "Document Summary";
+        titleStr = `Section ${chapterIndex}`;
       }
     }
 
@@ -459,7 +459,7 @@ function parseHierarchyIntoChapters(
         chapterNumber: pIdx + 1,
         title: part.title || `Part ${pIdx + 1}`,
         summary: '',                         // NO AUTO SUMMARY
-        content: '',
+        content: part.content || '',
         isGenerating: false,
         parentId: null,
         sortOrder: sortCounter.value++,
@@ -475,7 +475,7 @@ function parseHierarchyIntoChapters(
             chapterNumber: cIdx + 1,
             title: chap.title || `Chapter ${cIdx + 1}`,
             summary: '',                     // NO AUTO SUMMARY
-            content: '',
+            content: chap.content || '',
             isGenerating: false,
             parentId: partId,
             sortOrder: sortCounter.value++,
@@ -490,7 +490,7 @@ function parseHierarchyIntoChapters(
                 chapterNumber: tIdx + 1,
                 title: topic.title || `Topic ${tIdx + 1}`,
                 summary: '',                 // NO AUTO SUMMARY
-                content: topic.content || chunk,   // AI‑provided content or fallback to chunk
+                content: topic.content || '',   // AI‑provided content
                 isGenerating: false,
                 parentId: chapId,
                 sortOrder: sortCounter.value++,
@@ -513,7 +513,7 @@ function parseHierarchyIntoChapters(
         chapterNumber: cIdx + 1,
         title: chap.title || `Chapter ${cIdx + 1}`,
         summary: '',
-        content: '',
+        content: chap.content || '',
         isGenerating: false,
         parentId: null,
         sortOrder: sortCounter.value++,
@@ -528,7 +528,7 @@ function parseHierarchyIntoChapters(
             chapterNumber: tIdx + 1,
             title: topic.title || `Topic ${tIdx + 1}`,
             summary: '',
-            content: topic.content || chunk,
+            content: topic.content || '',
             isGenerating: false,
             parentId: chapId,
             sortOrder: sortCounter.value++,
@@ -548,7 +548,7 @@ function parseHierarchyIntoChapters(
         chapterNumber: tIdx + 1,
         title: topic.title || `Topic ${tIdx + 1}`,
         summary: '',
-        content: topic.content || chunk,
+        content: topic.content || '',
         isGenerating: false,
         parentId: null,
         sortOrder: sortCounter.value++,
@@ -690,7 +690,7 @@ export async function processDocument(
     limit(async () => {
       onProgress(`Analyzing chunk ${i + 1} of ${chunks.length}…`);
       try {
-        const detectedChapters = splitIntoChaptersEnhanced(chunk);
+        const detectedChapters = splitIntoChaptersEnhanced(chunk, i * 100);
         const detectedHeadings: string[] = [];
         
         // Extract flat list of titles from detected chapters and their children
@@ -714,23 +714,32 @@ export async function processDocument(
         // For each generated topic/chapter, ensure that its content actually appears in the chunk.
         // If the AI truncated it too much or hallucinated, it won't match well.
         let isValidContent = true;
+        let leafCount = 0;
         
+        const countLeaves = (chapters: Chapter[]) => {
+          for (const ch of chapters) {
+            if (ch.children && ch.children.length > 0) countLeaves(ch.children);
+            else leafCount++;
+          }
+        };
+        countLeaves(chunkChapters);
+
         const verifyContent = (chapters: Chapter[]) => {
           for (const ch of chapters) {
             if (ch.content && ch.content.length > 50) {
-              // Basic check if the AI returned content that is actually inside the chunk
-              // Since AI might slightly reformat, we do a loose check: does the first 20 chars exist?
               const startSnippet = ch.content.substring(0, 50).replace(/\s+/g, ' ').trim();
               if (startSnippet.length > 10 && !chunk.replace(/\s+/g, ' ').includes(startSnippet)) {
-                // If the snippet is not found in the original chunk, verify failed.
-                // It might be a hallucination or it omitted the text completely.
+                isValidContent = false;
+              }
+              // If there are multiple leaf nodes, but one of them has >85% of the chunk, it probably duplicated the whole chunk.
+              if (leafCount > 1 && ch.content.length > chunk.length * 0.85) {
+                console.warn(`[documentProcessor] Node ${ch.title} swallowed the whole chunk.`);
                 isValidContent = false;
               }
             }
             if (ch.children && ch.children.length > 0) {
               verifyContent(ch.children);
             } else if (!ch.content || ch.content.trim() === '') {
-              // Lowest level nodes MUST have content.
               isValidContent = false;
             }
           }
@@ -755,7 +764,7 @@ export async function processDocument(
       } catch (err) {
         console.error(`[documentProcessor] Chunk ${i + 1} AI hierarchy failed, falling back to regex`, err);
         // Fallback to regex‑based splitting for this chunk
-        const fallbackChapters = splitIntoChaptersEnhanced(chunk);
+        const fallbackChapters = splitIntoChaptersEnhanced(chunk, i * 100);
         fallbackChapters.forEach(ch => {
           ch.sortOrder = sortCounter.value++;
           allChapters.push(ch);
