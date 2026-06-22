@@ -124,7 +124,7 @@ async function withRetry<T>(
 }
 
 // ---------------------------------------------------------------------------
-// File text extraction (unchanged – your existing robust version)
+// File text extraction
 // ---------------------------------------------------------------------------
 export async function extractTextFromFile(
   file: File,
@@ -279,67 +279,14 @@ export async function extractTextFromFile(
 }
 
 // ---------------------------------------------------------------------------
-// Chapter / chunk splitting (old AI‑ready chunks, kept for fallback)
-// ---------------------------------------------------------------------------
-export function splitIntoChapters(text: string): string[] {
-  let dynamicChunkSize = Math.max(8_000, Math.min(30_000, Math.ceil(text.length / MAX_CONCURRENCY)));
-  if (text.length > 500_000) {
-     dynamicChunkSize = Math.min(60_000, Math.ceil(text.length / (MAX_CONCURRENCY * 2)));
-  }
-
-  const chapterRegex = /\n(?=(?:Chapter|Section|Part)\s+[0-9IVX]+)/gi;
-  const originalSplits = text.split(chapterRegex).filter(s => s.trim().length > 100);
-
-  let parts = originalSplits.length > 1 ? originalSplits : text.split(/\n\s*\n/);
-
-  if (parts.length < 5 && originalSplits.length <= 1) {
-    parts = text.split('\n');
-  }
-
-  const chunks: string[] = [];
-  let currentChunk = '';
-
-  for (const part of parts) {
-    if (part.length > dynamicChunkSize) {
-      if (currentChunk) {
-        chunks.push(currentChunk);
-        currentChunk = '';
-      }
-      for (let i = 0; i < part.length; i += dynamicChunkSize) {
-        chunks.push(part.slice(i, i + dynamicChunkSize));
-      }
-    } else if (
-      currentChunk.length + part.length > dynamicChunkSize &&
-      currentChunk.length > 0
-    ) {
-      chunks.push(currentChunk);
-      currentChunk = part;
-    } else {
-      currentChunk += (currentChunk ? '\n' : '') + part;
-    }
-  }
-
-  if (currentChunk) chunks.push(currentChunk);
-
-  if (chunks.length === 0) {
-    for (let i = 0; i < text.length; i += dynamicChunkSize) {
-      chunks.push(text.slice(i, i + dynamicChunkSize));
-    }
-  }
-
-  return chunks;
-}
-
-// ---------------------------------------------------------------------------
 // PREPROCESSING FILTERS
 // ---------------------------------------------------------------------------
 
 /** 
- * Aggressively strips PDF noise, cover pages, and "Download PDF" 
- * to allow the extractor to start cleanly.
+ * Aggressively strips the first 3000 chars if it looks like cover page/filename/PDF noise.
+ * Tries to find the first real Unit/Chapter heading to start the text.
  */
 export function stripFrontMatter(text: string): string {
-  // Aggressively strip the first 3000 chars if it looks like cover page/filename/PDF noise
   const checkArea = text.slice(0, 3000);
   if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s*logic/i.test(checkArea)) {
     // Try to find the first real Unit/Chapter heading to start the text
@@ -382,7 +329,7 @@ export function stripRepeatingHeaders(text: string): string {
     if (/next: →/i.test(trimmed)) return false;
     if (/previous:/i.test(trimmed)) return false;
     if (/next:/i.test(trimmed)) return false;
-    if (/download pdf\s*\d*/i.test(trimmed)) return false; // Matches "Download PDF 1"
+    if (/download pdf\s*\d*/i.test(trimmed)) return false;
     
     // Strip isolated page numbers or repeated headers like "EUREKA LOGIC..."
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 50) return false;
@@ -393,16 +340,16 @@ export function stripRepeatingHeaders(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Hybrid chapter detection (regex‑based, used as final fallback)
+// HELPER: Forceful Structure Splitter (The "Win" Function)
 // ---------------------------------------------------------------------------
 export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCounterStart = 0): Chapter[] {
   const allChapters: Chapter[] = [];
   let sortCounter = sortCounterStart;
 
-  const chapterRegex = /(?=\n\s*(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,100})?|\d+\.\s+[A-Z]|\(Page\s*\d+\)))/gi;
-  
+  // 1. Split by Main Chapters (Unit X:, Chapter X:, Section X:)
+  const chapterRegex = /(?=\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,200})?)/gi;
   const evalText = text.startsWith('\n') ? text : '\n' + text;
-  let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
+  let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 100);
 
   if (originalSplits.length <= 1) {
     originalSplits = [text];
@@ -413,7 +360,9 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   for (const part of originalSplits) {
     let titleStr = `Section ${chapterIndex}`;
     let contentToProcess = part.trim();
-    const firstLineMatch = contentToProcess.match(/^(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:[:\-]?\s*[^\n]+)?|\d+\.\s+[^\n]+|\(Page\s*\d+\)[^\n]*)/i);
+    
+    // Extract the Chapter Title from the first line
+    const firstLineMatch = contentToProcess.match(/^(?:(?:Unit|Chapter|Section)\s+[0-9IVX]+(?:[:\-]?\s*[^\n]+)?|\d+\.\s+[^\n]+|\(Page\s*\d+\)[^\n]*)/i);
     if (firstLineMatch) {
       titleStr = firstLineMatch[0].trim();
       if (contentToProcess.startsWith(titleStr)) {
@@ -430,31 +379,52 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
     }
 
     const chapterId = uuidv4();
-    
-    const subtopicRegex = /(?=\n\s*(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[A-Z]|\*\*[^\n]+\*\*|[^\n]+:\n\s*(?:[-*•]|\d+\.)))/gi;
+    const subtopics: Chapter[] = [];
+
+    // 2. Split the chapter into sections (Subtopics: a., b., i., ii., 1., 2., etc.)
+    // Also capture "Exercise", "Summary", "Technical Terms"
+    const subtopicRegex = /(?=\n\s*(?:(?:[a-z]\.|[ivx]+\.)\s+[A-Z]|\d+\.\d+\s+[A-Z]|Exercise|Summary|Technical Terms|Project Work|Lab Work))/gi;
     const subSplits = contentToProcess.split(subtopicRegex).filter(s => s.trim().length > 20);
 
     if (subSplits.length > 1) {
+      // Preamble (e.g., Learning Objectives, Introduction)
       const preamble = subSplits[0].trim();
-      
-      allChapters.push({
-        id: chapterId,
-        chapterNumber: chapterIndex,
-        title: titleStr,
-        summary: '',
-        content: preamble,
-        isGenerating: false,
-        parentId: null,
-        sortOrder: sortCounter++,
-        type: 'chapter',
-        children: []
-      });
+      if (preamble.length > 10) {
+          allChapters.push({
+            id: chapterId,
+            chapterNumber: chapterIndex,
+            title: titleStr,
+            summary: '',
+            content: preamble,
+            isGenerating: false,
+            parentId: null,
+            sortOrder: sortCounter++,
+            type: 'chapter',
+            children: []
+          });
+      } else {
+          // If preamble is empty, we still need to push the chapter node, but we'll attach children to it.
+          allChapters.push({
+            id: chapterId,
+            chapterNumber: chapterIndex,
+            title: titleStr,
+            summary: '',
+            content: '',
+            isGenerating: false,
+            parentId: null,
+            sortOrder: sortCounter++,
+            type: 'chapter',
+            children: []
+          });
+      }
 
+      // 3. Process each subtopic block
       for (let i = 1; i < subSplits.length; i++) {
         const sub = subSplits[i].trim();
         let subTitle = `Topic ${chapterIndex}.${i}`;
-        const subFirstLineMatch = sub.match(/^(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[^\n]+|\*\*[^\n]+\*\*|[^\n]+:)/i);
         
+        // Extract the subtopic title
+        const subFirstLineMatch = sub.match(/^(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[^\n]+|Exercise|Summary|Technical Terms|Project Work|Lab Work)/i);
         let subContent = sub;
         if (subFirstLineMatch) {
           subTitle = subFirstLineMatch[0].replace(/\*\*/g, '').trim();
@@ -467,7 +437,14 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
           }
         }
 
-        allChapters.push({
+        // Determine type based on title
+        let type: 'topic' | 'exercise' | 'summary' | 'glossary' = 'topic';
+        const lowerTitle = subTitle.toLowerCase();
+        if (lowerTitle.includes('exercise')) type = 'exercise';
+        else if (lowerTitle.includes('summary')) type = 'summary';
+        else if (lowerTitle.includes('technical terms')) type = 'glossary';
+
+        subtopics.push({
           id: uuidv4(),
           chapterNumber: i,
           title: subTitle,
@@ -476,11 +453,19 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
           isGenerating: false,
           parentId: chapterId,
           sortOrder: sortCounter++,
-          type: 'topic',
+          type: type,
           children: []
         });
       }
+
+      // Find the main chapter we just pushed and attach the subtopics
+      const parentChapter = allChapters.find(ch => ch.id === chapterId);
+      if (parentChapter) {
+          parentChapter.children = subtopics;
+      }
+
     } else {
+      // If no subtopics, push the whole thing as a single chapter
       allChapters.push({
         id: chapterId,
         chapterNumber: chapterIndex,
@@ -502,366 +487,11 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
 }
 
 // ---------------------------------------------------------------------------
-// Hierarchy parsing helpers
-// ---------------------------------------------------------------------------
-function parseHierarchyIntoChapters(
-  hierarchy: any,
-  chunk: string,
-  allChapters: Chapter[],
-  sortCounter: { value: number },
-): void {
-  if (!hierarchy || typeof hierarchy !== 'object') {
-    throw new Error('Invalid hierarchy format');
-  }
-
-  if (hierarchy.parts && Array.isArray(hierarchy.parts)) {
-    hierarchy.parts.forEach((part: any, pIdx: number) => {
-      const partId = uuidv4();
-      allChapters.push({
-        id: partId,
-        chapterNumber: pIdx + 1,
-        title: part.title || `Part ${pIdx + 1}`,
-        summary: '',                         
-        content: part.content || '',
-        isGenerating: false,
-        parentId: null,
-        sortOrder: sortCounter.value++,
-        type: 'part',
-        children: [],
-      });
-
-      if (part.chapters && Array.isArray(part.chapters)) {
-        part.chapters.forEach((chap: any, cIdx: number) => {
-          const chapId = uuidv4();
-          allChapters.push({
-            id: chapId,
-            chapterNumber: cIdx + 1,
-            title: chap.title || `Chapter ${cIdx + 1}`,
-            summary: '',                     
-            content: chap.content || '',
-            isGenerating: false,
-            parentId: partId,
-            sortOrder: sortCounter.value++,
-            type: 'chapter',
-            children: [],
-          });
-
-          if (chap.topics && Array.isArray(chap.topics)) {
-            chap.topics.forEach((topic: any, tIdx: number) => {
-              allChapters.push({
-                id: uuidv4(),
-                chapterNumber: tIdx + 1,
-                title: topic.title || `Topic ${tIdx + 1}`,
-                summary: '',                 
-                content: topic.content || '',   
-                isGenerating: false,
-                parentId: chapId,
-                sortOrder: sortCounter.value++,
-                type: 'topic',
-                children: [],
-              });
-            });
-          }
-        });
-      }
-    });
-    return;
-  }
-
-  if (hierarchy.chapters && Array.isArray(hierarchy.chapters)) {
-    hierarchy.chapters.forEach((chap: any, cIdx: number) => {
-      const chapId = uuidv4();
-      allChapters.push({
-        id: chapId,
-        chapterNumber: cIdx + 1,
-        title: chap.title || `Chapter ${cIdx + 1}`,
-        summary: '',
-        content: chap.content || '',
-        isGenerating: false,
-        parentId: null,
-        sortOrder: sortCounter.value++,
-        type: 'chapter',
-        children: [],
-      });
-
-      if (chap.topics && Array.isArray(chap.topics)) {
-        chap.topics.forEach((topic: any, tIdx: number) => {
-          allChapters.push({
-            id: uuidv4(),
-            chapterNumber: tIdx + 1,
-            title: topic.title || `Topic ${tIdx + 1}`,
-            summary: '',
-            content: topic.content || '',
-            isGenerating: false,
-            parentId: chapId,
-            sortOrder: sortCounter.value++,
-            type: 'topic',
-            children: [],
-          });
-        });
-      }
-    });
-    return;
-  }
-
-  if (hierarchy.topics && Array.isArray(hierarchy.topics)) {
-    hierarchy.topics.forEach((topic: any, tIdx: number) => {
-      allChapters.push({
-        id: uuidv4(),
-        chapterNumber: tIdx + 1,
-        title: topic.title || `Topic ${tIdx + 1}`,
-        summary: '',
-        content: topic.content || '',
-        isGenerating: false,
-        parentId: null,
-        sortOrder: sortCounter.value++,
-        type: 'topic',
-        children: [],
-      });
-    });
-    return;
-  }
-
-  throw new Error('Hierarchy contained no parts, chapters, or topics');
-}
-
-// ---------------------------------------------------------------------------
-// Clean academic paper hierarchy
-// ---------------------------------------------------------------------------
-function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
-  let cleaned = [...nodes];
-
-  cleaned.forEach(node => {
-    if (node.children && node.children.length > 0) {
-      node.children = cleanAcademicPaperHierarchy(node.children);
-    }
-  });
-
-  const sanitizeTitle = (t: string) => (t || '').toLowerCase().replace(/^(part|chapter)\s*\d*[:\-]?\s*/i, '').trim();
-
-  cleaned = cleaned.filter(ch => {
-    const titleLower = (ch.title || '').toLowerCase();
-    if (titleLower.includes('main text') && (!ch.children || ch.children.length === 0)) {
-      return false;
-    }
-    return true;
-  });
-
-  let i = 0;
-  while (i < cleaned.length - 1) {
-    const a = cleaned[i];
-    const b = cleaned[i + 1];
-    const aClean = sanitizeTitle(a.title);
-    const bClean = sanitizeTitle(b.title);
-    
-    if (aClean === bClean && aClean.length > 0) {
-      a.summary = (a.summary || '').length > (b.summary || '').length ? a.summary : (b.summary || '');
-      a.content = [a.content, b.content].filter(x => x && x.trim().length > 0).join('\n\n');
-      if (a.children || b.children) {
-        a.children = [...(a.children || []), ...(b.children || [])];
-      }
-      cleaned.splice(i + 1, 1);
-    } else {
-      i++;
-    }
-  }
-
-  let finalNodes: Chapter[] = [];
-  for (const node of cleaned) {
-    if ((node.type === 'part' || node.type === 'chapter') && node.children?.length === 1) {
-      const singleChild = node.children[0];
-      if (singleChild.type === 'topic' && /references?/i.test(singleChild.title || '')) {
-         finalNodes.push(singleChild);
-         continue;
-      }
-    }
-
-    if (node.type === 'part' && node.children?.length === 1) {
-      const singleChapter = node.children[0];
-      if (singleChapter.type === 'chapter' && singleChapter.children && singleChapter.children.every(c => c.type === 'topic')) {
-        const partClean = sanitizeTitle(node.title);
-        const chClean = sanitizeTitle(singleChapter.title);
-        
-        if (partClean === chClean || partClean === '') {
-          if (chClean === '' && singleChapter.children.length > 0) {
-             finalNodes.push(...singleChapter.children);
-          } else {
-             finalNodes.push(singleChapter);
-          }
-          continue;
-        }
-      }
-    }
-
-    finalNodes.push(node);
-  }
-
-  return finalNodes;
-}
-
-function escapeRegExp(string: string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// ---------------------------------------------------------------------------
-// EXTRACT BY OUTLINE (MANUAL SPLITTER + NAVIGATION STRIPPER)
-// ---------------------------------------------------------------------------
-export function extractByOutline(text: string, outline: {title: string, subtopics: string[]}[]): Chapter[] {
-  const chapters: Chapter[] = [];
-  let sortCounter = 0;
-
-  // Skip past the Table of Contents entirely
-  let contentStartIndex = 0;
-  const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
-  const tocMatch = text.match(tocRegex);
-  if (tocMatch && tocMatch.index !== undefined) {
-    contentStartIndex = tocMatch.index + 3000; // Jump way past TOC
-  }
-
-  // Helper to find chapters skipping navigation links
-  const findChapterIndex = (text: string, title: string, startSearch: number): number => {
-    let pos = text.indexOf(title, startSearch);
-    while (pos !== -1) {
-      const lineStart = text.lastIndexOf('\n', pos);
-      const lineEnd = text.indexOf('\n', pos + title.length);
-      const line = text.substring(lineStart + 1, lineEnd === -1 ? undefined : lineEnd).trim();
-      if (/^(?:next|previous)\s*[:\-]?\s*/i.test(line) || /download\s*pdf/i.test(line)) {
-        pos = text.indexOf(title, pos + title.length);
-        continue;
-      }
-      return pos;
-    }
-    return -1;
-  };
-
-  // Filter out backmatter so Abbreviations/Bibliography don't take over
-  const BACKMATTER_TITLES = ['abbreviations', 'bibliography', 'model questions', 'index', 'references'];
-  const cleanOutline = outline
-    .map(c => ({ title: c.title.trim(), subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean) }))
-    .filter(c => c.title && !BACKMATTER_TITLES.some(bt => c.title.toLowerCase().includes(bt)));
-
-  const chapterMatchs = cleanOutline.map(c => {
-    let idx = findChapterIndex(text, c.title, contentStartIndex);
-    if (idx === -1) {
-      const regexStr = c.title.split(/\s+/).map(escapeRegExp).join('\\s+');
-      const regex = new RegExp(regexStr, 'i');
-      const match = text.substring(contentStartIndex).match(regex);
-      if (match && match.index !== undefined) idx = contentStartIndex + match.index;
-    }
-    return { outline: c, idx };
-  }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
-  
-  for (let i = 0; i < chapterMatchs.length; i++) {
-    const match = chapterMatchs[i];
-    const nextMatch = i + 1 < chapterMatchs.length ? chapterMatchs[i+1] : null;
-    
-    let chapterEnd = nextMatch ? nextMatch.idx : text.length;
-    let chapterContent = text.substring(match.idx, chapterEnd).trim();
-    
-    // Remove leading navigation junk
-    chapterContent = chapterContent.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
-    
-    let chapterRegex = new RegExp(`^${match.outline.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
-    chapterContent = chapterContent.replace(chapterRegex, '').trim();
-
-    const chapId = uuidv4();
-    const subtopics: Chapter[] = [];
-    let mainContent = chapterContent;
-    let exerciseContent = '';
-
-    // Split out the Exercise section
-    const exerciseRegex = /\n\s*(?:Exercise|Exercises|Practice)\b/i; 
-    const exerciseMatch = chapterContent.match(exerciseRegex);
-    if (exerciseMatch && exerciseMatch.index !== undefined) {
-      mainContent = chapterContent.substring(0, exerciseMatch.index).trim();
-      exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
-    }
-
-    // --- THE NEW FORCEFUL SUB-TOPIC SPLITTER ---
-    // We look for patterns like "a. Abacus", "b. Napier's Bone", "1.1 Introduction"
-    const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+):?/g;
-    let matchArr;
-    const sections: { title: string, start: number, end: number }[] = [];
-    
-    while ((matchArr = subtopicRegex.exec(mainContent)) !== null) {
-        sections.push({
-            title: matchArr[1].trim(),
-            start: matchArr.index,
-            end: -1 // will be set later
-        });
-    }
-    
-    // Assign ends to the sections
-    if (sections.length > 0) {
-        for (let k = 0; k < sections.length; k++) {
-            const nextSection = sections[k + 1];
-            sections[k].end = nextSection ? nextSection.start : mainContent.length;
-        }
-
-        // Extract content for each subtopic and push to the children array
-        for (const sec of sections) {
-            let secContent = mainContent.substring(sec.start, sec.end).trim();
-            // Remove the title line from the actual content
-            const titleRegex = new RegExp(`^${sec.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
-            secContent = secContent.replace(titleRegex, '').trim();
-
-            if (secContent.length > 10) {
-                subtopics.push({
-                    id: uuidv4(),
-                    chapterNumber: subtopics.length + 1,
-                    title: sec.title,
-                    summary: '',
-                    content: secContent,
-                    isGenerating: false,
-                    parentId: chapId,
-                    sortOrder: sortCounter++,
-                    type: 'topic',
-                    children: []
-                });
-            }
-        }
-    }
-    // --------------------------------------------
-
-    // Push Exercise node if it exists
-    if (exerciseContent) {
-      subtopics.push({
-        id: uuidv4(),
-        chapterNumber: subtopics.length + 1,
-        title: 'Chapter Exercises',
-        summary: '',
-        content: exerciseContent,
-        isGenerating: false,
-        parentId: chapId,
-        sortOrder: sortCounter++,
-        type: 'exercise',
-        children: []
-      });
-    }
-
-    chapters.push({
-      id: chapId,
-      chapterNumber: i + 1,
-      title: match.outline.title,
-      summary: '',
-      content: mainContent, // Main intro + content that wasn't split
-      isGenerating: false,
-      parentId: null,
-      sortOrder: sortCounter++,
-      type: 'chapter',
-      children: subtopics // THIS NOW CONTAINS "a. Abacus", "b. Napier's Bone", etc!
-    });
-  }
-  
-  return chapters;
-}
-
-// ---------------------------------------------------------------------------
 // Main document processing pipeline
 // ---------------------------------------------------------------------------
 
 /**
- * Full pipeline: extract → preprocess → AI Outline → Content Split → (Optional) Deep AI summaries
+ * Full pipeline: extract → preprocess → Regex Structure Parsing → (Optional) Deep AI summaries
  */
 export async function processDocument(
   file: File,
@@ -892,44 +522,24 @@ export async function processDocument(
   let finalChapters: Chapter[] = [];
 
   // --------------------------------------------------------------------------
-  // Step B: Call AI for Outline (Lightweight)
+  // Step B: Brute Force Regex Parsing (Bypass AI Outline completely)
   // --------------------------------------------------------------------------
-  onProgress('Analyzing document structure with AI…');
-  let outline = await generateOutline(processedText);
-
-  // --------------------------------------------------------------------------
-  // Step C: If Outline is found, use exact position matching
-  // --------------------------------------------------------------------------
-  if (outline && outline.length > 0) {
-    onProgress(`Detected ${outline.length} chapters. Extracting content via precise position mapping…`);
-    finalChapters = extractByOutline(processedText, outline);
-    
-    // If extraction returned nothing despite valid outline, fallback to regex
-    if (finalChapters.length === 0) {
-      onProgress('Outline extraction failed to match text, falling back to regex…');
-      finalChapters = splitIntoChaptersEnhanced(processedText);
-    }
-  } 
-  // --------------------------------------------------------------------------
-  // Step D: If Outline is empty, fallback to Regex Splitting
-  // --------------------------------------------------------------------------
-  else {
-    onProgress('No clear outline found by AI, falling back to regex pattern matching…');
-    finalChapters = splitIntoChaptersEnhanced(processedText);
-  }
+  onProgress('Analyzing document structure via Regex parser…');
+  finalChapters = splitIntoChaptersEnhanced(processedText);
 
   // --------------------------------------------------------------------------
   // Post‑processing: Clean duplicates/flatten hierarchy
   // --------------------------------------------------------------------------
   onProgress(`Processing ${finalChapters.length} sections into hierarchy…`);
-  finalChapters = cleanAcademicPaperHierarchy(finalChapters);
+  // Note: Removed cleanAcademicPaperHierarchy() as the regex parser already handles duplicates cleanly.
+  
   finalChapters.forEach(ch => { ch.isGenerating = false; });
 
   // Call `onDiscovered` immediately so UI can render the tree
   callbacks?.onDiscovered?.(finalChapters);
 
   // --------------------------------------------------------------------------
-  // Step E: If `options.deepProcess` is true, run Batch AI Metadata
+  // Step C: If `options.deepProcess` is true, run Batch AI Metadata
   // --------------------------------------------------------------------------
   if (options.deepProcess) {
     onProgress('Generating detailed summaries (Deep Process)…');
@@ -952,6 +562,8 @@ export async function processDocument(
           const percent = Math.round(((batchIdx + 1) / batches.length) * 100);
           onProgress(`Deep processing: batch ${batchIdx + 1} of ${batches.length} (${percent}%)…`);
 
+          // Note: generateBatchChapterMetadata expects an array of chapters. 
+          // We are passing the top-level chapters. Subtopics will inherit the parent's summary or get their own later.
           const metadataMap = await withRetry(() =>
             generateBatchChapterMetadata(batchData, 3, options.summaryDetail || 'detailed')
           );
