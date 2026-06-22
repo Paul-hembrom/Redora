@@ -932,19 +932,22 @@ export async function processDocument(
   // --------------------------------------------------------------------------
   onProgress('Analyzing document structure with AI…');
   let outline = await generateOutline(processedText);
-  // Filter out completely generic headings that have no real descriptive title
-  if (outline && outline.length > 0) {
-    outline = outline.filter(ch => {
-      const title = ch.title.trim();
-      if (/^(Section|Unit)\s+[0-9IVX]+$/i.test(title)) return false;
-      return true;
-    });
-  }
 
-  // --------------------------------------------------------------------------
-  // Step C: If Outline is found, use exact position matching
-  // --------------------------------------------------------------------------
-  if (outline && outline.length > 0) {
+  // --- NEW GUARDRAIL ---
+  const isGenericOutline = () => {
+    if (!outline || outline.length === 0) return true;
+    if (outline.length === 1) {
+      const title = outline[0].title.trim();
+      if (/^(Section|Unit|Chapter)\s+[0-9IVX]+$/i.test(title)) return true;
+      if (title.length < 10) return true; // very short titles are suspicious
+    }
+    return false;
+  };
+
+  if (outline && outline.length > 0 && !isGenericOutline()) {
+    // --------------------------------------------------------------------------
+    // Step C: If Outline is found (and not generic), use exact position matching
+    // --------------------------------------------------------------------------
     onProgress(`Detected ${outline.length} chapters. Extracting content via precise position mapping…`);
     finalChapters = await extractByOutline(processedText, outline);
     
@@ -954,12 +957,22 @@ export async function processDocument(
       finalChapters = splitIntoChaptersEnhanced(processedText);
     }
   } 
-  // --------------------------------------------------------------------------
-  // Step D: If Outline is empty, fallback to Regex Splitting
-  // --------------------------------------------------------------------------
   else {
-    onProgress('No clear outline found by AI, falling back to regex pattern matching…');
-    finalChapters = splitIntoChaptersEnhanced(processedText);
+    // --------------------------------------------------------------------------
+    // Step D: If Outline is empty or generic, use AI Hierarchy Extraction
+    // --------------------------------------------------------------------------
+    onProgress('Outline too generic. Using AI-driven hierarchical extraction…');
+    
+    // Call the existing generateDocumentHierarchy function with the full text
+    try {
+      const hierarchy = await generateDocumentHierarchy(processedText);
+      const sortCounter = { value: 0 };
+      finalChapters = [];
+      parseHierarchyIntoChapters(hierarchy, processedText, finalChapters, sortCounter);
+    } catch (err) {
+      console.error('AI hierarchy extraction failed, falling back to regex:', err);
+      finalChapters = splitIntoChaptersEnhanced(processedText);
+    }
   }
 
   // --------------------------------------------------------------------------
