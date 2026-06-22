@@ -5,10 +5,8 @@ import ePub from 'epubjs';
 import { PreprocessOptions, Chapter } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  generateBatchChapterMetadata,
   extractTextFromImage,
   ApiRateLimitError,
-  generateOutline, // We only need this for the titles
 } from './gemini';
 
 // ---------------------------------------------------------------------------
@@ -28,9 +26,6 @@ const STOP_WORDS = new Set([
   'into', 'is', 'it', 'no', 'not', 'of', 'on', 'or', 'such', 'that', 'the',
   'their', 'then', 'there', 'these', 'they', 'this', 'to', 'was', 'will', 'with',
 ]);
-
-/** Maximum concurrent AI hierarchy API calls at any time. */
-const MAX_CONCURRENCY = 8;
 
 /** Maximum number of retry attempts for rate-limited API calls. */
 const MAX_RETRIES = 4;
@@ -247,9 +242,15 @@ export async function extractTextFromFile(
 // PREPROCESSING FILTERS
 // ---------------------------------------------------------------------------
 export function stripFrontMatter(text: string): string {
+  // Aggressively strip the first 3000 chars if it looks like cover page/filename/PDF noise.
+  // For this specific book, we also look for "Page Preview 1" or "Table of Contents".
   const checkArea = text.slice(0, 3000);
-  if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s*logic/i.test(checkArea)) {
-    const firstUnit = text.match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
+  if (/computer class\s*\d+\.pdf/i.test(checkArea) || 
+      /download pdf/i.test(checkArea) || 
+      /eureka\s*logic/i.test(checkArea) ||
+      /Page Preview/i.test(checkArea)) {
+    // Try to find the first real Unit/Chapter heading to start the text
+    const firstUnit = text.match(/\n\s*Unit\s+[0-9IVX]+\s+[A-Z]/i);
     if (firstUnit && firstUnit.index !== undefined) {
       return text.slice(firstUnit.index).trim();
     }
@@ -285,6 +286,7 @@ export function stripRepeatingHeaders(text: string): string {
     if (/previous:/i.test(trimmed)) return false;
     if (/next:/i.test(trimmed)) return false;
     if (/download pdf\s*\d*/i.test(trimmed)) return false;
+    if (/Page Preview/i.test(trimmed)) return false;
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 50) return false;
     if (/^eureka\s+logic/i.test(trimmed) && trimmed.length < 50) return false;
     return true;
@@ -298,16 +300,25 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   const allChapters: Chapter[] = [];
   let sortCounter = sortCounterStart;
 
-  // 1. Skip past the Table of Contents
+  // 1. Force-strip any remaining "Page Preview", "Download PDF", "Table of Contents" 
+  //    AND the "Next: / Previous:" lines BEFORE we do any splitting.
+  let cleanedText = text.replace(/Page\s*Preview\s*\d+/gi, '');
+  cleanedText = cleanedText.replace(/Download\s*PDF\s*\d*/gi, '');
+  cleanedText = cleanedText.replace(/←\s*Previous:.*/gi, '');
+  cleanedText = cleanedText.replace(/Next:\s*→.*/gi, '');
+  cleanedText = cleanedText.replace(/Previous:\s*.*/gi, '');
+  cleanedText = cleanedText.replace(/Next:\s*.*/gi, '');
+
+  // 2. Skip past the Table of Contents
   const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
-  const tocMatch = text.match(tocRegex);
-  let processedText = text;
+  const tocMatch = cleanedText.match(tocRegex);
+  let processedText = cleanedText;
   if (tocMatch && tocMatch.index !== undefined) {
-    processedText = text.slice(tocMatch.index + 5000);
+    processedText = cleanedText.slice(tocMatch.index + 4000);
   }
 
-  // 2. Split by Main Chapters (Unit X:, Chapter X:, Section X:)
-  const chapterRegex = /(?=\n\s*(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,100})?|\d+\.\s+[A-Z]|\(Page\s*\d+\)))/gi;
+  // 3. Split by Main Chapters ONLY matching the exact format (Unit X: Name)
+  const chapterRegex = /(?=\n\s*Unit\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,150})?)/gi;
   const evalText = processedText.startsWith('\n') ? processedText : '\n' + processedText;
   let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 100);
 
@@ -321,10 +332,11 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
     let titleStr = `Section ${chapterIndex}`;
     let contentToProcess = part.trim();
     
-    // Remove leading navigation junk
+    // Remove any leading garbage from the top of the part
     contentToProcess = contentToProcess.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
 
-    const firstLineMatch = contentToProcess.match(/^(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:[:\-]?\s*[^\n]+)?|\d+\.\s+[^\n]+|\(Page\s*\d+\)[^\n]*)/i);
+    // Extract the title (Unit X: Name)
+    const firstLineMatch = contentToProcess.match(/^(?:\s*Unit\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]+)?)/i);
     if (firstLineMatch) {
       titleStr = firstLineMatch[0].trim();
       if (contentToProcess.startsWith(titleStr)) {
@@ -335,15 +347,13 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
       if (firstLine && firstLine.length < 80) {
         titleStr = firstLine;
         contentToProcess = contentToProcess.substring(firstLine.length).trim();
-      } else if (originalSplits.length === 1) {
-        titleStr = `Section ${chapterIndex}`;
       }
     }
 
     const chapterId = uuidv4();
     const subtopics: Chapter[] = [];
 
-    // 3. Split the chapter into sections (Subtopics: a., b., i., ii., 1., 2., etc.)
+    // 4. Split the chapter into sections (Subtopics: a., b., i., ii., 1., 2., etc.)
     // Also capture "Exercise", "Summary", "Technical Terms"
     const subtopicRegex = /(?=\n\s*(?:(?:[a-z]\.|[ivx]+\.)\s+[A-Z]|\d+\.\d+\s+[A-Z]|Exercise|Summary|Technical Terms|Project Work|Lab Work|Exercise\s*[\n\r]*Select\s*the\s*best\s*answer))/gi;
     const subSplits = contentToProcess.split(subtopicRegex).filter(s => s.trim().length > 20);
@@ -379,7 +389,7 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
           });
       }
 
-      // 4. Process each subtopic block
+      // 5. Process each subtopic block
       for (let i = 1; i < subSplits.length; i++) {
         const sub = subSplits[i].trim();
         let subTitle = `Topic ${chapterIndex}.${i}`;
@@ -452,8 +462,9 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
 // ---------------------------------------------------------------------------
 
 /**
- * Full pipeline: extract → preprocess → AI Titles → Regex Split
- * AI is ONLY used to get the Unit Titles. Regex splits the actual content into subtopics.
+ * Full pipeline: extract → preprocess → Force Regex Split
+ * Absolutely NO AI usage for the extraction logic. 
+ * This guarantees the exact structure pulled directly from your book's raw text.
  */
 export async function processDocument(
   file: File,
@@ -476,6 +487,7 @@ export async function processDocument(
   }
 
   onProgress('Preprocessing text…');
+  // We aggressively sanitize it to remove all navigation junk.
   sanitizedText = stripFrontMatter(sanitizedText);
   sanitizedText = stripRepeatingHeaders(sanitizedText);
   const processedText = preprocessText(sanitizedText, options);
@@ -483,31 +495,13 @@ export async function processDocument(
   let finalChapters: Chapter[] = [];
 
   // --------------------------------------------------------------------------
-  // Step B: Call AI for Outline Titles ONLY (Lightweight)
-  // --------------------------------------------------------------------------
-  onProgress('Analyzing document titles with AI…');
-  let outline = await generateOutline(processedText);
-
-  // --------------------------------------------------------------------------
-  // Step C: Execute the Regex Parser
+  // Step B: Execute the Regex Parser
   // --------------------------------------------------------------------------
   onProgress('Parsing document into chapters and subtopics via Regex…');
   finalChapters = splitIntoChaptersEnhanced(processedText);
   
   // --------------------------------------------------------------------------
-  // Step D: Apply AI Titles to the Parser Output
-  // --------------------------------------------------------------------------
-  if (outline && outline.length > 0 && finalChapters.length === outline.length) {
-      for(let i = 0; i < finalChapters.length; i++) {
-          if(outline[i] && outline[i].title) {
-              // We only take the title, keeping the content from the parser.
-              finalChapters[i].title = outline[i].title;
-          }
-      }
-  }
-
-  // --------------------------------------------------------------------------
-  // Step E: Return final structure to UI
+  // Step C: Return final structure to UI
   // --------------------------------------------------------------------------
   finalChapters.forEach(ch => { ch.isGenerating = false; });
   callbacks?.onDiscovered?.(finalChapters);
