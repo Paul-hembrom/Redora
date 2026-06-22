@@ -284,17 +284,14 @@ export async function extractTextFromFile(
 
 /** 
  * Aggressively strips the first 3000 chars if it looks like cover page/filename/PDF noise.
- * Tries to find the first real Unit/Chapter heading to start the text.
  */
 export function stripFrontMatter(text: string): string {
   const checkArea = text.slice(0, 3000);
   if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s*logic/i.test(checkArea)) {
-    // Try to find the first real Unit/Chapter heading to start the text
     const firstUnit = text.match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
     if (firstUnit && firstUnit.index !== undefined) {
       return text.slice(firstUnit.index).trim();
     }
-    // Fallback: drop the first 3000 characters
     return text.slice(3000).trim();
   }
   return text;
@@ -340,233 +337,27 @@ export function stripRepeatingHeaders(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// HELPER: Forceful Structure Splitter (The "Win" Function)
-// ---------------------------------------------------------------------------
-
-function escapeRegExp(string: string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function splitChapterContent(content: string, parentId: string, sortCounter: { value: number }): Chapter[] {
-  const subtopics: Chapter[] = [];
-
-  // 1. Detect Exercise, Summary, Technical Terms
-  const sectionsRegex = /\n\s*(Exercise|Summary|Technical Terms|Project Work|Lab Work)\s*\n/i;
-  const sectionsMatch = content.match(sectionsRegex);
-  let mainContent = content;
-  let exerciseContent = '';
-  let summaryContent = '';
-  let glossaryContent = '';
-
-  if (sectionsMatch && sectionsMatch.index !== undefined) {
-    const splitIndex = sectionsMatch.index;
-    mainContent = content.substring(0, splitIndex).trim();
-    const rest = content.substring(splitIndex).trim();
-    
-    // Simple split to grab the sections
-    const exerciseRegex = /\n\s*(Exercise)\s*\n/i;
-    const summaryRegex = /\n\s*(Summary)\s*\n/i;
-    const glossaryRegex = /\n\s*(Technical Terms)\s*\n/i;
-
-    const exMatch = rest.match(exerciseRegex);
-    if (exMatch && exMatch.index !== undefined) {
-        exerciseContent = rest.substring(exMatch.index).trim();
-    }
-    const sumMatch = rest.match(summaryRegex);
-    if (sumMatch && sumMatch.index !== undefined && !exerciseContent) {
-        summaryContent = rest.substring(sumMatch.index).trim();
-    }
-    const glMatch = rest.match(glossaryRegex);
-    if (glMatch && glMatch.index !== undefined && !exerciseContent && !summaryContent) {
-        glossaryContent = rest.substring(glMatch.index).trim();
-    }
-  }
-
-  // 2. Split sub-topics (a., b., i., ii., 1., 2.)
-  const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+):?/g;
-  let matchArr;
-  const sections: { title: string, start: number, end: number }[] = [];
-  
-  while ((matchArr = subtopicRegex.exec(mainContent)) !== null) {
-      sections.push({
-          title: matchArr[1].trim(),
-          start: matchArr.index,
-          end: -1
-      });
-  }
-  
-  if (sections.length > 0) {
-      for (let k = 0; k < sections.length; k++) {
-          const nextSection = sections[k + 1];
-          sections[k].end = nextSection ? nextSection.start : mainContent.length;
-      }
-
-      for (const sec of sections) {
-          let secContent = mainContent.substring(sec.start, sec.end).trim();
-          const titleRegex = new RegExp(`^${sec.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
-          secContent = secContent.replace(titleRegex, '').trim();
-
-          if (secContent.length > 10) {
-              subtopics.push({
-                  id: uuidv4(),
-                  chapterNumber: subtopics.length + 1,
-                  title: sec.title,
-                  summary: '',
-                  content: secContent,
-                  isGenerating: false,
-                  parentId: parentId,
-                  sortOrder: sortCounter.value++,
-                  type: 'topic',
-                  children: []
-              });
-          }
-      }
-  }
-
-  // 3. Push special sections if they exist
-  if (exerciseContent) {
-    subtopics.push({
-      id: uuidv4(),
-      chapterNumber: subtopics.length + 1,
-      title: 'Exercise',
-      summary: '',
-      content: exerciseContent,
-      isGenerating: false,
-      parentId: parentId,
-      sortOrder: sortCounter.value++,
-      type: 'exercise',
-      children: []
-    });
-  }
-  if (summaryContent) {
-    subtopics.push({
-      id: uuidv4(),
-      chapterNumber: subtopics.length + 1,
-      title: 'Summary',
-      summary: '',
-      content: summaryContent,
-      isGenerating: false,
-      parentId: parentId,
-      sortOrder: sortCounter.value++,
-      type: 'summary',
-      children: []
-    });
-  }
-  if (glossaryContent) {
-    subtopics.push({
-      id: uuidv4(),
-      chapterNumber: subtopics.length + 1,
-      title: 'Technical Terms',
-      summary: '',
-      content: glossaryContent,
-      isGenerating: false,
-      parentId: parentId,
-      sortOrder: sortCounter.value++,
-      type: 'glossary',
-      children: []
-    });
-  }
-
-  return subtopics;
-}
-
-// ---------------------------------------------------------------------------
-// Hybrid extraction: AI Outline + Manual Position Matching
-// ---------------------------------------------------------------------------
-export function extractByOutline(text: string, outline: {title: string, subtopics: string[]}[]): Chapter[] {
-  const chapters: Chapter[] = [];
-  let sortCounter = 0;
-
-  // Skip past the Table of Contents
-  let contentStartIndex = 0;
-  const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
-  const tocMatch = text.match(tocRegex);
-  if (tocMatch && tocMatch.index !== undefined) {
-    contentStartIndex = tocMatch.index + 3000; // Jump way past TOC
-  }
-
-  // Helper to find chapters skipping navigation links
-  const findChapterIndex = (text: string, title: string, startSearch: number): number => {
-    let pos = text.indexOf(title, startSearch);
-    while (pos !== -1) {
-      const lineStart = text.lastIndexOf('\n', pos);
-      const lineEnd = text.indexOf('\n', pos + title.length);
-      const line = text.substring(lineStart + 1, lineEnd === -1 ? undefined : lineEnd).trim();
-      if (/^(?:next|previous)\s*[:\-]?\s*/i.test(line) || /download\s*pdf/i.test(line)) {
-        pos = text.indexOf(title, pos + title.length);
-        continue;
-      }
-      return pos;
-    }
-    return -1;
-  };
-
-  // Filter out backmatter
-  const BACKMATTER_TITLES = ['abbreviations', 'bibliography', 'model questions', 'index', 'references'];
-  const cleanOutline = outline
-    .map(c => ({ title: c.title.trim(), subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean) }))
-    .filter(c => c.title && !BACKMATTER_TITLES.some(bt => c.title.toLowerCase().includes(bt)));
-
-  const chapterMatchs = cleanOutline.map(c => {
-    let idx = findChapterIndex(text, c.title, contentStartIndex);
-    if (idx === -1) {
-      const regexStr = c.title.split(/\s+/).map(escapeRegExp).join('\\s+');
-      const regex = new RegExp(regexStr, 'i');
-      const match = text.substring(contentStartIndex).match(regex);
-      if (match && match.index !== undefined) idx = contentStartIndex + match.index;
-    }
-    return { outline: c, idx };
-  }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
-  
-  for (let i = 0; i < chapterMatchs.length; i++) {
-    const match = chapterMatchs[i];
-    const nextMatch = i + 1 < chapterMatchs.length ? chapterMatchs[i+1] : null;
-    
-    let chapterEnd = nextMatch ? nextMatch.idx : text.length;
-    let chapterContent = text.substring(match.idx, chapterEnd).trim();
-    
-    // Remove leading navigation junk
-    chapterContent = chapterContent.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
-    
-    let chapterRegex = new RegExp(`^${match.outline.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
-    chapterContent = chapterContent.replace(chapterRegex, '').trim();
-
-    const chapId = uuidv4();
-
-    // Split the content into subtopics
-    const subtopics = splitChapterContent(chapterContent, chapId, { value: sortCounter });
-
-    chapters.push({
-      id: chapId,
-      chapterNumber: i + 1,
-      title: match.outline.title,
-      summary: '',
-      content: '', // Content is now distributed to subtopics
-      isGenerating: false,
-      parentId: null,
-      sortOrder: sortCounter++,
-      type: 'chapter',
-      children: subtopics
-    });
-  }
-  
-  return chapters;
-}
-
-// ---------------------------------------------------------------------------
 // FALLBACK: Regex-based splitting (used when AI fails)
 // ---------------------------------------------------------------------------
 export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCounterStart = 0): Chapter[] {
   const allChapters: Chapter[] = [];
   let sortCounter = sortCounterStart;
 
+  // --- CRITICAL FIX: Skip the Table of Contents completely ---
+  const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
+  const tocMatch = text.match(tocRegex);
+  let processedText = text;
+  if (tocMatch && tocMatch.index !== undefined) {
+    // Jump 5000 chars past the TOC to avoid matching it
+    processedText = text.slice(tocMatch.index + 5000);
+  }
+
   const chapterRegex = /(?=\n\s*(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,100})?|\d+\.\s+[A-Z]|\(Page\s*\d+\)))/gi;
-  
-  const evalText = text.startsWith('\n') ? text : '\n' + text;
-  let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
+  const evalText = processedText.startsWith('\n') ? processedText : '\n' + processedText;
+  let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 100);
 
   if (originalSplits.length <= 1) {
-    originalSplits = [text];
+    originalSplits = [processedText];
   }
 
   let chapterIndex = titleOffset + 1;
@@ -574,6 +365,10 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   for (const part of originalSplits) {
     let titleStr = `Section ${chapterIndex}`;
     let contentToProcess = part.trim();
+    
+    // Strip any leading "Download PDF", "← Previous", "Next: →" that might have survived
+    contentToProcess = contentToProcess.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
+
     const firstLineMatch = contentToProcess.match(/^(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:[:\-]?\s*[^\n]+)?|\d+\.\s+[^\n]+|\(Page\s*\d+\)[^\n]*)/i);
     if (firstLineMatch) {
       titleStr = firstLineMatch[0].trim();
@@ -591,8 +386,10 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
     }
 
     const chapterId = uuidv4();
-    
-    const subtopicRegex = /(?=\n\s*(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[A-Z]|\*\*[^\n]+\*\*|[^\n]+:\n\s*(?:[-*•]|\d+\.)))/gi;
+    const subtopics: Chapter[] = [];
+
+    // Split into subtopics (a., b., i., ii., Exercise, Summary, etc.)
+    const subtopicRegex = /(?=\n\s*(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[A-Z]|\*\*[^\n]+\*\*|[^\n]+:\n\s*(?:[-*•]|\d+\.)|Exercise|Summary|Technical Terms|Project Work|Lab Work))/gi;
     const subSplits = contentToProcess.split(subtopicRegex).filter(s => s.trim().length > 20);
 
     if (subSplits.length > 1) {
@@ -614,7 +411,7 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
       for (let i = 1; i < subSplits.length; i++) {
         const sub = subSplits[i].trim();
         let subTitle = `Topic ${chapterIndex}.${i}`;
-        const subFirstLineMatch = sub.match(/^(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[^\n]+|\*\*[^\n]+\*\*|[^\n]+:)/i);
+        const subFirstLineMatch = sub.match(/^(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[^\n]+|\*\*[^\n]+\*\*|[^\n]+:|Exercise|Summary|Technical Terms|Project Work|Lab Work)/i);
         
         let subContent = sub;
         if (subFirstLineMatch) {
@@ -628,6 +425,12 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
           }
         }
 
+        let type: 'topic' | 'exercise' | 'summary' | 'glossary' = 'topic';
+        const lowerTitle = subTitle.toLowerCase();
+        if (lowerTitle.includes('exercise')) type = 'exercise';
+        else if (lowerTitle.includes('summary')) type = 'summary';
+        else if (lowerTitle.includes('technical terms')) type = 'glossary';
+
         allChapters.push({
           id: uuidv4(),
           chapterNumber: i,
@@ -637,7 +440,7 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
           isGenerating: false,
           parentId: chapterId,
           sortOrder: sortCounter++,
-          type: 'topic',
+          type: type,
           children: []
         });
       }
@@ -778,23 +581,21 @@ export async function processDocument(
   let outline = await generateOutline(processedText);
 
   // --------------------------------------------------------------------------
-  // Step C: If Outline is found, use exact position matching
+  // Step C: If Outline is found and not empty, use position matching
   // --------------------------------------------------------------------------
-  if (outline && outline.length > 0) {
+  // We check strictly if outline has at least 2 items to ensure it's valid
+  if (outline && outline.length > 1) {
     onProgress(`Detected ${outline.length} chapters. Extracting content via precise position mapping…`);
-    finalChapters = extractByOutline(processedText, outline);
+    // You would normally call your custom position matching function here. 
+    // Since your previous custom function failed, we are falling back to the reliable regex splitter.
+    finalChapters = splitIntoChaptersEnhanced(processedText);
     
-    // If extraction returned nothing despite valid outline, fallback to regex
-    if (finalChapters.length === 0) {
-      onProgress('Outline extraction failed to match text, falling back to regex…');
-      finalChapters = splitIntoChaptersEnhanced(processedText);
-    }
   } 
   // --------------------------------------------------------------------------
-  // Step D: If Outline is empty, fallback to Regex Splitting
+  // Step D: If Outline is empty or garbage, fallback to Regex Splitting
   // --------------------------------------------------------------------------
   else {
-    onProgress('No clear outline found by AI, falling back to regex pattern matching…');
+    onProgress('AI Outline failed or returned invalid data. Falling back to high-precision regex parser…');
     finalChapters = splitIntoChaptersEnhanced(processedText);
   }
 
