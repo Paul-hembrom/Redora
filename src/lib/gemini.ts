@@ -218,7 +218,7 @@ async function callElevenLabsSTT(audioBlob: Blob): Promise<string> {
 }
 
 // ──────────────────────────────────────────────
-// 6. NVIDIA / HuggingFace fallbacks (your existing code, untouched)
+// 6. NVIDIA / HuggingFace fallbacks
 // ──────────────────────────────────────────────
 async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
   const baseUrl = getEnvSafe('VITE_BACKEND_URL', () => import.meta.env.VITE_BACKEND_URL as string);
@@ -389,7 +389,7 @@ function repairTruncatedJson(jsonString: string): string {
 }
 
 // ──────────────────────────────────────────────
-// 9. Public functions
+// 9. Public functions (Metadata, Outline, Chat, etc.)
 // ──────────────────────────────────────────────
 
 export async function generateBatchChapterMetadata(
@@ -407,7 +407,6 @@ export async function generateBatchChapterMetadata(
   } else if (summaryDetail === 'academic') {
     instructions = "You must provide a rigorous, comprehensive academic summary. First, write a substantive overview paragraph of at least 150 words that introduces the research area, core thesis, and overall significance. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and thoroughly explain a distinct concept, theory, or finding with academic depth. Expand on each point. This summary is intended for a scholarly audience.";
   } else {
-    // Detailed mode – the one you care about most
     instructions = "You must provide a thorough and detailed summary. This is critically important. First, write a comprehensive overview paragraph of at least 150 words that captures the core thesis, methodology, and key findings. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and cover a distinct key concept, argument, or result. Do not be brief. Expand on each point thoroughly. This summary must be suitable for a university-level textbook.";
   }
 
@@ -473,7 +472,6 @@ No markdown formatting, no explanation.
   throw new Error('Failed to generate metadata after multiple attempts.');
 }
 
-// ── generateChapterMetadata (single chapter) ─────────────────────────
 export async function generateChapterMetadata(
   content: string,
   chapterNumber: number,
@@ -486,7 +484,6 @@ export async function generateChapterMetadata(
   } else if (summaryDetail === 'academic') {
     instructions = "You must provide a rigorous, comprehensive academic summary. First, write a substantive overview paragraph of at least 150 words that introduces the research area, core thesis, and overall significance. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and thoroughly explain a distinct concept, theory, or finding with academic depth. Expand on each point. This summary is intended for a scholarly audience.";
   } else {
-    // Detailed mode – THIS IS THE FIX YOU ASKED FOR
     instructions = "You must provide a thorough and detailed summary. This is critically important. First, write a comprehensive overview paragraph of at least 150 words that captures the core thesis, methodology, and key findings. Then, you MUST generate exactly 5-6 detailed bullet points, each of which must be 2-3 complete sentences long and cover a distinct key concept, argument, or result. Do not be brief. Expand on each point thoroughly. This summary must be suitable for a university-level textbook.";
   }
 
@@ -637,7 +634,11 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
   }
 }
 
+/**
+ * AI Outline Generation - extracts Table of Contents headings exactly as requested.
+ */
 export async function generateOutline(text: string): Promise<{title: string, subtopics: string[]}[]> {
+  // Prompts exactly as requested (with typo fixed: 'ou' -> 'You')
   const prompt = `You are a document structure analyst. Extract the table of contents from the following text.
 Return a JSON array of chapter objects. Each object must have:
 "title": the exact chapter/unit/section heading as it appears in the text.
@@ -650,7 +651,7 @@ Text:
 ${text.substring(0, 40000)}`;
 
   try {
-    const raw = await callLLM(prompt, "You are a document structure analyst.", "application/json");
+    const raw = await callLLM(prompt, "You are a document structure analyst.", "json_object");
     const jsonStr = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
     const result = JSON.parse(jsonStr);
     return Array.isArray(result) ? result : [];
@@ -660,7 +661,6 @@ ${text.substring(0, 40000)}`;
   }
 }
 
-// ── generateDocumentHierarchy – with JSON repair ────────────────────
 export async function generateDocumentHierarchy(content: string, detectedHeadings?: string[], retries = 3): Promise<any> {
   const headingsPrompt = detectedHeadings && detectedHeadings.length > 0 
     ? `\nThe document contains exactly these main sections in this order:\n${detectedHeadings.map(h => `- ${h}`).join('\n')}\n\nYou MUST use these exact titles and preserve this exact order when building your hierarchy.\n`

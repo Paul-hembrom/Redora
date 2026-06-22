@@ -10,7 +10,7 @@ import {
   ApiRateLimitError,
   generateDocumentHierarchy,
   generateOutline,
-  generateChapterMetadata,       // kept for on‑demand summarisation
+  generateChapterMetadata,
   generateMinimalSummary,
 } from './gemini';
 
@@ -279,7 +279,7 @@ export async function extractTextFromFile(
 }
 
 // ---------------------------------------------------------------------------
-// Chapter / chunk splitting (original AI‑ready chunks, not used for final structure)
+// Chapter / chunk splitting (old AI‑ready chunks, kept for fallback)
 // ---------------------------------------------------------------------------
 export function splitIntoChapters(text: string): string[] {
   let dynamicChunkSize = Math.max(8_000, Math.min(30_000, Math.ceil(text.length / MAX_CONCURRENCY)));
@@ -373,7 +373,7 @@ export function stripRepeatingHeaders(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Hybrid chapter detection (regex‑based, used as final fallback or primary)
+// Hybrid chapter detection (regex‑based, used as final fallback)
 // ---------------------------------------------------------------------------
 export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCounterStart = 0): Chapter[] {
   const allChapters: Chapter[] = [];
@@ -501,7 +501,7 @@ function parseHierarchyIntoChapters(
         id: partId,
         chapterNumber: pIdx + 1,
         title: part.title || `Part ${pIdx + 1}`,
-        summary: '',                         // NO AUTO SUMMARY
+        summary: '',                         
         content: part.content || '',
         isGenerating: false,
         parentId: null,
@@ -517,7 +517,7 @@ function parseHierarchyIntoChapters(
             id: chapId,
             chapterNumber: cIdx + 1,
             title: chap.title || `Chapter ${cIdx + 1}`,
-            summary: '',                     // NO AUTO SUMMARY
+            summary: '',                     
             content: chap.content || '',
             isGenerating: false,
             parentId: partId,
@@ -532,8 +532,8 @@ function parseHierarchyIntoChapters(
                 id: uuidv4(),
                 chapterNumber: tIdx + 1,
                 title: topic.title || `Topic ${tIdx + 1}`,
-                summary: '',                 // NO AUTO SUMMARY
-                content: topic.content || '',   // AI‑provided content
+                summary: '',                 
+                content: topic.content || '',   
                 isGenerating: false,
                 parentId: chapId,
                 sortOrder: sortCounter.value++,
@@ -606,7 +606,7 @@ function parseHierarchyIntoChapters(
 }
 
 // ---------------------------------------------------------------------------
-// Clean academic paper hierarchy (same as before)
+// Clean academic paper hierarchy
 // ---------------------------------------------------------------------------
 function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
   let cleaned = [...nodes];
@@ -696,6 +696,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
   const chapterMatchs = cleanOutline.map(c => {
     let idx = text.indexOf(c.title);
     if (idx === -1) {
+      // Fuzzy regex search as requested
       const regexStr = c.title.split(/\s+/).map(escapeRegExp).join('\\s+');
       const regex = new RegExp(regexStr, 'i');
       const match = text.match(regex);
@@ -792,22 +793,11 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
 }
 
 // ---------------------------------------------------------------------------
-// Main document processing pipeline
+// Main document processing pipeline (Refactored to strict Step A-E)
 // ---------------------------------------------------------------------------
 
 /**
- * Full pipeline: extract → preprocess → (optionally) deep AI summaries
- *
- * DEFAULT behaviour (deepProcess = false):
- *   - Split text into chunks
- *   - Call generateDocumentHierarchy for each chunk to obtain Part/Chapter/Topic titles
- *   - Use the AI‑returned content if present, otherwise fall back to the raw chunk
- *   - NO summaries are generated → summary fields remain empty
- *   - The structured tree is displayed instantly.
- *
- * DEEP PROCESS (deepProcess = true):
- *   - Same as above, then additionally runs batch AI metadata to fill in chapter summaries.
- *   - This is heavier and should be triggered explicitly by the user.
+ * Full pipeline: extract → preprocess → AI Outline → Content Split → (Optional) Deep AI summaries
  */
 export async function processDocument(
   file: File,
@@ -818,6 +808,9 @@ export async function processDocument(
     onChapterDone?: (id: string, title: string, summary: string) => void;
   },
 ): Promise<Chapter[]> {
+  // --------------------------------------------------------------------------
+  // Step A: Extract & Sanitize
+  // --------------------------------------------------------------------------
   onProgress('Extracting text…');
   const rawText = await extractTextFromFile(file, onProgress);
   
@@ -830,145 +823,57 @@ export async function processDocument(
   onProgress('Preprocessing text…');
   sanitizedText = stripFrontMatter(sanitizedText);
   sanitizedText = stripRepeatingHeaders(sanitizedText);
-  
   const processedText = preprocessText(sanitizedText, options);
 
-  // ────────────────────────────────────────────
-  // PRIMARY EXTRACTION: AI Outline + Deterministic Split
-  // ────────────────────────────────────────────
+  let finalChapters: Chapter[] = [];
+
+  // --------------------------------------------------------------------------
+  // Step B: Call AI for Outline (Lightweight)
+  // --------------------------------------------------------------------------
   onProgress('Analyzing document structure with AI…');
   let outline = await generateOutline(processedText);
-  let initialChapters: Chapter[] = [];
-  
+
+  // --------------------------------------------------------------------------
+  // Step C: If Outline is found, use exact position matching
+  // --------------------------------------------------------------------------
   if (outline && outline.length > 0) {
-    onProgress(`Detected ${outline.length} chapters. Extracting content…`);
-    initialChapters = extractByOutline(processedText, outline);
-    if (initialChapters.length === 0) {
+    onProgress(`Detected ${outline.length} chapters. Extracting content via precise position mapping…`);
+    finalChapters = extractByOutline(processedText, outline);
+    
+    // If extraction returned nothing despite valid outline, fallback to regex
+    if (finalChapters.length === 0) {
       onProgress('Outline extraction failed to match text, falling back to regex…');
-      initialChapters = splitIntoChaptersEnhanced(processedText);
+      finalChapters = splitIntoChaptersEnhanced(processedText);
     }
-  } else {
+  } 
+  // --------------------------------------------------------------------------
+  // Step D: If Outline is empty, fallback to Regex Splitting
+  // --------------------------------------------------------------------------
+  else {
     onProgress('No clear outline found by AI, falling back to regex pattern matching…');
-    initialChapters = splitIntoChaptersEnhanced(processedText);
+    finalChapters = splitIntoChaptersEnhanced(processedText);
   }
 
-  let cleanedChapters: Chapter[] = [];
-  
-  if (initialChapters.length >= 1 && !options.deepProcess) {
-    // If it found mostly structural markers or at least 1 structure.
-    onProgress(`Processing ${initialChapters.length} sections.`);
-    cleanedChapters = cleanAcademicPaperHierarchy(initialChapters);
-    cleanedChapters.forEach(ch => { ch.isGenerating = false; });
-    callbacks?.onDiscovered?.(cleanedChapters);
-  } else {
-    // ────────────────────────────────────────────
-    // FALLBACK / DEEP PROCESS: Chunked AI Hierarchy
-    // ────────────────────────────────────────────
-    onProgress('Structure complex or deep process requested. Using AI hierarchy…');
-    const chunks = splitIntoChapters(processedText);
-    onProgress(`Split into ${chunks.length} chunk(s). Analysing with AI…`);
+  // --------------------------------------------------------------------------
+  // Post‑processing: Clean duplicates/flatten hierarchy
+  // --------------------------------------------------------------------------
+  onProgress(`Processing ${finalChapters.length} sections into hierarchy…`);
+  finalChapters = cleanAcademicPaperHierarchy(finalChapters);
+  finalChapters.forEach(ch => { ch.isGenerating = false; });
 
-    const allChapters: Chapter[] = [];
-    const sortCounter = { value: 0 };
+  // Call `onDiscovered` immediately so UI can render the tree
+  callbacks?.onDiscovered?.(finalChapters);
 
-    const limit = createConcurrencyLimit(MAX_CONCURRENCY);
-    const hierarchyJobs = chunks.map((chunk, i) =>
-      limit(async () => {
-        onProgress(`Analyzing chunk ${i + 1} of ${chunks.length}…`);
-        try {
-          const detectedChapters = splitIntoChaptersEnhanced(chunk, i * 100);
-          const detectedHeadings: string[] = [];
-          
-          const extractTitles = (chapters: Chapter[]) => {
-            for (const ch of chapters) {
-              if (ch.title && ch.title.trim() && ch.title !== 'Document Summary' && !ch.title.startsWith('Section ') && !ch.title.startsWith('Topic ')) {
-                detectedHeadings.push(ch.title);
-              }
-              if (ch.children) extractTitles(ch.children);
-            }
-          };
-          extractTitles(detectedChapters);
-
-          const hierarchy = await withRetry(() => generateDocumentHierarchy(chunk, detectedHeadings));
-          
-          let chunkChapters: Chapter[] = [];
-          let chunkSortCounter = { value: 0 };
-          parseHierarchyIntoChapters(hierarchy, chunk, chunkChapters, chunkSortCounter);
-
-          let isValidContent = true;
-          let leafCount = 0;
-          
-          const countLeaves = (chapters: Chapter[]) => {
-            for (const ch of chapters) {
-              if (ch.children && ch.children.length > 0) countLeaves(ch.children);
-              else leafCount++;
-            }
-          };
-          countLeaves(chunkChapters);
-
-          const verifyContent = (chapters: Chapter[]) => {
-            for (const ch of chapters) {
-              if (ch.content && ch.content.length > 50) {
-                const startSnippet = ch.content.substring(0, 50).replace(/\s+/g, ' ').trim();
-                if (startSnippet.length > 10 && !chunk.replace(/\s+/g, ' ').includes(startSnippet)) {
-                  isValidContent = false;
-                }
-                if (leafCount > 1 && ch.content.length > chunk.length * 0.85) {
-                  console.warn(`[documentProcessor] Node ${ch.title} swallowed the whole chunk.`);
-                  isValidContent = false;
-                }
-              }
-              if (ch.children && ch.children.length > 0) {
-                verifyContent(ch.children);
-              } else if (!ch.content || ch.content.trim() === '') {
-                isValidContent = false;
-              }
-            }
-          };
-          
-          verifyContent(chunkChapters);
-
-          if (!isValidContent) {
-            console.warn(`[documentProcessor] Chunk ${i + 1} content verification failed, falling back to regex`);
-            detectedChapters.forEach(ch => {
-              ch.sortOrder = sortCounter.value++;
-              allChapters.push(ch);
-            });
-          } else {
-            chunkChapters.forEach(ch => {
-              ch.sortOrder = sortCounter.value++;
-              allChapters.push(ch);
-            });
-          }
-
-        } catch (err) {
-          console.error(`[documentProcessor] Chunk ${i + 1} AI hierarchy failed, falling back to regex`, err);
-          const fallbackChapters = splitIntoChaptersEnhanced(chunk, i * 100);
-          fallbackChapters.forEach(ch => {
-            ch.sortOrder = sortCounter.value++;
-            allChapters.push(ch);
-          });
-        }
-      })
-    );
-
-    await Promise.all(hierarchyJobs);
-
-    cleanedChapters = cleanAcademicPaperHierarchy(allChapters);
-    cleanedChapters.forEach(ch => { ch.isGenerating = false; });
-    callbacks?.onDiscovered?.(cleanedChapters);
-  }
-
-  // ────────────────────────────────────────────
-  // DEEP PROCESS OPTION: generate summaries
-  // ────────────────────────────────────────────
+  // --------------------------------------------------------------------------
+  // Step E: If `options.deepProcess` is true, run Batch AI Metadata
+  // --------------------------------------------------------------------------
   if (options.deepProcess) {
     onProgress('Generating detailed summaries (Deep Process)…');
 
     const BATCH_SIZE = 5;
     const batches: Chapter[][] = [];
-    for (let i = 0; i < cleanedChapters.length; i += BATCH_SIZE) {
-      batches.push(cleanedChapters.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < finalChapters.length; i += BATCH_SIZE) {
+      batches.push(finalChapters.slice(i, i + BATCH_SIZE));
     }
 
     const deepLimit = createConcurrencyLimit(MAX_CONCURRENCY);
@@ -1011,10 +916,10 @@ export async function processDocument(
 
   // Re‑assign sort order to top‑level items
   let sortOrderCounter = 0;
-  for (const root of cleanedChapters) {
+  for (const root of finalChapters) {
     root.sortOrder = sortOrderCounter++;
   }
 
   onProgress('Done.');
-  return cleanedChapters;
+  return finalChapters;
 }
