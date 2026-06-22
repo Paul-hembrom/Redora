@@ -335,26 +335,26 @@ export function splitIntoChapters(text: string): string[] {
 // ---------------------------------------------------------------------------
 
 /** 
- * UPDATED: Aggressively strips PDF noise, cover pages, and "Download PDF" 
+ * Aggressively strips PDF noise, cover pages, and "Download PDF" 
  * to allow the extractor to start cleanly.
  */
 export function stripFrontMatter(text: string): string {
-  // Aggressively strip the first 2000 chars if it looks like cover page/filename/PDF noise
-  const checkArea = text.slice(0, 2000);
+  // Aggressively strip the first 3000 chars if it looks like cover page/filename/PDF noise
+  const checkArea = text.slice(0, 3000);
   if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s*logic/i.test(checkArea)) {
     // Try to find the first real Unit/Chapter heading to start the text
     const firstUnit = text.match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
     if (firstUnit && firstUnit.index !== undefined) {
       return text.slice(firstUnit.index).trim();
     }
-    // Fallback: drop the first 2000 characters
-    return text.slice(2000).trim();
+    // Fallback: drop the first 3000 characters
+    return text.slice(3000).trim();
   }
   return text;
 }
 
 /** 
- * UPDATED: Stricter regex to strip page numbers, repeated headers, and navigation links.
+ * Stricter regex to strip page numbers, repeated headers, and navigation links.
  */
 export function stripRepeatingHeaders(text: string): string {
   const lines = text.split('\n');
@@ -704,7 +704,7 @@ function escapeRegExp(string: string) {
 }
 
 // ---------------------------------------------------------------------------
-// UPDATED: EXTRACT BY OUTLINE (MANUAL SPLITTER + NAVIGATION STRIPPER)
+// EXTRACT BY OUTLINE (MANUAL SPLITTER + NAVIGATION STRIPPER)
 // ---------------------------------------------------------------------------
 export function extractByOutline(text: string, outline: {title: string, subtopics: string[]}[]): Chapter[] {
   const chapters: Chapter[] = [];
