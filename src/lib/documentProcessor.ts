@@ -690,8 +690,68 @@ export async function processDocument(
     limit(async () => {
       onProgress(`Analyzing chunk ${i + 1} of ${chunks.length}…`);
       try {
-        const hierarchy = await withRetry(() => generateDocumentHierarchy(chunk));
-        parseHierarchyIntoChapters(hierarchy, chunk, allChapters, sortCounter);
+        const detectedChapters = splitIntoChaptersEnhanced(chunk);
+        const detectedHeadings: string[] = [];
+        
+        // Extract flat list of titles from detected chapters and their children
+        const extractTitles = (chapters: Chapter[]) => {
+          for (const ch of chapters) {
+            if (ch.title && ch.title.trim() && ch.title !== 'Document Summary' && !ch.title.startsWith('Section ') && !ch.title.startsWith('Topic ')) {
+              detectedHeadings.push(ch.title);
+            }
+            if (ch.children) extractTitles(ch.children);
+          }
+        };
+        extractTitles(detectedChapters);
+
+        const hierarchy = await withRetry(() => generateDocumentHierarchy(chunk, detectedHeadings));
+        
+        let chunkChapters: Chapter[] = [];
+        let chunkSortCounter = { value: 0 };
+        parseHierarchyIntoChapters(hierarchy, chunk, chunkChapters, chunkSortCounter);
+
+        // Content Verification Step
+        // For each generated topic/chapter, ensure that its content actually appears in the chunk.
+        // If the AI truncated it too much or hallucinated, it won't match well.
+        let isValidContent = true;
+        
+        const verifyContent = (chapters: Chapter[]) => {
+          for (const ch of chapters) {
+            if (ch.content && ch.content.length > 50) {
+              // Basic check if the AI returned content that is actually inside the chunk
+              // Since AI might slightly reformat, we do a loose check: does the first 20 chars exist?
+              const startSnippet = ch.content.substring(0, 50).replace(/\s+/g, ' ').trim();
+              if (startSnippet.length > 10 && !chunk.replace(/\s+/g, ' ').includes(startSnippet)) {
+                // If the snippet is not found in the original chunk, verify failed.
+                // It might be a hallucination or it omitted the text completely.
+                isValidContent = false;
+              }
+            }
+            if (ch.children && ch.children.length > 0) {
+              verifyContent(ch.children);
+            } else if (!ch.content || ch.content.trim() === '') {
+              // Lowest level nodes MUST have content.
+              isValidContent = false;
+            }
+          }
+        };
+        
+        verifyContent(chunkChapters);
+
+        if (!isValidContent) {
+          console.warn(`[documentProcessor] Chunk ${i + 1} content verification failed, falling back to regex`);
+          detectedChapters.forEach(ch => {
+            ch.sortOrder = sortCounter.value++;
+            allChapters.push(ch);
+          });
+        } else {
+          // If valid, append the approved chapter structure.
+          chunkChapters.forEach(ch => {
+            ch.sortOrder = sortCounter.value++;
+            allChapters.push(ch);
+          });
+        }
+
       } catch (err) {
         console.error(`[documentProcessor] Chunk ${i + 1} AI hierarchy failed, falling back to regex`, err);
         // Fallback to regex‑based splitting for this chunk

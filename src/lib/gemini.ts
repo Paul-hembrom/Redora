@@ -638,10 +638,14 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
 }
 
 // ── generateDocumentHierarchy – with JSON repair ────────────────────
-export async function generateDocumentHierarchy(content: string, retries = 3): Promise<any> {
+export async function generateDocumentHierarchy(content: string, detectedHeadings?: string[], retries = 3): Promise<any> {
+  const headingsPrompt = detectedHeadings && detectedHeadings.length > 0 
+    ? `\nThe document contains exactly these main sections in this order:\n${detectedHeadings.map(h => `- ${h}`).join('\n')}\n\nYou MUST use these exact titles and preserve this exact order when building your hierarchy.\n`
+    : '';
+
   const prompt = `
 You are an expert textbook editor processing a raw document dump.
-Analyze the following text and automatically generate a nested hierarchical structure (Parts -> Chapters -> Topics) for the document.
+Analyze the following text and automatically generate a nested hierarchical structure (Parts -> Chapters -> Topics) for the document.${headingsPrompt}
 The output MUST be a valid JSON matching this structure exactly:
 {
   "parts": [
