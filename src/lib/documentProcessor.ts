@@ -367,9 +367,10 @@ export function stripRepeatingHeaders(text: string): string {
     if (/download pdf/i.test(trimmed)) return false;
     if (/← previous/i.test(trimmed)) return false;
     if (/next: →/i.test(trimmed)) return false;
+    // Catch navigation links perfectly
     if (/previous:/i.test(trimmed)) return false;
     if (/next:/i.test(trimmed)) return false;
-    if (/download pdf\s*\d+/i.test(trimmed)) return false;
+    if (/download pdf\s*\d*/i.test(trimmed)) return false; // "Download PDF 1", etc.
     if (/^[A-Z\s\-0-9]+\s+\d{1,3}$/i.test(trimmed) && trimmed.length > 5 && trimmed.length < 50) return false;
     return true;
   }).join('\n');
@@ -690,29 +691,44 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
   const chapters: Chapter[] = [];
   let sortCounter = 0;
   
-  // --- FIX: Find where the actual content starts (skip the Table of Contents) ---
+  // --- Skip the Table of Contents ---
   let contentStartIndex = 0;
   const tocRegex = /(?:Table\s+of\s+Contents|CONTENTS|TABLE\s+OF\s+CONTENTS)/i;
   const tocMatch = text.match(tocRegex);
   if (tocMatch && tocMatch.index !== undefined) {
-    // Try to find the first real chapter heading that follows the TOC
     const firstRealChapter = text.substring(tocMatch.index).match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
     if (firstRealChapter && firstRealChapter.index !== undefined) {
       contentStartIndex = tocMatch.index + firstRealChapter.index;
     } else {
-      contentStartIndex = tocMatch.index + 2000; // Fallback: skip ahead a substantial amount
+      contentStartIndex = tocMatch.index + 2000;
     }
   }
-  // ----------------------------------------------------------------------------
 
   const cleanOutline = outline.map(c => ({
     title: c.title.trim(),
     subtopics: (c.subtopics || []).map(t => t.trim()).filter(Boolean)
   })).filter(c => c.title);
 
-  // Search for the title starting from the calculated contentStartIndex
+  // --- Helper: finds titles but SKIPS navigation links ---
+  const findChapterIndex = (text: string, title: string, startSearch: number): number => {
+    let pos = text.indexOf(title, startSearch);
+    while (pos !== -1) {
+      const lineStart = text.lastIndexOf('\n', pos);
+      const lineEnd = text.indexOf('\n', pos + title.length);
+      const line = text.substring(lineStart + 1, lineEnd === -1 ? undefined : lineEnd).trim();
+
+      // Skip if the match is inside a "Next:" or "Previous:" navigation link
+      if (/^(?:next|previous)\s*[:\-]?\s*/i.test(line)) {
+        pos = text.indexOf(title, pos + title.length);
+        continue;
+      }
+      return pos;
+    }
+    return -1;
+  };
+
   const chapterMatchs = cleanOutline.map(c => {
-    let idx = text.indexOf(c.title, contentStartIndex);
+    let idx = findChapterIndex(text, c.title, contentStartIndex);
     if (idx === -1) {
       const regexStr = c.title.split(/\s+/).map(escapeRegExp).join('\\s+');
       const regex = new RegExp(regexStr, 'i');
@@ -729,6 +745,9 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
     let chapterEnd = nextMatch ? nextMatch.idx : text.length;
     let chapterContent = text.substring(match.idx, chapterEnd).trim();
     
+    // --- HARD CLEAN: Remove Download PDF and Previous/Next from the start ---
+    chapterContent = chapterContent.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
+
     let chapterRegex = new RegExp(`^${match.outline.title.split(/\s+/).map(escapeRegExp).join('\\s+')}`, 'i');
     chapterContent = chapterContent.replace(chapterRegex, '').trim();
     
@@ -742,9 +761,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
           const regexStr = t.split(/\s+/).map(escapeRegExp).join('\\s+');
           const regex = new RegExp(regexStr, 'i');
           const m = chapterContent.match(regex);
-          if (m && m.index !== undefined) {
-             idx = m.index;
-          }
+          if (m && m.index !== undefined) { idx = m.index; }
         }
         return { title: t, idx };
       }).filter(m => m.idx !== -1).sort((a, b) => a.idx - b.idx);
@@ -753,16 +770,11 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
         const preambleContent = chapterContent.substring(0, topicMatchs[0].idx).trim();
         if (preambleContent.length > 20) {
           subtopics.push({
-            id: uuidv4(),
-            chapterNumber: 0,
+            id: uuidv4(), chapterNumber: 0,
             title: `${match.outline.title} - Introduction`,
-            summary: '',
-            content: preambleContent,
-            isGenerating: false,
-            parentId: chapId,
-            sortOrder: sortCounter++,
-            type: 'topic',
-            children: []
+            summary: '', content: preambleContent,
+            isGenerating: false, parentId: chapId,
+            sortOrder: sortCounter++, type: 'topic', children: []
           });
         }
         
@@ -776,33 +788,23 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
           topicContent = topicContent.replace(topicRegex, '').trim();
           
           subtopics.push({
-            id: uuidv4(),
-            chapterNumber: j + 1,
-            title: tMatch.title,
-            summary: '',
-            content: topicContent,
-            isGenerating: false,
-            parentId: chapId,
-            sortOrder: sortCounter++,
-            type: 'topic',
-            children: []
+            id: uuidv4(), chapterNumber: j + 1,
+            title: tMatch.title, summary: '',
+            content: topicContent, isGenerating: false,
+            parentId: chapId, sortOrder: sortCounter++,
+            type: 'topic', children: []
           });
         }
-        chapterContent = ''; // Content is distributed to topics
+        chapterContent = '';
       }
     }
     
     chapters.push({
-      id: chapId,
-      chapterNumber: i + 1,
-      title: match.outline.title,
-      summary: '',
-      content: chapterContent, // Will be empty if subtopics extracted it
-      isGenerating: false,
-      parentId: null,
-      sortOrder: sortCounter++,
-      type: 'chapter',
-      children: subtopics
+      id: chapId, chapterNumber: i + 1,
+      title: match.outline.title, summary: '',
+      content: chapterContent, isGenerating: false,
+      parentId: null, sortOrder: sortCounter++,
+      type: 'chapter', children: subtopics
     });
   }
   
