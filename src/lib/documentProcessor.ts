@@ -554,6 +554,189 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
 }
 
 // ---------------------------------------------------------------------------
+// FALLBACK: Regex-based splitting (used when AI fails)
+// ---------------------------------------------------------------------------
+export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCounterStart = 0): Chapter[] {
+  const allChapters: Chapter[] = [];
+  let sortCounter = sortCounterStart;
+
+  const chapterRegex = /(?=\n\s*(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,100})?|\d+\.\s+[A-Z]|\(Page\s*\d+\)))/gi;
+  
+  const evalText = text.startsWith('\n') ? text : '\n' + text;
+  let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
+
+  if (originalSplits.length <= 1) {
+    originalSplits = [text];
+  }
+
+  let chapterIndex = titleOffset + 1;
+
+  for (const part of originalSplits) {
+    let titleStr = `Section ${chapterIndex}`;
+    let contentToProcess = part.trim();
+    const firstLineMatch = contentToProcess.match(/^(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:[:\-]?\s*[^\n]+)?|\d+\.\s+[^\n]+|\(Page\s*\d+\)[^\n]*)/i);
+    if (firstLineMatch) {
+      titleStr = firstLineMatch[0].trim();
+      if (contentToProcess.startsWith(titleStr)) {
+        contentToProcess = contentToProcess.substring(titleStr.length).trim();
+      }
+    } else {
+      const firstLine = contentToProcess.split('\n')[0].trim();
+      if (firstLine && firstLine.length < 80) {
+        titleStr = firstLine;
+        contentToProcess = contentToProcess.substring(firstLine.length).trim();
+      } else if (originalSplits.length === 1) {
+        titleStr = `Section ${chapterIndex}`;
+      }
+    }
+
+    const chapterId = uuidv4();
+    
+    const subtopicRegex = /(?=\n\s*(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[A-Z]|\*\*[^\n]+\*\*|[^\n]+:\n\s*(?:[-*•]|\d+\.)))/gi;
+    const subSplits = contentToProcess.split(subtopicRegex).filter(s => s.trim().length > 20);
+
+    if (subSplits.length > 1) {
+      const preamble = subSplits[0].trim();
+      
+      allChapters.push({
+        id: chapterId,
+        chapterNumber: chapterIndex,
+        title: titleStr,
+        summary: '',
+        content: preamble,
+        isGenerating: false,
+        parentId: null,
+        sortOrder: sortCounter++,
+        type: 'chapter',
+        children: []
+      });
+
+      for (let i = 1; i < subSplits.length; i++) {
+        const sub = subSplits[i].trim();
+        let subTitle = `Topic ${chapterIndex}.${i}`;
+        const subFirstLineMatch = sub.match(/^(?:\d+\.\d+(?:\.\d+)*|(?:[a-z]\.|[ivx]+\.)\s+[^\n]+|\*\*[^\n]+\*\*|[^\n]+:)/i);
+        
+        let subContent = sub;
+        if (subFirstLineMatch) {
+          subTitle = subFirstLineMatch[0].replace(/\*\*/g, '').trim();
+          subContent = sub.substring(subFirstLineMatch[0].length).trim();
+        } else {
+          const firstLine = sub.split('\n')[0].trim();
+          if (firstLine && firstLine.length < 80) {
+            subTitle = firstLine.replace(/\*\*/g, '');
+            subContent = sub.substring(firstLine.length).trim();
+          }
+        }
+
+        allChapters.push({
+          id: uuidv4(),
+          chapterNumber: i,
+          title: subTitle,
+          summary: '',
+          content: subContent,
+          isGenerating: false,
+          parentId: chapterId,
+          sortOrder: sortCounter++,
+          type: 'topic',
+          children: []
+        });
+      }
+    } else {
+      allChapters.push({
+        id: chapterId,
+        chapterNumber: chapterIndex,
+        title: titleStr,
+        summary: '',
+        content: contentToProcess,
+        isGenerating: false,
+        parentId: null,
+        sortOrder: sortCounter++,
+        type: 'chapter',
+        children: []
+      });
+    }
+
+    chapterIndex++;
+  }
+
+  return allChapters;
+}
+
+// ---------------------------------------------------------------------------
+// Clean academic paper hierarchy
+// ---------------------------------------------------------------------------
+function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
+  let cleaned = [...nodes];
+
+  cleaned.forEach(node => {
+    if (node.children && node.children.length > 0) {
+      node.children = cleanAcademicPaperHierarchy(node.children);
+    }
+  });
+
+  const sanitizeTitle = (t: string) => (t || '').toLowerCase().replace(/^(part|chapter)\s*\d*[:\-]?\s*/i, '').trim();
+
+  cleaned = cleaned.filter(ch => {
+    const titleLower = (ch.title || '').toLowerCase();
+    if (titleLower.includes('main text') && (!ch.children || ch.children.length === 0)) {
+      return false;
+    }
+    return true;
+  });
+
+  let i = 0;
+  while (i < cleaned.length - 1) {
+    const a = cleaned[i];
+    const b = cleaned[i + 1];
+    const aClean = sanitizeTitle(a.title);
+    const bClean = sanitizeTitle(b.title);
+    
+    if (aClean === bClean && aClean.length > 0) {
+      a.summary = (a.summary || '').length > (b.summary || '').length ? a.summary : (b.summary || '');
+      a.content = [a.content, b.content].filter(x => x && x.trim().length > 0).join('\n\n');
+      if (a.children || b.children) {
+        a.children = [...(a.children || []), ...(b.children || [])];
+      }
+      cleaned.splice(i + 1, 1);
+    } else {
+      i++;
+    }
+  }
+
+  let finalNodes: Chapter[] = [];
+  for (const node of cleaned) {
+    if ((node.type === 'part' || node.type === 'chapter') && node.children?.length === 1) {
+      const singleChild = node.children[0];
+      if (singleChild.type === 'topic' && /references?/i.test(singleChild.title || '')) {
+         finalNodes.push(singleChild);
+         continue;
+      }
+    }
+
+    if (node.type === 'part' && node.children?.length === 1) {
+      const singleChapter = node.children[0];
+      if (singleChapter.type === 'chapter' && singleChapter.children && singleChapter.children.every(c => c.type === 'topic')) {
+        const partClean = sanitizeTitle(node.title);
+        const chClean = sanitizeTitle(singleChapter.title);
+        
+        if (partClean === chClean || partClean === '') {
+          if (chClean === '' && singleChapter.children.length > 0) {
+             finalNodes.push(...singleChapter.children);
+          } else {
+             finalNodes.push(singleChapter);
+          }
+          continue;
+        }
+      }
+    }
+
+    finalNodes.push(node);
+  }
+
+  return finalNodes;
+}
+
+// ---------------------------------------------------------------------------
 // Main document processing pipeline
 // ---------------------------------------------------------------------------
 
@@ -619,6 +802,7 @@ export async function processDocument(
   // Post‑processing: Clean duplicates/flatten hierarchy
   // --------------------------------------------------------------------------
   onProgress(`Processing ${finalChapters.length} sections into hierarchy…`);
+  finalChapters = cleanAcademicPaperHierarchy(finalChapters);
   finalChapters.forEach(ch => { ch.isGenerating = false; });
 
   // Call `onDiscovered` immediately so UI can render the tree
