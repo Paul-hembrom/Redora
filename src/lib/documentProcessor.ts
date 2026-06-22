@@ -765,7 +765,7 @@ export function extractByOutline(text: string, outline: {title: string, subtopic
       exerciseContent = chapterContent.substring(exerciseMatch.index).trim();
     }
 
-    const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+|[ivx]+\.\s+[A-Z][A-Za-z0-9\s]+):?/g;
+    const subtopicRegex = /\n\s*([a-z]\.\s+[A-Z][A-Za-z0-9\s'\-]+|[\d]+\.\d+\s+[A-Z][A-Za-z0-9\s]+|[ivx]+\.\s+[A-Z][A-Za-z0-9\s]+|[A-Z]\.\s+[A-Z][A-Za-z0-9\s]+):?/g;
     let matchArr;
     const sections: { title: string, start: number, end: number }[] = [];
     
