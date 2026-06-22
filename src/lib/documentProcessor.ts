@@ -394,7 +394,7 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   const allChapters: Chapter[] = [];
   let sortCounter = sortCounterStart;
 
-  const chapterRegex = /(?=\n\s*(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,100})?|\d+\.\s+[A-Z]|\(Page\s*\d+\)))/gi;
+  const chapterRegex = /(?=\n\s*(?:(?:Unit|Chapter|Section|Part|Lesson|Module|Topic)\s+[0-9IVX]+|\§\s*[0-9]+\s*[:\-]?|[\d]+\.\d+\s+[A-Z]|(?:[A-Z]\.|[ivx]+\.)\s+[A-Z]|\d+[\.\-]\s+[^\n]{0,50}))/gi;
   
   const evalText = text.startsWith('\n') ? text : '\n' + text;
   let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
