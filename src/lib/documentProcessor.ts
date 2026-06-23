@@ -12,7 +12,8 @@ import {
   generateOutline,
   generateChapterMetadata,
   generateMinimalSummary,
-  callLLM
+  callLLM,
+  extractViaAI
 } from './gemini';
 
 // ---------------------------------------------------------------------------
@@ -920,101 +921,25 @@ export async function processDocument(
 
   let finalChapters: Chapter[] = [];
 
-  // --------------------------------------------------------------------------
-  // Step B: Semantic AI Extraction (DeepSeek)
-  // --------------------------------------------------------------------------
+  // --- Step 1: Try full‑AI extraction ---
   onProgress('Analyzing document structure with AI (DeepSeek)…');
-  
-  // Prepare the AI prompt
-  const aiPrompt = `
-    You are an expert textbook analyzer. I am providing you with the full text of a textbook.
-    Your task is to extract the hierarchical structure of the book: Parts (optional), Chapters, Subtopics, and Exercises.
-    
-    Return ONLY a JSON array of chapter objects. Each chapter object must have:
-    - "title": The exact chapter heading (e.g., "Unit 1: Introduction To Computer")
-    - "subtopics": An array of objects, each with:
-        - "title": The exact subtopic heading (e.g., "a. Input", "1.1 Introduction")
-        - "content": The exact original text belonging to that subtopic (do not summarize, copy verbatim).
-    - "exercises": An optional array of objects, each with:
-        - "title": The exercise heading (e.g., "Exercise", "Practice Problems")
-        - "content": The exact original text of the exercise section.
-    
-    Rules:
-    - Do NOT include front matter (preface, table of contents, copyright) or back matter (appendices, index, bibliography) in the output.
-    - Preserve all original text. Do not paraphrase or summarize.
-    - If a chapter has an introduction before the first subtopic, include it as a subtopic with title "Introduction" or place it in a "mainContent" field if preferred (I prefer to include it as the first subtopic with title "Introduction").
-    - The output must be strictly valid JSON.
+  const parts = await extractViaAI(processedText);
 
-    Text:
-    ${processedText}
-  `;
-
-  try {
-    // Call DeepSeek using your existing callLLM function (which uses json_object format)
-    const aiResponseRaw = await callLLM(aiPrompt, undefined, 'json_object', 16384);
-    const aiResponse = JSON.parse(aiResponseRaw);
-    
-    // Expecting an array of chapters
-    if (Array.isArray(aiResponse)) {
-      let sortCounter = 0;
-      for (const chapterData of aiResponse) {
-        const chapId = uuidv4();
-        const subtopics: Chapter[] = [];
-        
-        // Process subtopics
-        if (chapterData.subtopics && Array.isArray(chapterData.subtopics)) {
-          for (const sub of chapterData.subtopics) {
-            subtopics.push({
-              id: uuidv4(),
-              chapterNumber: subtopics.length + 1,
-              title: sub.title,
-              summary: '',
-              content: sub.content,
-              isGenerating: false,
-              parentId: chapId,
-              sortOrder: sortCounter++,
-              type: 'topic',
-              children: []
-            });
-          }
-        }
-        
-        // Process exercises
-        if (chapterData.exercises && Array.isArray(chapterData.exercises)) {
-          for (const ex of chapterData.exercises) {
-            subtopics.push({
-              id: uuidv4(),
-              chapterNumber: subtopics.length + 1,
-              title: ex.title,
-              summary: '',
-              content: ex.content,
-              isGenerating: false,
-              parentId: chapId,
-              sortOrder: sortCounter++,
-              type: 'exercise',
-              children: []
-            });
-          }
-        }
-        
-        finalChapters.push({
-          id: chapId,
-          chapterNumber: finalChapters.length + 1,
-          title: chapterData.title,
-          summary: '',
-          content: '', // main content is distributed to subtopics
-          isGenerating: false,
-          parentId: null,
-          sortOrder: sortCounter++,
-          type: 'chapter',
-          children: subtopics
-        });
-      }
+  if (parts && parts.length > 0) {
+    onProgress('AI restructuring succeeded. Building hierarchy…');
+    const sortCounter = { value: 0 };
+    finalChapters = [];
+    parseHierarchyIntoChapters({ parts }, processedText, finalChapters, sortCounter);
+  } else {
+    // --- Step 2: Fallback to hybrid (outline + regex) ---
+    onProgress('AI extraction failed. Falling back to hybrid…');
+    let outline = await generateOutline(processedText);
+    if (outline && outline.length > 0) {
+      finalChapters = await extractByOutline(processedText, outline);
     }
-  } catch (err) {
-    console.error('Semantic AI extraction failed, falling back to regex:', err);
-    onProgress('AI extraction failed. Falling back to regex…');
-    finalChapters = splitIntoChaptersEnhanced(processedText);
+    if (!finalChapters || finalChapters.length === 0) {
+      finalChapters = splitIntoChaptersEnhanced(processedText);
+    }
   }
 
   // --------------------------------------------------------------------------

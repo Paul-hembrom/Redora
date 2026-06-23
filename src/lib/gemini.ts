@@ -928,3 +928,44 @@ export async function generateMinimalSummary(text: string): Promise<string> {
     return 'Summary temporarily unavailable – please try again later.';
   }
 }
+
+// ──────────────────────────────────────────────
+// 13. DeepSeek JSON document restructuring
+// ──────────────────────────────────────────────
+export async function extractViaAI(text: string): Promise<any[] | null> {
+  const prompt = `
+You are a textbook restructuring engine. You will receive the complete raw text of a book.
+Your task is to parse it and output a valid JSON object that perfectly preserves the original content, but organizes it into a clean hierarchical structure.
+
+Rules:
+- DO NOT summarize, omit, or change any text. Every single character from the original must appear exactly once in the output.
+- The output must be a JSON object with a single key "parts". Its value is an array of part objects.
+- Each part has: "title" (string), "chapters" (array of chapter objects).
+- Each chapter has: "title" (string), "topics" (array of topic objects).
+- Each topic has: "title" (string), "content" (string – the EXACT original text for that section).
+- If the book has no parts, just one part with an empty title or "Main Content".
+- Use the original chapter/section headings as titles. Do not invent new ones.
+- Preserve all formatting, line breaks, and special characters within the content strings.
+
+Input text:
+${text.substring(0, 350000)} // DeepSeek V4 Flash context ~128k tokens (~400k chars)
+
+Output only the JSON, no other text.
+  `;
+
+  try {
+    const raw = await callLLM(prompt, undefined, 'json_object', 131072);
+    // Attempt to parse, and if fail, try jsonrepair
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const repaired = jsonrepair(raw);
+      parsed = JSON.parse(repaired);
+    }
+    return parsed?.parts || null;
+  } catch (e) {
+    console.error('extractViaAI failed:', e);
+    return null;
+  }
+}
