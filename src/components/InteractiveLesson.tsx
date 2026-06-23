@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Play, Pause, MessageCircleQuestion, Send, Loader2, Volume2, Mic, ArrowLeft, BookOpen, CheckCircle, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { v4 as uuidv4 } from 'uuid';
+import { useChatAutosave } from '../hooks/useChatAutosave';
 import { TeacherAvatar } from './TeacherAvatar';
 import { BetaBadge } from './BetaBadge';
 
@@ -41,6 +42,9 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   
+  // Autosave chat session memory every 30 seconds
+  useChatAutosave(topicId, chatHistory, 30000);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
 
