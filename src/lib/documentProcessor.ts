@@ -340,16 +340,12 @@ export function splitIntoChapters(text: string): string[] {
  * to allow the extractor to start cleanly.
  */
 export function stripFrontMatter(text: string): string {
-  // Aggressively strip the first 3000 chars if it looks like cover page/filename/PDF noise
-  const checkArea = text.slice(0, 3000);
-  if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea) || /eureka\s+logic/i.test(checkArea)) {
-    // Try to find the first real Unit/Chapter heading to start the text
-    const firstUnit = text.match(/\n\s*(?:Unit|Chapter|Section)\s+[0-9IVX]+\s+[A-Z]/i);
-    if (firstUnit && firstUnit.index !== undefined) {
-      return text.slice(firstUnit.index).trim();
-    }
-    // Fallback: drop the first 3000 characters
-    return text.slice(3000).trim();
+  // Safe check for cover page noise, but don't delete valid headings
+  const checkArea = text.slice(0, 2000);
+  if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea)) {
+    const dropIndex = text.indexOf('Download PDF') + 'Download PDF'.length;
+    const nextNewline = text.indexOf('\n', dropIndex);
+    return nextNewline > -1 ? text.slice(nextNewline + 1).trim() : text.slice(dropIndex).trim();
   }
   return text;
 }
@@ -402,7 +398,7 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   const allChapters: Chapter[] = [];
   let sortCounter = sortCounterStart;
 
-  const chapterRegex = /(?=\n\s*(?:(?:Unit|Chapter|Section|Part|Lesson|Module|Topic)\s+[0-9IVX]+(?:\s*[:\-]?\s*[^\n]{0,100})?|\d+\.\s+[A-Z]|\(Page\s*\d+\)))/gi;
+  const chapterRegex = /(?=\n\s*(?:Unit|CHAPTER|CHAP\.?|Section)\s+[0-9IVX]+(?:\s*[:\-]?\s*[A-Z][A-Za-z0-9\s]+)?)/gi;
   
   const evalText = text.startsWith('\n') ? text : '\n' + text;
   let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
@@ -928,51 +924,50 @@ export async function processDocument(
   let finalChapters: Chapter[] = [];
 
   // --------------------------------------------------------------------------
-  // Step B: Try Regex Splitting FIRST (it works for this book)
+  // Step B: PRIMARY extraction - RegEx Splitting (It must win)
   // --------------------------------------------------------------------------
-  onProgress('Attempting regex-based chapter splitting…');
+  onProgress('Extracting chapters using strict regex pattern…');
   finalChapters = splitIntoChaptersEnhanced(processedText);
 
-  // If regex succeeded in finding multiple chapters, use it.
+  // If regex found chapters (more than 1), we WIN. Skip AI.
   if (finalChapters.length > 1) {
     onProgress(`Regex splitter found ${finalChapters.length} chapters. Using this structure.`);
   } 
-  // Otherwise, fall back to AI outline extraction.
   else {
-    onProgress('Regex splitter returned only 1 chapter. Falling back to AI outline…');
-    
-    // --------------------------------------------------------------------------
-    // Step C: Call AI for Outline (Lightweight)
-    // --------------------------------------------------------------------------
+    // Regex failed. Fall back to AI outlines.
+    onProgress('Regex splitter failed. Falling back to AI outline generation…');
     let outline = await generateOutline(processedText);
-    let outlineChapters: Chapter[] = [];
+    
+    // Filter out generic Section/Unit headings
+    const filteredOutline = (outline || []).filter(ch => {
+      const title = ch.title.trim();
+      if (/^(Section|Unit|Chapter)\s+[0-9IVX]+$/i.test(title)) return false;
+      return true;
+    });
 
-    // Determine if the outline is a single generic chapter
-    const isSingleGenericChapter = () => {
-      if (!outline || outline.length !== 1) return false;
-      const title = outline[0].title.trim();
-      if (/^(Section|Unit|Chapter)\s+[0-9IVX]+$/i.test(title)) return true;
-      if (title.length < 10) return true;
-      return false;
-    };
-
-    if (outline && outline.length > 0 && !isSingleGenericChapter()) {
-      onProgress(`Detected ${outline.length} chapters via AI. Extracting content via position mapping…`);
-      outlineChapters = await extractByOutline(processedText, outline);
-    }
-
-    if (outlineChapters.length > 1) {
-      finalChapters = outlineChapters;
+    if (filteredOutline && filteredOutline.length > 0) {
+      onProgress(`AI detected ${filteredOutline.length} chapters. Extracting content…`);
+      finalChapters = await extractByOutline(processedText, filteredOutline);
+      if (finalChapters.length <= 1) {
+        // Fallback to deep AI hierarchy if outline extraction fails
+        onProgress('AI outline failed. Using deep AI hierarchy…');
+        try {
+          const hierarchy = await generateDocumentHierarchy(processedText);
+          const sortCounter = { value: 0 };
+          finalChapters = [];
+          parseHierarchyIntoChapters(hierarchy, processedText, finalChapters, sortCounter);
+        } catch (err) {
+          finalChapters = splitIntoChaptersEnhanced(processedText);
+        }
+      }
     } else {
-      onProgress('AI outline failed or returned single chapter. Using AI hierarchy extraction…');
-      // Use the existing generateDocumentHierarchy with DeepSeek fallback
+      onProgress('AI outline empty. Using deep AI hierarchy…');
       try {
         const hierarchy = await generateDocumentHierarchy(processedText);
         const sortCounter = { value: 0 };
         finalChapters = [];
         parseHierarchyIntoChapters(hierarchy, processedText, finalChapters, sortCounter);
       } catch (err) {
-        console.error('AI hierarchy extraction failed, falling back to regex again:', err);
         finalChapters = splitIntoChaptersEnhanced(processedText);
       }
     }
