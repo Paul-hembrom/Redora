@@ -23,6 +23,17 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// --- Helpers ---
+const flattenChapters = (chapters: any[] = []): any[] => {
+  let result: any[] = [];
+  if (!Array.isArray(chapters)) return result;
+  chapters.forEach(ch => {
+    result.push(ch);
+    if (ch.children) result = result.concat(flattenChapters(ch.children));
+  });
+  return result;
+};
+
 export default function App() {
   const { user, loading, logout, isOffline } = useAuth();
   const [isStudent, setIsStudent] = useState(user?.role === 'student');
@@ -262,7 +273,8 @@ export default function App() {
 
     const doc = documents.find(d => d.id === docId);
     if (!doc) return;
-    const chapter = doc.chapters.find(c => c.id === chapterId);
+    const flatChapters = flattenChapters(doc.chapters);
+    const chapter = flatChapters.find(c => c.id === chapterId);
     if (!chapter) return;
 
     setSummarizingChapters(prev => new Set(prev).add(chapterId));
@@ -465,16 +477,6 @@ export default function App() {
     } catch (err) {
       console.error('Error updating share status:', err);
     }
-  };
-
-  const flattenChapters = (chapters: any[] = []): any[] => {
-    let result: any[] = [];
-    if (!Array.isArray(chapters)) return result;
-    chapters.forEach(ch => {
-      result.push(ch);
-      if (ch.children) result = result.concat(flattenChapters(ch.children));
-    });
-    return result;
   };
 
   const updateChapterInTree = (chapters: any[], id: string, updater: (ch: any) => any): any[] => {

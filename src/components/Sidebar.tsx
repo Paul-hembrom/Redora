@@ -964,11 +964,24 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 </div>
                 
                 {expandedChaptersList.has(doc.id) && (() => {
-                  const roots: any[] = [];
+                  const itemMap = new Map();
                   const map = new Map();
-                  const chaptersData = Array.isArray(doc.chapters) ? doc.chapters : [];
-                  chaptersData.forEach(c => map.set(c.id, { ...c, children: [] }));
-                  chaptersData.forEach(c => {
+                  const roots: any[] = [];
+                  
+                  const flatten = (items: any[]) => {
+                    items.forEach(item => {
+                       if (!itemMap.has(item.id)) {
+                         itemMap.set(item.id, item);
+                         if (item.children && Array.isArray(item.children)) {
+                            flatten(item.children);
+                         }
+                       }
+                    });
+                  };
+                  flatten(Array.isArray(doc.chapters) ? doc.chapters : []);
+                  
+                  Array.from(itemMap.values()).forEach(c => map.set(c.id, { ...c, children: [] }));
+                  Array.from(itemMap.values()).forEach(c => {
                      const n = map.get(c.id);
                      if (n.parentId && map.has(n.parentId)) {
                        map.get(n.parentId).children.push(n);
@@ -976,6 +989,16 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                        roots.push(n);
                      }
                   });
+
+                  const sortNode = (node: any) => {
+                     if (node.children) {
+                       node.children.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+                       node.children.forEach(sortNode);
+                     }
+                  };
+                  roots.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+                  roots.forEach(sortNode);
+
                   return roots.map(chapter => (
                     <ChapterNode 
                       key={chapter.id}
