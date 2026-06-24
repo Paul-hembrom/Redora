@@ -975,69 +975,88 @@ export async function extractViaAI(text: string): Promise<any[] | null> {
   const cleanText = text.substring(0, 350000);
   
   const prompt = `
-You are a strict textbook parser. The text provided starts exactly at "Unit 1: Introduction To Computer" (or similar chapter heading).
+You are a strict textbook parser. The text provided starts exactly at the first chapter heading.
 Your task is to output a JSON array of chapters.
 
 **STRICT RULES:**
 1. DO NOT summarize, change, or omit ANY original text. Copy it verbatim.
 2. The output MUST be a JSON array of chapter objects. Each chapter has:
-   - "title": The exact chapter heading (e.g., "Unit 1: Introduction To Computer").
-   - "subtopics": An array of objects, each with "title" and "content".
-   - "exercises": An array of objects, each with "title" and "content". If no exercises, provide an empty array.
+   - "title": The exact chapter heading.
+   - "subtopics": An array of objects with "title" and "content".
+   - "exercises": An array of objects with "title" and "content" (if none, provide empty array).
 
-3. **CRITICAL SUB-TOPIC RULE:**
-   - You MUST split the chapter text into subtopics based on the EXACT delimiters:
-     - A single lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process", "c. Output").
-     - A Roman numeral followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
-   - Each such delimited section becomes a separate subtopic.
-   - The "content" of each subtopic is the text starting after that heading until the next heading.
-   - DO NOT treat "Learning Objectives" or "Introduction" as separate subtopics. Combine them into the first subtopic's content.
+3. **SUB-TOPIC RULE:** Split chapter text into subtopics based on the EXACT delimiters:
+   - A single lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process").
+   - A Roman numeral followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
+   - Each delimited section becomes a separate subtopic.
+   - Combine "Learning Objectives" and "Introduction" into the first subtopic's content.
 
-4. **EXERCISE RULE:**
-   - If you encounter "Exercise" or "Exercises", create an exercise object with title "Exercises" and content as the exact text of that section.
+4. **EXERCISE RULE:** If you encounter "Exercise", create an exercise object with title "Exercises" and content as the exact text.
 
 5. Ensure every character appears exactly once across all subtopics and exercises.
 
-Input text:
-\${cleanText}
-
 Output only the JSON array, no other text.
+
+Input text:
+${cleanText}
 `;
 
-  const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
-
+  let raw: string;
   try {
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      const repaired = jsonrepair(raw);
-      parsed = JSON.parse(repaired);
-    }
-
-    const mapToTopics = (arr: any[]) => {
-      return arr.map((chap: any) => {
-        const topics: any[] = [];
-        if (Array.isArray(chap.subtopics)) topics.push(...chap.subtopics);
-        if (Array.isArray(chap.exercises)) topics.push(...chap.exercises);
-        if (Array.isArray(chap.topics)) topics.push(...chap.topics);
-        return {
-          title: chap.title,
-          content: chap.content,
-          topics
-        };
-      });
-    };
-
-    if (Array.isArray(parsed)) {
-      return mapToTopics(parsed);
-    } else if (parsed && typeof parsed === 'object') {
-      const possibleArray = Object.values(parsed).find(val => Array.isArray(val));
-      if (Array.isArray(possibleArray)) return mapToTopics(possibleArray);
-    }
-    return null;
+    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
   } catch (e) {
-    console.error('extractViaAI failed:', e);
+    console.error('extractViaAI callLLM failed:', e);
     return null;
+  }
+
+  // --- Aggressive cleaning ---
+  // 1. Remove markdown code blocks
+  let cleanedRaw = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '');
+  // 2. Remove trailing commas before closing brackets
+  cleanedRaw = cleanedRaw.replace(/,\s*([}\]])/g, '$1');
+  // 3. Remove any leading/trailing whitespace
+  cleanedRaw = cleanedRaw.trim();
+
+  const mapToTopics = (arr: any[]) => {
+    return arr.map((chap: any) => {
+      const topics: any[] = [];
+      if (Array.isArray(chap.subtopics)) topics.push(...chap.subtopics);
+      if (Array.isArray(chap.exercises)) topics.push(...chap.exercises);
+      if (Array.isArray(chap.topics)) topics.push(...chap.topics);
+      return {
+        title: chap.title,
+        content: chap.content,
+        topics
+      };
+    });
+  };
+
+  // --- Attempt parsing ---
+  try {
+    // Try standard parse first
+    return mapToTopics(JSON.parse(cleanedRaw));
+  } catch {
+    try {
+      // Try jsonrepair
+      const repaired = jsonrepair(cleanedRaw);
+      const parsed = JSON.parse(repaired);
+      if (Array.isArray(parsed)) return mapToTopics(parsed);
+      // If it's an object with an array inside, extract it
+      if (parsed && typeof parsed === 'object') {
+        const possibleArray = Object.values(parsed).find(val => Array.isArray(val));
+        if (Array.isArray(possibleArray)) return mapToTopics(possibleArray);
+      }
+      return null;
+    } catch {
+      // Final fallback: try to extract an array using regex
+      const arrayMatch = cleanedRaw.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (arrayMatch) {
+        try {
+          const extracted = JSON.parse(arrayMatch[0]);
+          if (Array.isArray(extracted)) return mapToTopics(extracted);
+        } catch {}
+      }
+      return null;
+    }
   }
 }
