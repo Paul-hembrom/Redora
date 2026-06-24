@@ -935,13 +935,13 @@ export async function processDocument(
 
   // --- Step 1: Try full‑AI extraction ---
   onProgress('Analyzing document structure with AI (DeepSeek)…');
-  const parts = await extractViaAI(processedText);
+  const parsed = await extractViaAI(processedText);
 
-  if (parts && parts.length > 0) {
+  if (parsed && parsed.length > 0) {
     onProgress('AI restructuring succeeded. Building hierarchy…');
     const sortCounter = { value: 0 };
     finalChapters = [];
-    parseHierarchyIntoChapters({ parts }, processedText, finalChapters, sortCounter);
+    parseHierarchyIntoChapters({ chapters: parsed }, processedText, finalChapters, sortCounter);
   } else {
     // --- Step 2: Fallback to hybrid (outline + regex) ---
     onProgress('AI extraction failed. Falling back to hybrid…');

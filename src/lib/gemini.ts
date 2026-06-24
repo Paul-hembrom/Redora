@@ -941,31 +941,36 @@ ${text.substring(0, 4000)}`;
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
 export async function extractViaAI(text: string): Promise<any[] | null> {
-  // Ensure we pass the text WITHOUT any prompt comments attached
   const cleanText = text.substring(0, 350000); 
   
   const prompt = `
-You are a textbook parsing engine. The provided text has already been cleaned of all front matter, Table of Contents, and non-chapter garbage.
-Your ONLY task is to parse the text into a clean hierarchical JSON structure.
+You are an expert document analyst. Your task is to read the provided textbook text and determine its logical hierarchical structure.
 
-STRICT RULES TO FOLLOW:
-1. DO NOT summarize, omit, or change any text. Copy the original text verbatim.
-2. The output MUST be a JSON object with a single key "parts". Its value is an array of part objects.
-3. Each part MUST have: "title" (string), "chapters" (array of chapter objects).
-4. Each chapter MUST have: "title" (string), "topics" (array of topic objects).
-5. Each topic MUST have: "title" (string), "content" (string – the EXACT original text for that section).
-6. **CRITICAL: You MUST split the chapter's text into multiple distinct topics.** Look for the following sub-heading patterns:
-   - Single lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process", "c. Output").
-   - Roman numerals followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
-   - Numbers followed by a dot and a space (e.g., "1.1 Introduction", "2.3 Storage").
-   - Any bold or indented headings.
-   - Create a separate topic for each sub-section.
-   - The "content" of each topic must be the exact text starting after that sub-heading until the next sub-heading.
-7. If the text contains "Exercise", "Exercises", or "Practice" blocks, create a topic with the title "Exercise" and put that text into its content.
-8. Ensure every single character of the text appears exactly once in the output. The sum of all topic contents must equal the original chapter text.
+**STRICT RULES:**
+1. DO NOT summarize, change, or omit ANY text. Copy the original text verbatim.
+2. Every piece of text MUST appear exactly once in the final output.
+3. Identify the hierarchy of the book (e.g., Chapter, Unit, Part, Lesson).
+4. Correctly identify sub-topics (e.g., a. Abacus, 1.1 Introduction, i. Difference Engine, or bolded headers).
+5. DO NOT create separate chapters for headers like "Learning Objectives" or "Introduction". Instead, combine them into the first sub-topic of the chapter (give it a title like "Chapter Introduction" or keep it empty if there is no title).
+6. Place the "Exercise" or "Practice" section into the "exercises" array at the end of its parent chapter.
+7. Output a JSON array exactly matching the blueprint structure below. Do not include Table of Contents, Preface, Abbreviations, or Index.
+
+Example of expected output structure (The AI decides the title names, but the structure must follow this pattern exactly):
+[
+  {
+    "title": "Exact Chapter Heading (e.g., Unit 1: Introduction To Computer)",
+    "subtopics": [
+      { "title": "Exact Sub-Topic Heading (e.g., a. Input)", "content": "Full verbatim text for this sub-topic" },
+      { "title": "Exact Sub-Topic Heading (e.g., b. Process)", "content": "Full verbatim text for this sub-topic" }
+    ],
+    "exercises": [
+      { "title": "Exercises", "content": "Full verbatim text of the Exercise section" }
+    ]
+  }
+]
 
 Input text:
-${cleanText}
+\${cleanText}
 
 Output only the JSON, no other text.
   `;
@@ -979,7 +984,24 @@ Output only the JSON, no other text.
       const repaired = jsonrepair(raw);
       parsed = JSON.parse(repaired);
     }
-    return parsed?.parts || null;
+    
+    // Map the blueprint structure back to what documentProcessor expects
+    if (Array.isArray(parsed)) {
+      return parsed.map((chap: any) => {
+        const topics: any[] = [];
+        if (Array.isArray(chap.subtopics)) topics.push(...chap.subtopics);
+        if (Array.isArray(chap.exercises)) topics.push(...chap.exercises);
+        if (Array.isArray(chap.topics)) topics.push(...chap.topics);
+        
+        return {
+          title: chap.title,
+          content: chap.content,
+          topics
+        };
+      });
+    }
+
+    return parsed?.sections || parsed || null;
   } catch (e) {
     console.error('extractViaAI failed:', e);
     return null;
