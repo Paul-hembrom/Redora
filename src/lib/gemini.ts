@@ -1,6 +1,29 @@
 import { ChatMessage, ReadingPersona } from '../types';
 import { jsonrepair } from 'jsonrepair';
 
+// ---------------------------------------------------------------------------
+// Retry wrapper with exponential backoff for ApiRateLimitError
+// ---------------------------------------------------------------------------
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelayMs = 2000,
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isRateLimit = err instanceof ApiRateLimitError || err.message?.includes('429');
+      if (!isRateLimit || attempt === maxRetries) throw err;
+
+      const delay = (err as any).retryAfterMs ?? baseDelayMs * Math.pow(2, attempt);
+      console.warn(`[gemini] Rate limit hit — retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('withRetry: unreachable');
+}
+
 // ──────────────────────────────────────────────
 // 1. Error & helpers (unchanged)
 // ──────────────────────────────────────────────
@@ -64,14 +87,22 @@ async function callDeepSeek(
   }
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DEEPSEEK_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds
+    let res: Response;
+    try {
+      res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${DEEPSEEK_KEY}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!res.ok) {
       if (res.status === 503 || res.status === 502 || res.status === 504) {
@@ -976,7 +1007,8 @@ Output only the JSON, no other text.
   `;
 
   try {
-    const raw = await callLLM(prompt, undefined, 'json_object', 131072);
+    // Use withRetry to retry on rate limits or network errors
+    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
     let parsed;
     try {
       parsed = JSON.parse(raw);
