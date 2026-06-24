@@ -933,29 +933,31 @@ export async function generateMinimalSummary(text: string): Promise<string> {
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
 export async function extractViaAI(text: string): Promise<any[] | null> {
+  // Ensure we pass the text WITHOUT any prompt comments attached
+  const cleanText = text.substring(0, 350000); 
+  
   const prompt = `
 You are a textbook restructuring engine. You will receive the complete raw text of a book.
 Your task is to parse it and output a valid JSON object that perfectly preserves the original content, but organizes it into a clean hierarchical structure.
 
-Rules:
-- DO NOT summarize, omit, or change any text. Every single character from the original must appear exactly once in the output.
-- The output must be a JSON object with a single key "parts". Its value is an array of part objects.
-- Each part has: "title" (string), "chapters" (array of chapter objects).
-- Each chapter has: "title" (string), "topics" (array of topic objects).
-- Each topic has: "title" (string), "content" (string – the EXACT original text for that section).
-- If the book has no parts, just one part with an empty title or "Main Content".
-- Use the original chapter/section headings as titles. Do not invent new ones.
-- Preserve all formatting, line breaks, and special characters within the content strings.
+STRICT RULES TO FOLLOW:
+1. DO NOT summarize, omit, or change any text. Copy the original text verbatim.
+2. COMPLETELY IGNORE the Table of Contents, Preface, Abbreviations, Bibliography, Model Questions, and any lines starting with "7 2082". Do NOT include them in the output.
+3. Start parsing from the first real Unit/Chapter heading (e.g., "Unit 1: Introduction To Computer"). Any text before that must be discarded.
+4. The output MUST be a JSON object with a single key "parts". Its value is an array of part objects.
+5. Each part MUST have: "title" (string), "chapters" (array of chapter objects).
+6. Each chapter MUST have: "title" (string), "topics" (array of topic objects).
+7. Each topic MUST have: "title" (string), "content" (string – the EXACT original text for that section).
+8. Ensure every single character of the actual textbook chapters appears exactly once in the output.
 
 Input text:
-${text.substring(0, 350000)} // DeepSeek V4 Flash context ~128k tokens (~400k chars)
+${cleanText}
 
 Output only the JSON, no other text.
   `;
 
   try {
     const raw = await callLLM(prompt, undefined, 'json_object', 131072);
-    // Attempt to parse, and if fail, try jsonrepair
     let parsed;
     try {
       parsed = JSON.parse(raw);
