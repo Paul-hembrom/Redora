@@ -972,43 +972,41 @@ ${text.substring(0, 4000)}`;
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
 export async function extractViaAI(text: string): Promise<any[] | null> {
-  const cleanText = text.substring(0, 350000); 
+  const cleanText = text.substring(0, 350000);
   
   const prompt = `
-You are an expert document analyst. Your task is to read the provided textbook text and determine its logical hierarchical structure.
+You are a strict textbook parser. The text provided starts exactly at "Unit 1: Introduction To Computer" (or similar chapter heading).
+Your task is to output a JSON array of chapters.
 
 **STRICT RULES:**
-1. DO NOT summarize, change, or omit ANY text. Copy the original text verbatim.
-2. Every piece of text MUST appear exactly once in the final output.
-3. Identify the hierarchy of the book (e.g., Chapter, Unit, Part, Lesson).
-4. Correctly identify sub-topics (e.g., a. Abacus, 1.1 Introduction, i. Difference Engine, or bolded headers).
-5. DO NOT create separate chapters for headers like "Learning Objectives" or "Introduction". Instead, combine them into the first sub-topic of the chapter (give it a title like "Chapter Introduction" or keep it empty if there is no title).
-6. Place the "Exercise" or "Practice" section into the "exercises" array at the end of its parent chapter.
-7. Output a JSON array exactly matching the blueprint structure below. Do not include Table of Contents, Preface, Abbreviations, or Index.
+1. DO NOT summarize, change, or omit ANY original text. Copy it verbatim.
+2. The output MUST be a JSON array of chapter objects. Each chapter has:
+   - "title": The exact chapter heading (e.g., "Unit 1: Introduction To Computer").
+   - "subtopics": An array of objects, each with "title" and "content".
+   - "exercises": An array of objects, each with "title" and "content". If no exercises, provide an empty array.
 
-Example of expected output structure (The AI decides the title names, but the structure must follow this pattern exactly):
-[
-  {
-    "title": "Exact Chapter Heading (e.g., Unit 1: Introduction To Computer)",
-    "subtopics": [
-      { "title": "Exact Sub-Topic Heading (e.g., a. Input)", "content": "Full verbatim text for this sub-topic" },
-      { "title": "Exact Sub-Topic Heading (e.g., b. Process)", "content": "Full verbatim text for this sub-topic" }
-    ],
-    "exercises": [
-      { "title": "Exercises", "content": "Full verbatim text of the Exercise section" }
-    ]
-  }
-]
+3. **CRITICAL SUB-TOPIC RULE:**
+   - You MUST split the chapter text into subtopics based on the EXACT delimiters:
+     - A single lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process", "c. Output").
+     - A Roman numeral followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
+   - Each such delimited section becomes a separate subtopic.
+   - The "content" of each subtopic is the text starting after that heading until the next heading.
+   - DO NOT treat "Learning Objectives" or "Introduction" as separate subtopics. Combine them into the first subtopic's content.
+
+4. **EXERCISE RULE:**
+   - If you encounter "Exercise" or "Exercises", create an exercise object with title "Exercises" and content as the exact text of that section.
+
+5. Ensure every character appears exactly once across all subtopics and exercises.
 
 Input text:
 \${cleanText}
 
-Output only the JSON, no other text.
-  `;
+Output only the JSON array, no other text.
+`;
+
+  const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
 
   try {
-    // Use withRetry to retry on rate limits or network errors
-    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
     let parsed;
     try {
       parsed = JSON.parse(raw);
@@ -1016,24 +1014,28 @@ Output only the JSON, no other text.
       const repaired = jsonrepair(raw);
       parsed = JSON.parse(repaired);
     }
-    
-    // Map the blueprint structure back to what documentProcessor expects
-    if (Array.isArray(parsed)) {
-      return parsed.map((chap: any) => {
+
+    const mapToTopics = (arr: any[]) => {
+      return arr.map((chap: any) => {
         const topics: any[] = [];
         if (Array.isArray(chap.subtopics)) topics.push(...chap.subtopics);
         if (Array.isArray(chap.exercises)) topics.push(...chap.exercises);
         if (Array.isArray(chap.topics)) topics.push(...chap.topics);
-        
         return {
           title: chap.title,
           content: chap.content,
           topics
         };
       });
-    }
+    };
 
-    return parsed?.sections || parsed || null;
+    if (Array.isArray(parsed)) {
+      return mapToTopics(parsed);
+    } else if (parsed && typeof parsed === 'object') {
+      const possibleArray = Object.values(parsed).find(val => Array.isArray(val));
+      if (Array.isArray(possibleArray)) return mapToTopics(possibleArray);
+    }
+    return null;
   } catch (e) {
     console.error('extractViaAI failed:', e);
     return null;
