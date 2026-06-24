@@ -100,7 +100,7 @@ async function callDeepSeek(
       console.warn(`DeepSeek truncated JSON max retries reached. Let JSON repair handle it.`);
     }
 
-    content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+    content = content.replace(/^```json\\n?/, '').replace(/\\n?```$/, '').trim();
     return content;
   }
 
@@ -143,7 +143,7 @@ export async function callGeminiFlashLite(
   });
 
   let text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  text = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+  text = text.replace(/^```json\\n?/, '').replace(/\\n?```$/, '').trim();
   return text;
 }
 
@@ -270,7 +270,7 @@ async function callNvidiaFallback(prompt: string, systemInstruction?: string) {
 
   const data = await response.json();
   let content = data.choices[0].message.content;
-  content = content.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+  content = content.replace(/^```json\\n?/, '').replace(/\\n?```$/, '').trim();
   return content;
 }
 
@@ -398,8 +398,9 @@ export async function generateBatchChapterMetadata(
   summaryDetail: 'brief' | 'detailed' | 'academic' = 'detailed',
 ): Promise<{ [chapterNumber: number]: { title: string; summary: string } }> {
   const chaptersText = chaptersData
-    .map(c => `--- Chapter ${c.chapterNumber} ---\n${c.content.substring(0, 75000)}`)
-    .join('\n\n');
+    .map(c => `--- Chapter ${c.chapterNumber} ---
+${c.content.substring(0, 75000)}`)
+    .join('\\n\\n');
 
   let instructions = '';
   if (summaryDetail === 'brief') {
@@ -421,7 +422,7 @@ ${chaptersText}
 
 IMPORTANT: You must return ONLY a valid JSON object where the keys are the chapter numbers (as strings) and values are objects with 'title' and 'summary' keys. Example:
 {
-  "${chaptersData[0]?.chapterNumber || '1'}": { "title": "Example Descriptive Title", "summary": "Overview paragraph...\\n\\n- Bullet point 1...\\n- Bullet point 2..." }
+  "\${chaptersData[0]?.chapterNumber || '1'}": { "title": "Example Descriptive Title", "summary": "Overview paragraph...\\n\\n- Bullet point 1...\\n- Bullet point 2..." }
 }
 No markdown formatting, no explanation.
   `.trim();
@@ -436,10 +437,10 @@ No markdown formatting, no explanation.
       for (const key in parsed) {
         let summaryObj = parsed[key].summary;
         if (Array.isArray(summaryObj)) {
-          summaryObj = summaryObj.join("\n- ");
+          summaryObj = summaryObj.join("\\n- ");
           if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
         } else if (typeof summaryObj === 'string') {
-          summaryObj = summaryObj.replace(/\\n/g, '\n');
+          summaryObj = summaryObj.replace(/\\n/g, '\\n');
           if (!summaryObj.trim().startsWith('-')) {
             summaryObj = '- ' + summaryObj.trim();
           }
@@ -509,10 +510,10 @@ No markdown formatting, no explanation.
       const parsed = JSON.parse(raw);
       let summaryObj = parsed.summary;
       if (Array.isArray(summaryObj)) {
-        summaryObj = summaryObj.join("\n- ");
+        summaryObj = summaryObj.join("\\n- ");
         if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
       } else if (typeof summaryObj === 'string') {
-        summaryObj = summaryObj.replace(/\\n/g, '\n');
+        summaryObj = summaryObj.replace(/\\n/g, '\\n');
         if (!summaryObj.trim().startsWith('-')) {
           summaryObj = '- ' + summaryObj.trim();
         }
@@ -553,7 +554,7 @@ export async function generateILMChatResponse(
   history: ChatMessage[]
 ): Promise<string> {
   const ai = await getGenAI();
-  const formattedHistory = history.map(msg => `${msg.role === 'user' ? 'Student' : 'Maya'}: ${msg.text}`).join('\n\n');
+  const formattedHistory = history.map(msg => `${msg.role === 'user' ? 'Student' : 'Maya'}: ${msg.text}`).join('\\n\\n');
   const prompt = `You are "Maya", a warm, witty, and encouraging science teacher. 
 Context from current lesson step: ${chapterContent.substring(0, 5000)}
 
@@ -607,7 +608,7 @@ Output JSON format:
 }
   `.trim();
 
-  const formattedHistory = history.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.text}`).join('\n\n');
+  const formattedHistory = history.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.text}`).join('\\n\\n');
 
   const prompt = `
 Provided Content:
@@ -663,7 +664,12 @@ ${text.substring(0, 40000)}`;
 
 export async function generateDocumentHierarchy(content: string, detectedHeadings?: string[], retries = 3): Promise<any> {
   const headingsPrompt = detectedHeadings && detectedHeadings.length > 0 
-    ? `\nThe document contains exactly these main sections in this order:\n${detectedHeadings.map(h => `- ${h}`).join('\n')}\n\nYou MUST use these exact titles and preserve this exact order when building your hierarchy.\n`
+    ? `
+The document contains exactly these main sections in this order:
+${detectedHeadings.map(h => `- ${h}`).join('\\n')}
+
+You MUST use these exact titles and preserve this exact order when building your hierarchy.
+`
     : '';
 
   const prompt = `
@@ -920,7 +926,9 @@ No markdown formatting, no explanations outside of the JSON block.
 // 12. Ultra-minimal fallback summarizer
 // ──────────────────────────────────────────────
 export async function generateMinimalSummary(text: string): Promise<string> {
-  const prompt = `Summarise this text in one sentence:\n\n${text.substring(0, 4000)}`;
+  const prompt = `Summarise this text in one sentence:
+
+${text.substring(0, 4000)}`;
   try {
     return await callLLM(prompt, undefined, 'text', 1024);
   } catch (err) {
@@ -946,8 +954,15 @@ STRICT RULES TO FOLLOW:
 3. Each part MUST have: "title" (string), "chapters" (array of chapter objects).
 4. Each chapter MUST have: "title" (string), "topics" (array of topic objects).
 5. Each topic MUST have: "title" (string), "content" (string – the EXACT original text for that section).
-6. If the text contains "Exercise", "Exercises", or "Practice" blocks, create a topic with the title "Exercise" and put that text into its content.
-7. Ensure every single character of the text appears exactly once in the output.
+6. **CRITICAL: You MUST split the chapter's text into multiple distinct topics.** Look for the following sub-heading patterns:
+   - Single lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process", "c. Output").
+   - Roman numerals followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
+   - Numbers followed by a dot and a space (e.g., "1.1 Introduction", "2.3 Storage").
+   - Any bold or indented headings.
+   - Create a separate topic for each sub-section.
+   - The "content" of each topic must be the exact text starting after that sub-heading until the next sub-heading.
+7. If the text contains "Exercise", "Exercises", or "Practice" blocks, create a topic with the title "Exercise" and put that text into its content.
+8. Ensure every single character of the text appears exactly once in the output. The sum of all topic contents must equal the original chapter text.
 
 Input text:
 ${cleanText}
