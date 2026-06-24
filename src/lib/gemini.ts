@@ -937,18 +937,17 @@ export async function extractViaAI(text: string): Promise<any[] | null> {
   const cleanText = text.substring(0, 350000); 
   
   const prompt = `
-You are a textbook restructuring engine. You will receive the complete raw text of a book.
-Your task is to parse it and output a valid JSON object that perfectly preserves the original content, but organizes it into a clean hierarchical structure.
+You are a textbook parsing engine. The provided text has already been cleaned of all front matter, Table of Contents, and non-chapter garbage.
+Your ONLY task is to parse the text into a clean hierarchical JSON structure.
 
 STRICT RULES TO FOLLOW:
 1. DO NOT summarize, omit, or change any text. Copy the original text verbatim.
-2. COMPLETELY IGNORE the Table of Contents, Preface, Abbreviations, Bibliography, Model Questions, and any lines starting with "7 2082". Do NOT include them in the output.
-3. Start parsing from the first real Unit/Chapter heading (e.g., "Unit 1: Introduction To Computer"). Any text before that must be discarded.
-4. The output MUST be a JSON object with a single key "parts". Its value is an array of part objects.
-5. Each part MUST have: "title" (string), "chapters" (array of chapter objects).
-6. Each chapter MUST have: "title" (string), "topics" (array of topic objects).
-7. Each topic MUST have: "title" (string), "content" (string – the EXACT original text for that section).
-8. Ensure every single character of the actual textbook chapters appears exactly once in the output.
+2. The output MUST be a JSON object with a single key "parts". Its value is an array of part objects.
+3. Each part MUST have: "title" (string), "chapters" (array of chapter objects).
+4. Each chapter MUST have: "title" (string), "topics" (array of topic objects).
+5. Each topic MUST have: "title" (string), "content" (string – the EXACT original text for that section).
+6. If the text contains "Exercise", "Exercises", or "Practice" blocks, create a topic with the title "Exercise" and put that text into its content.
+7. Ensure every single character of the text appears exactly once in the output.
 
 Input text:
 ${cleanText}

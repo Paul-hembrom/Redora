@@ -341,9 +341,21 @@ export function splitIntoChapters(text: string): string[] {
  * to allow the extractor to start cleanly.
  */
 export function stripFrontMatter(text: string): string {
-  // Safe check for cover page noise, but don't delete valid headings
+  // Step 1: Find the exact start position of "Unit 1" or similar chapter headings
+  const unit1Match = text.match(/(?:Unit|Chapter)\s+[0-9IVX]+\s*[:\-]?\s*[A-Z]/i);
+  if (unit1Match && unit1Match.index !== undefined) {
+    return text.slice(unit1Match.index).trim();
+  }
+  
+  // Step 2: Fallback: try to find "1. Introduction" or "1 Introduction"
+  const altMatch = text.match(/\n\s*1\.?\s*Introduction/i);
+  if (altMatch && altMatch.index !== undefined) {
+    return text.slice(altMatch.index).trim();
+  }
+  
+  // Step 3: Ultimate fallback: keep the old cover-page stripping logic
   const checkArea = text.slice(0, 2000);
-  if (/computer class\s*\d+\.pdf/i.test(checkArea) || /download pdf/i.test(checkArea)) {
+  if (/computer class/i.test(checkArea) || /download pdf/i.test(checkArea)) {
     const dropIndex = text.indexOf('Download PDF') + 'Download PDF'.length;
     const nextNewline = text.indexOf('\n', dropIndex);
     return nextNewline > -1 ? text.slice(nextNewline + 1).trim() : text.slice(dropIndex).trim();
