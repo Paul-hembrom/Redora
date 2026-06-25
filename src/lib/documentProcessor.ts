@@ -410,10 +410,15 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   const allChapters: Chapter[] = [];
   let sortCounter = sortCounterStart;
 
-  const chapterRegex = /(?=\n\s*Unit\s+[0-9IVX]+(?:\s*[:\-]?\s*[A-Z][A-Za-z0-9\s]+)?)/gi;
+  let chapterRegex = /(?=\n\s*(?:Unit|CHAPTER|Chapter|Section|Part|Lesson|Module|Topic|PART|SECTION)\s*[0-9IVX]+(?:\s*[:\-]\s*[A-Za-z0-9\s]+)?)/gi;
   
   const evalText = text.startsWith('\n') ? text : '\n' + text;
   let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
+
+  if (originalSplits.length <= 1) {
+    chapterRegex = /(?=\n\s*(?:Unit|Chapter)\s*[0-9IVX]+\s*:)/gi;
+    originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
+  }
 
   if (originalSplits.length <= 1) {
     originalSplits = [text];
@@ -933,7 +938,7 @@ export async function processDocument(
   let finalChapters: Chapter[] = [];
 
   // If the book is relatively small, use the single-pass AI extraction.
-  if (processedText.length < 200000) {
+  if (processedText.length < 150000) {
     onProgress('Analyzing document structure with AI (single-pass)…');
     const parts = await extractViaAI(processedText);
     if (parts && parts.length > 0) {
@@ -954,11 +959,50 @@ export async function processDocument(
     }
   } else {
     // --- Large book: chunked extraction ---
-    onProgress(`Large book detected (${Math.round(processedText.length/1000)}k chars). Splitting into chapters…`);
-    const chapterChunks = splitIntoChaptersEnhanced(processedText);
+    onProgress(`Large book detected (${Math.round(processedText.length/1000)}k chars). Attempting to split into chapters…`);
+    let chapterChunks = splitIntoChaptersEnhanced(processedText);
+
+    // If regex splitter failed, try AI outline to get chapter titles
+    if (!chapterChunks || chapterChunks.length <= 1) {
+      onProgress('Regex splitter failed. Using AI outline to locate chapters…');
+      const outline = await generateOutline(processedText);
+      if (outline && outline.length > 0) {
+        // Build chapter chunks from outline
+        chapterChunks = outline.map((ch, index) => {
+          const title = ch.title.trim();
+          // Use a simple regex to find the chapter's start position
+          const idx = processedText.indexOf(title);
+          if (idx !== -1) {
+            const start = idx;
+            const end = (index < outline.length - 1) 
+              ? processedText.indexOf(outline[index+1].title.trim()) 
+              : processedText.length;
+            return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: processedText.substring(start, end), isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
+          } else {
+            // Fallback: use regex search
+            const regex = new RegExp(title.split(/\\s+/).map(escapeRegExp).join('\\s+'), 'i');
+            const match = processedText.match(regex);
+            if (match && match.index !== undefined) {
+              const start = match.index;
+              const end = (index < outline.length - 1) 
+                ? processedText.indexOf(outline[index+1].title.trim()) 
+                : processedText.length;
+              return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: processedText.substring(start, end), isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
+            }
+          }
+          // If all fails, return a dummy chunk
+          return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: '', isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
+        });
+        // Filter out empty chunks
+        chapterChunks = chapterChunks.filter(ch => ch.content.length > 100);
+      }
+    }
+
+    // If still no chapters, throw an error
     if (!chapterChunks || chapterChunks.length === 0) {
       throw new Error('Could not split large book into chapters.');
     }
+
     onProgress(`Processing ${chapterChunks.length} chapters via parallel AI…`);
 
     const limit = createConcurrencyLimit(MAX_CONCURRENCY);
