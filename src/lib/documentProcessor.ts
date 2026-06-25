@@ -13,7 +13,8 @@ import {
   generateChapterMetadata,
   generateMinimalSummary,
   callLLM,
-  extractViaAI
+  extractViaAI,
+  extractChapterViaAI
 } from './gemini';
 
 // ---------------------------------------------------------------------------
@@ -931,25 +932,167 @@ export async function processDocument(
 
   let finalChapters: Chapter[] = [];
 
-  // --- Step 1: Try full‑AI extraction ---
-  onProgress('Analyzing document structure with AI (DeepSeek)…');
-  const parsed = await extractViaAI(processedText);
-
-  if (parsed && parsed.length > 0) {
-    onProgress('AI restructuring succeeded. Building hierarchy…');
-    const sortCounter = { value: 0 };
-    finalChapters = [];
-    parseHierarchyIntoChapters({ chapters: parsed }, processedText, finalChapters, sortCounter);
+  // If the book is relatively small, use the single-pass AI extraction.
+  if (processedText.length < 200000) {
+    onProgress('Analyzing document structure with AI (single-pass)…');
+    const parts = await extractViaAI(processedText);
+    if (parts && parts.length > 0) {
+      onProgress('AI restructuring succeeded. Building hierarchy…');
+      const sortCounter = { value: 0 };
+      finalChapters = [];
+      parseHierarchyIntoChapters({ parts }, processedText, finalChapters, sortCounter);
+    } else {
+      onProgress('AI extraction failed. Falling back to hybrid…');
+      // Fallback: use outline + regex
+      let outline = await generateOutline(processedText);
+      if (outline && outline.length > 0) {
+        finalChapters = await extractByOutline(processedText, outline);
+      }
+      if (!finalChapters || finalChapters.length === 0) {
+        finalChapters = splitIntoChaptersEnhanced(processedText);
+      }
+    }
   } else {
-    // --- Step 2: Fallback to hybrid (outline + regex) ---
-    onProgress('AI extraction failed. Falling back to hybrid…');
-    let outline = await generateOutline(processedText);
-    if (outline && outline.length > 0) {
-      finalChapters = await extractByOutline(processedText, outline);
+    // --- Large book: chunked extraction ---
+    onProgress(`Large book detected (${Math.round(processedText.length/1000)}k chars). Splitting into chapters…`);
+    const chapterChunks = splitIntoChaptersEnhanced(processedText);
+    if (!chapterChunks || chapterChunks.length === 0) {
+      throw new Error('Could not split large book into chapters.');
     }
-    if (!finalChapters || finalChapters.length === 0) {
-      finalChapters = splitIntoChaptersEnhanced(processedText);
+    onProgress(`Processing ${chapterChunks.length} chapters via parallel AI…`);
+
+    const limit = createConcurrencyLimit(MAX_CONCURRENCY);
+    const chapterResults: Chapter[] = [];
+    let sortCounter = 0;
+
+    const jobs = chapterChunks.map((chunk) =>
+      limit(async () => {
+        onProgress(`Extracting subtopics for: ${chunk.title}…`);
+        try {
+          const result = await extractChapterViaAI(chunk.content, chunk.title);
+          if (result) {
+            const chapId = uuidv4();
+            const subtopics: Chapter[] = [];
+            // Convert subtopics
+            for (const sub of result.subtopics) {
+              subtopics.push({
+                id: uuidv4(),
+                chapterNumber: subtopics.length + 1,
+                title: sub.title,
+                summary: '',
+                content: sub.content,
+                isGenerating: false,
+                parentId: chapId,
+                sortOrder: sortCounter++,
+                type: 'topic',
+                children: []
+              });
+            }
+            // Convert exercises
+            for (const ex of result.exercises) {
+              subtopics.push({
+                id: uuidv4(),
+                chapterNumber: subtopics.length + 1,
+                title: ex.title,
+                summary: '',
+                content: ex.content,
+                isGenerating: false,
+                parentId: chapId,
+                sortOrder: sortCounter++,
+                type: 'exercise',
+                children: []
+              });
+            }
+            // Build the chapter node
+            const chapterNode: Chapter = {
+              id: chapId,
+              chapterNumber: chapterResults.length + 1, // will be reassigned after merge
+              title: chunk.title,
+              summary: '',
+              content: '', // content is distributed to subtopics
+              isGenerating: false,
+              parentId: null,
+              sortOrder: sortCounter++,
+              type: 'chapter',
+              children: subtopics
+            };
+            chapterResults.push(chapterNode);
+          } else {
+            // If AI fails for this chapter, fallback: just use the raw chunk as a topic
+            const chapId = uuidv4();
+            const fallbackTopic: Chapter = {
+              id: uuidv4(),
+              chapterNumber: 1,
+              title: 'Full Chapter Content',
+              summary: '',
+              content: chunk.content,
+              isGenerating: false,
+              parentId: chapId,
+              sortOrder: sortCounter++,
+              type: 'topic',
+              children: []
+            };
+            const fallbackChapter: Chapter = {
+              id: chapId,
+              chapterNumber: chapterResults.length + 1,
+              title: chunk.title,
+              summary: '',
+              content: '',
+              isGenerating: false,
+              parentId: null,
+              sortOrder: sortCounter++,
+              type: 'chapter',
+              children: [fallbackTopic]
+            };
+            chapterResults.push(fallbackChapter);
+          }
+        } catch (err) {
+          console.error('Failed to process chapter:', chunk.title, err);
+          // Same fallback as above
+          const chapId = uuidv4();
+          const fallbackTopic: Chapter = {
+            id: uuidv4(),
+            chapterNumber: 1,
+            title: 'Full Chapter Content',
+            summary: '',
+            content: chunk.content,
+            isGenerating: false,
+            parentId: chapId,
+            sortOrder: sortCounter++,
+            type: 'topic',
+            children: []
+          };
+          const fallbackChapter: Chapter = {
+            id: chapId,
+            chapterNumber: chapterResults.length + 1,
+            title: chunk.title,
+            summary: '',
+            content: '',
+            isGenerating: false,
+            parentId: null,
+            sortOrder: sortCounter++,
+            type: 'chapter',
+            children: [fallbackTopic]
+          };
+          chapterResults.push(fallbackChapter);
+        }
+      })
+    );
+
+    await Promise.all(jobs);
+
+    // Reassign chapter numbers and sort order
+    let finalSort = 0;
+    for (const ch of chapterResults) {
+      ch.sortOrder = finalSort++;
+      // Also reassign children sort orders if needed
+      if (ch.children) {
+        for (const child of ch.children) {
+          child.sortOrder = finalSort++;
+        }
+      }
     }
+    finalChapters = chapterResults;
   }
 
   // --------------------------------------------------------------------------

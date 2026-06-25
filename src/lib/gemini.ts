@@ -1055,3 +1055,40 @@ Output only the JSON array, no other text.
     }
   }
 }
+
+export async function extractChapterViaAI(chapterText: string, chapterTitle: string): Promise<{ subtopics: { title: string, content: string }[], exercises: { title: string, content: string }[] } | null> {
+  const prompt = `
+You are a document parser. The text provided is a single chapter of a book with the title: "${chapterTitle}".
+Your task is to parse this chapter and output a JSON object with two keys: "subtopics" and "exercises".
+
+STRICT RULES:
+1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
+2. Identify all sub-headings within this chapter. Sub-headings can be: a., b., c., 1.1, i., ii., bold lines, indented lines, or any line that introduces a new section.
+3. For each sub-heading, create a subtopic object with "title" (the exact heading) and "content" (the exact text until the next sub-heading).
+4. If you find "Exercise", "Exercises", or "Practice", create an exercise object with "title" (e.g., "Exercises") and "content" (the exact text of that block).
+5. Do NOT include the chapter title in the output; it's already provided.
+6. Ensure every character appears exactly once across all subtopics and exercises.
+
+Input text:
+${chapterText}
+
+Output only the JSON object, no other text.
+  `;
+
+  try {
+    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
+    // Clean and parse the raw JSON
+    let cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
+    let parsed = JSON.parse(cleaned);
+    // Ensure structure
+    if (parsed && typeof parsed === 'object') {
+      if (!parsed.subtopics) parsed.subtopics = [];
+      if (!parsed.exercises) parsed.exercises = [];
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    console.error('extractChapterViaAI failed for chapter:', chapterTitle, e);
+    return null;
+  }
+}
