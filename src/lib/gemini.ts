@@ -929,10 +929,10 @@ function writeString(view: DataView, offset: number, str: string) {
 export async function extractTerminology(content: string, customPrompt?: string): Promise<{ term: string; definition: string }[]> {
   const defaultTask = "Identify and extract the most important technical terms, vocabulary, jargon, names of systems, key equations, concepts, or events from the provided text, and provide clear, precise, and educational definitions suited for study and flashcards.";
   const prompt = `
-Task: ${customPrompt || defaultTask}
+Task: \${customPrompt || defaultTask}
 
 Source Text Content:
-${content.substring(0, 30000)}
+\${content.substring(0, 30000)}
 
 IMPORTANT: You must return ONLY a valid JSON object matching this structure:
 {
@@ -959,7 +959,7 @@ No markdown formatting, no explanations outside of the JSON block.
 export async function generateMinimalSummary(text: string): Promise<string> {
   const prompt = `Summarise this text in one sentence:
 
-${text.substring(0, 4000)}`;
+\${text.substring(0, 4000)}`;
   try {
     return await callLLM(prompt, undefined, 'text', 1024);
   } catch (err) {
@@ -975,30 +975,33 @@ export async function extractViaAI(text: string): Promise<any[] | null> {
   const cleanText = text.substring(0, 350000);
   
   const prompt = `
-You are a strict textbook parser. The text provided starts exactly at the first chapter heading.
-Your task is to output a JSON array of chapters.
+You are a document parsing AI. The provided text is a book.
+Your task is to extract the EXACT textbook hierarchy into a JSON array.
 
-**STRICT RULES:**
-1. DO NOT summarize, change, or omit ANY original text. Copy it verbatim.
-2. The output MUST be a JSON array of chapter objects. Each chapter has:
+STRICT RULES:
+1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
+2. Output a JSON array of chapters. Each chapter has:
    - "title": The exact chapter heading.
-   - "subtopics": An array of objects with "title" and "content".
-   - "exercises": An array of objects with "title" and "content" (if none, provide empty array).
+   - "subtopics": An array of { "title": string, "content": string }.
+   - "exercises": An array of { "title": string, "content": string }.
 
-3. **SUB-TOPIC RULE:** Split chapter text into subtopics based on the EXACT delimiters:
-   - A single lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process").
-   - A Roman numeral followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
-   - Each delimited section becomes a separate subtopic.
-   - Combine "Learning Objectives" and "Introduction" into the first subtopic's content.
+3. **CHAPTER IDENTIFICATION:** Analyze the text to find the main chapter headings. These could be "Unit", "Chapter", "Part", "Section", "Lesson", or numbered headings like "1. Introduction".
 
-4. **EXERCISE RULE:** If you encounter "Exercise", create an exercise object with title "Exercises" and content as the exact text.
+4. **SUB-TOPIC IDENTIFICATION:** For each chapter, scan the text for sub-headings. Sub-headings can be ANY of the following:
+   - A lowercase letter followed by a dot (e.g., "a. Abacus", "b. Napier's Bone").
+   - A roman numeral followed by a dot (e.g., "i. Difference Engine").
+   - A number like "1.1 Introduction" or "2.3 Storage".
+   - A bolded or indented line that introduces a new section.
+   - ANY line that acts as a break between two distinct blocks of text.
 
-5. Ensure every character appears exactly once across all subtopics and exercises.
-
-Output only the JSON array, no other text.
+5. Split the chapter into subtopics based on these identified sub-headings. Each sub-heading becomes a separate subtopic. The "content" is the exact text until the next sub-heading.
+6. DO NOT treat "Learning Objectives" or "Introduction" as separate subtopics. Merge them into the introductory part of the first subtopic.
+7. If you see "Exercise", "Exercises", or "Practice", isolate it and create an exercise node with title "Exercises".
 
 Input text:
-${cleanText}
+\${cleanText}
+
+Output only the JSON array, no other text.
 `;
 
   let raw: string;
@@ -1010,11 +1013,8 @@ ${cleanText}
   }
 
   // --- Aggressive cleaning ---
-  // 1. Remove markdown code blocks
   let cleanedRaw = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '');
-  // 2. Remove trailing commas before closing brackets
   cleanedRaw = cleanedRaw.replace(/,\s*([}\]])/g, '$1');
-  // 3. Remove any leading/trailing whitespace
   cleanedRaw = cleanedRaw.trim();
 
   const mapToTopics = (arr: any[]) => {
@@ -1031,24 +1031,19 @@ ${cleanText}
     });
   };
 
-  // --- Attempt parsing ---
   try {
-    // Try standard parse first
     return mapToTopics(JSON.parse(cleanedRaw));
   } catch {
     try {
-      // Try jsonrepair
       const repaired = jsonrepair(cleanedRaw);
       const parsed = JSON.parse(repaired);
       if (Array.isArray(parsed)) return mapToTopics(parsed);
-      // If it's an object with an array inside, extract it
       if (parsed && typeof parsed === 'object') {
         const possibleArray = Object.values(parsed).find(val => Array.isArray(val));
         if (Array.isArray(possibleArray)) return mapToTopics(possibleArray);
       }
       return null;
     } catch {
-      // Final fallback: try to extract an array using regex
       const arrayMatch = cleanedRaw.match(/\[\s*\{[\s\S]*\}\s*\]/);
       if (arrayMatch) {
         try {
