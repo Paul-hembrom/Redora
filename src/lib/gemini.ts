@@ -680,10 +680,10 @@ If no clear chapter structure is found, return an empty array.
 Do NOT include any content text, only headings.
 
 Text:
-${text.substring(0, 40000)}`;
+${text.substring(0, 100000)}`;
 
   try {
-    const raw = await callLLM(prompt, "You are a document structure analyst.", "json_object");
+    const raw = await withRetry(() => callLLM(prompt, "You are a document structure analyst.", "json_object"), 3, 5000);
     const jsonStr = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
     const result = JSON.parse(jsonStr);
     return Array.isArray(result) ? result : [];
@@ -959,9 +959,9 @@ No markdown formatting, no explanations outside of the JSON block.
 export async function generateMinimalSummary(text: string): Promise<string> {
   const prompt = `Summarise this text in one sentence:
 
-\${text.substring(0, 4000)}`;
+${text.substring(0, 4000)}`;
   try {
-    return await callLLM(prompt, undefined, 'text', 1024);
+    return await withRetry(() => callLLM(prompt, undefined, 'text', 1024), 2, 2000);
   } catch (err) {
     console.error('Minimal fallback summarize failed:', err);
     return 'Summary temporarily unavailable – please try again later.';

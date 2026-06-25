@@ -178,13 +178,8 @@ export async function extractTextFromFile(
 
   if (extension === 'pdf') {
     const extractPdf = async (): Promise<string> => {
-      const fileUrl = URL.createObjectURL(file);
-      let pdf: pdfjsLib.PDFDocumentProxy;
-      try {
-        pdf = await pdfjsLib.getDocument(fileUrl).promise;
-      } finally {
-        URL.revokeObjectURL(fileUrl);
-      }
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
       const pageTexts: string[] = new Array(pdf.numPages);
       const batchSize = 10;
@@ -215,13 +210,8 @@ export async function extractTextFromFile(
     };
 
     const extractPdfOcr = async (): Promise<string> => {
-      const fileUrl = URL.createObjectURL(file);
-      let pdf: pdfjsLib.PDFDocumentProxy;
-      try {
-        pdf = await pdfjsLib.getDocument(fileUrl).promise;
-      } finally {
-        URL.revokeObjectURL(fileUrl);
-      }
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
       const pageTexts: string[] = new Array(pdf.numPages);
       const batchSize = 10;
@@ -416,7 +406,7 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
 
   if (originalSplits.length <= 1) {
-    chapterRegex = /(?=\n\s*(?:Unit|Chapter)\s*[0-9IVX]+\s*:)/gi;
+    chapterRegex = /(?=\n\s*\d+\.\s+[A-Z])/gi;
     originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
   }
 
@@ -970,25 +960,34 @@ export async function processDocument(
         // Build chapter chunks from outline
         chapterChunks = outline.map((ch, index) => {
           const title = ch.title.trim();
-          // Use a simple regex to find the chapter's start position
+          const regexStr = title.split(/\\s+/).map(escapeRegExp).join('\\s+');
           const idx = processedText.indexOf(title);
+          
+          let start = -1;
           if (idx !== -1) {
-            const start = idx;
-            const end = (index < outline.length - 1) 
-              ? processedText.indexOf(outline[index+1].title.trim()) 
-              : processedText.length;
-            return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: processedText.substring(start, end), isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
+            start = idx;
           } else {
-            // Fallback: use regex search
-            const regex = new RegExp(title.split(/\\s+/).map(escapeRegExp).join('\\s+'), 'i');
-            const match = processedText.match(regex);
-            if (match && match.index !== undefined) {
-              const start = match.index;
-              const end = (index < outline.length - 1) 
-                ? processedText.indexOf(outline[index+1].title.trim()) 
-                : processedText.length;
-              return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: processedText.substring(start, end), isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
+            const match = processedText.match(new RegExp(regexStr, 'i'));
+            if (match && match.index !== undefined) start = match.index;
+          }
+
+          if (start !== -1) {
+            let nextTitleIdx = -1;
+            if (index < outline.length - 1) {
+               const nextTitle = outline[index+1].title.trim();
+               nextTitleIdx = processedText.indexOf(nextTitle, start + title.length);
+               if (nextTitleIdx === -1) {
+                  const nextRegexStr = nextTitle.split(/\\s+/).map(escapeRegExp).join('\\s+');
+                  // To search after start, we can substring the processedText
+                  const afterStart = processedText.substring(start + title.length);
+                  const nextMatch = afterStart.match(new RegExp(nextRegexStr, 'i'));
+                  if (nextMatch && nextMatch.index !== undefined) {
+                     nextTitleIdx = start + title.length + nextMatch.index;
+                  }
+               }
             }
+            const end = nextTitleIdx !== -1 ? nextTitleIdx : processedText.length;
+            return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: processedText.substring(start, end), isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
           }
           // If all fails, return a dummy chunk
           return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: '', isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
