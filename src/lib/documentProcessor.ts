@@ -1062,59 +1062,33 @@ export async function processDocument(
             };
             chapterResults.push(chapterNode);
           } else {
-            // If AI fails for this chapter, fallback: just use the raw chunk as a topic
-            const chapId = uuidv4();
-            const fallbackTopic: Chapter = {
-              id: uuidv4(),
-              chapterNumber: 1,
-              title: 'Full Chapter Content',
-              summary: '',
-              content: chunk.content,
-              isGenerating: false,
-              parentId: chapId,
-              sortOrder: sortCounter++,
-              type: 'topic',
-              children: []
-            };
-            const fallbackChapter: Chapter = {
-              id: chapId,
-              chapterNumber: chapterResults.length + 1,
-              title: chunk.title,
-              summary: '',
-              content: '',
-              isGenerating: false,
-              parentId: null,
-              sortOrder: sortCounter++,
-              type: 'chapter',
-              children: [fallbackTopic]
-            };
-            chapterResults.push(fallbackChapter);
+            throw new Error('AI returned null');
           }
         } catch (err) {
-          console.error('Failed to process chapter:', chunk.title, err);
-          // Same fallback as above
+          console.warn(`AI extraction failed for chapter "${chunk.title}". Falling back to raw text.`, err);
+          // Always push a fallback chapter, never fail the whole book
           const chapId = uuidv4();
           const fallbackTopic: Chapter = {
             id: uuidv4(),
             chapterNumber: 1,
-            title: 'Full Chapter Content',
+            title: 'Full Chapter Content (AI Extraction Failed)',
             summary: '',
             content: chunk.content,
             isGenerating: false,
             parentId: chapId,
-            sortOrder: sortCounter++,
+            sortOrder: 1,
             type: 'topic',
             children: []
           };
           const fallbackChapter: Chapter = {
             id: chapId,
-            chapterNumber: chapterResults.length + 1,
+            chapterNumber: 1,
             title: chunk.title,
             summary: '',
             content: '',
             isGenerating: false,
             parentId: null,
-            sortOrder: sortCounter++,
+            sortOrder: 0,
             type: 'chapter',
             children: [fallbackTopic]
           };
@@ -1127,11 +1101,15 @@ export async function processDocument(
 
     // Reassign chapter numbers and sort order
     let finalSort = 0;
+    let chapNum = 1;
     for (const ch of chapterResults) {
+      ch.chapterNumber = chapNum++;
       ch.sortOrder = finalSort++;
       // Also reassign children sort orders if needed
       if (ch.children) {
+        let childChapNum = 1;
         for (const child of ch.children) {
+          child.chapterNumber = childChapNum++;
           child.sortOrder = finalSort++;
         }
       }
