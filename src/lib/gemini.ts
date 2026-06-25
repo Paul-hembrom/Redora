@@ -1079,7 +1079,17 @@ Output only the JSON object, no other text.
     const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
     // Clean and parse the raw JSON
     let cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
-    let parsed = JSON.parse(cleaned);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      try {
+        const repaired = jsonrepair(cleaned);
+        parsed = JSON.parse(repaired);
+      } catch {
+        return null;
+      }
+    }
     // Ensure structure
     if (parsed && typeof parsed === 'object') {
       if (!parsed.subtopics) parsed.subtopics = [];

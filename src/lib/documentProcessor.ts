@@ -938,7 +938,7 @@ export async function processDocument(
   let finalChapters: Chapter[] = [];
 
   // If the book is relatively small, use the single-pass AI extraction.
-  if (processedText.length < 150000) {
+  if (processedText.length < 40000) {
     onProgress('Analyzing document structure with AI (single-pass)…');
     const parts = await extractViaAI(processedText);
     if (parts && parts.length > 0) {
@@ -1003,13 +1003,40 @@ export async function processDocument(
       throw new Error('Could not split large book into chapters.');
     }
 
-    onProgress(`Processing ${chapterChunks.length} chapters via parallel AI…`);
+    // Enforce max chunk size to prevent AI truncation (max ~3500 tokens)
+    const MAX_CHUNK_CHARS = 14000;
+    const enforcedChunks: Chapter[] = [];
+    for (const chunk of chapterChunks) {
+      if (chunk.content.length <= MAX_CHUNK_CHARS) {
+        enforcedChunks.push(chunk);
+      } else {
+        let content = chunk.content;
+        let partNum = 1;
+        while (content.length > 0) {
+          if (content.length <= MAX_CHUNK_CHARS) {
+            enforcedChunks.push({ ...chunk, id: uuidv4(), title: `${chunk.title} (Part ${partNum})`, content });
+            break;
+          }
+          let splitIdx = content.lastIndexOf('\n\n', MAX_CHUNK_CHARS);
+          if (splitIdx < MAX_CHUNK_CHARS * 0.5) splitIdx = content.lastIndexOf('\n', MAX_CHUNK_CHARS);
+          if (splitIdx < MAX_CHUNK_CHARS * 0.5) splitIdx = content.lastIndexOf('. ', MAX_CHUNK_CHARS);
+          if (splitIdx < MAX_CHUNK_CHARS * 0.5) splitIdx = MAX_CHUNK_CHARS;
+          
+          enforcedChunks.push({ ...chunk, id: uuidv4(), title: `${chunk.title} (Part ${partNum})`, content: content.substring(0, splitIdx) });
+          content = content.substring(splitIdx).trim();
+          partNum++;
+        }
+      }
+    }
+    chapterChunks = enforcedChunks;
+
+    onProgress(`Processing ${chapterChunks.length} chunks via parallel AI…`);
 
     const limit = createConcurrencyLimit(MAX_CONCURRENCY);
-    const chapterResults: Chapter[] = [];
+    const chapterResults: Chapter[] = new Array(chapterChunks.length);
     let sortCounter = 0;
 
-    const jobs = chapterChunks.map((chunk) =>
+    const jobs = chapterChunks.map((chunk, index) =>
       limit(async () => {
         onProgress(`Extracting subtopics for: ${chunk.title}…`);
         try {
@@ -1050,7 +1077,7 @@ export async function processDocument(
             // Build the chapter node
             const chapterNode: Chapter = {
               id: chapId,
-              chapterNumber: chapterResults.length + 1, // will be reassigned after merge
+              chapterNumber: 1, // will be reassigned after merge
               title: chunk.title,
               summary: '',
               content: '', // content is distributed to subtopics
@@ -1060,7 +1087,7 @@ export async function processDocument(
               type: 'chapter',
               children: subtopics
             };
-            chapterResults.push(chapterNode);
+            chapterResults[index] = chapterNode;
           } else {
             throw new Error('AI returned null');
           }
@@ -1092,7 +1119,7 @@ export async function processDocument(
             type: 'chapter',
             children: [fallbackTopic]
           };
-          chapterResults.push(fallbackChapter);
+          chapterResults[index] = fallbackChapter;
         }
       })
     );
