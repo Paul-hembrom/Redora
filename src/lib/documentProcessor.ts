@@ -177,7 +177,7 @@ export async function extractTextFromFile(
   }
 
   if (extension === 'pdf') {
-    const extractPdf = async (): Promise<string> => {
+    const extractPdf = async (): Promise<{ text: string, numPages: number }> => {
       const buf = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
@@ -206,7 +206,7 @@ export async function extractTextFromFile(
         await Promise.all(batchPromises);
       }
 
-      return pageTexts.join('\n');
+      return { text: pageTexts.join('\n'), numPages: pdf.numPages };
     };
 
     const extractPdfOcr = async (): Promise<string> => {
@@ -214,7 +214,7 @@ export async function extractTextFromFile(
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
       const pageTexts: string[] = new Array(pdf.numPages);
-      const batchSize = 10;
+      const batchSize = 3;
 
       for (let i = 1; i <= pdf.numPages; i += batchSize) {
         const end = Math.min(i + batchSize - 1, pdf.numPages);
@@ -254,15 +254,15 @@ export async function extractTextFromFile(
     };
 
     try {
-      let text = await extractPdf();
-      if (text.trim().length < 100) {
-         if (onProgress) onProgress('PDF contains no text, attempting OCR fallback...');
+      let { text, numPages } = await extractPdf();
+      if (text.trim().length < 100 || (text.length / Math.max(1, numPages)) < 50) {
+         if (onProgress) onProgress('PDF contains very little text (likely scanned images), attempting OCR fallback...');
          text = await extractPdfOcr();
       }
       return text;
-    } catch (error) {
-      console.error('[documentProcessor] Primary PDF extraction failed:', error);
-      throw new Error('PDF viewer could not be initialised. Please refresh or try a different file.');
+    } catch (error: any) {
+      console.error('[documentProcessor] PDF extraction failed:', error);
+      throw new Error(error?.message || 'Could not extract text from PDF. It may be protected or the OCR fallback failed.');
     }
   }
 

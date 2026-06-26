@@ -572,7 +572,7 @@ export async function extractTextFromImage(base64Data: string, mimeType: string)
   const prompt = "Extract all text from this image. Return only the extracted text, preserving formatting where possible. If there is no text, return an empty string.";
 
   try {
-    return await callNvidiaVisionFallback(base64Data, mimeType, prompt);
+    return await withRetry(() => callNvidiaVisionFallback(base64Data, mimeType, prompt), 4, 10000);
   } catch (error: any) {
     if (error instanceof ApiRateLimitError) throw error;
     throw new Error(cleanErrorMessage(error));
