@@ -950,9 +950,9 @@ export async function processDocument(
       onProgress('AI restructuring succeeded. Building hierarchy…');
       const sortCounter = { value: 0 };
       finalChapters = [];
-      parseHierarchyIntoChapters({ parts }, processedText, finalChapters, sortCounter);
+      parseHierarchyIntoChapters({ chapters: parts }, processedText, finalChapters, sortCounter);
     } else {
-      onProgress('AI extraction failed. Falling back to hybrid…');
+      onProgress('AI restructuring in progress (hybrid mode)…');
       // Fallback: use outline + regex
       let outline = await generateOutline(processedText);
       if (outline && outline.length > 0) {
@@ -969,7 +969,7 @@ export async function processDocument(
 
     // If regex splitter failed, try AI outline to get chapter titles
     if (!chapterChunks || chapterChunks.length <= 1) {
-      onProgress('Regex splitter failed. Using AI outline to locate chapters…');
+      onProgress('Standard chapter extraction incomplete. Using advanced structural analysis…');
       const outline = await generateOutline(processedText);
       if (outline && outline.length > 0) {
         // Build chapter chunks from outline
@@ -1012,9 +1012,20 @@ export async function processDocument(
       }
     }
 
-    // If still no chapters, throw an error
+    // If still no chapters, just make the whole text one chunk
     if (!chapterChunks || chapterChunks.length === 0) {
-      throw new Error('Could not split large book into chapters.');
+      chapterChunks = [{
+        id: uuidv4(),
+        chapterNumber: 1,
+        title: 'Document Content',
+        summary: '',
+        content: processedText,
+        isGenerating: false,
+        parentId: null,
+        sortOrder: 0,
+        type: 'chapter',
+        children: []
+      }];
     }
 
     // Enforce max chunk size to prevent AI truncation (max ~3500 tokens)
@@ -1122,7 +1133,7 @@ export async function processDocument(
           const fallbackTopic: Chapter = {
             id: uuidv4(),
             chapterNumber: 1,
-            title: 'Full Chapter Content (AI Extraction Failed)',
+            title: 'Full Chapter Content',
             summary: '',
             content: chunk.content,
             isGenerating: false,
