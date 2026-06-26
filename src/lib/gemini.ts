@@ -684,8 +684,17 @@ ${text.substring(0, 100000)}`;
 
   try {
     const raw = await withRetry(() => callLLM(prompt, "You are a document structure analyst.", "json_object"), 3, 5000);
-    const jsonStr = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const result = JSON.parse(jsonStr);
+    const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
+    let result: any;
+    try {
+      result = JSON.parse(cleaned);
+    } catch {
+      try {
+        result = JSON.parse(jsonrepair(cleaned));
+      } catch {
+        result = [];
+      }
+    }
     return Array.isArray(result) ? result : [];
   } catch (err) {
     console.error("[generateOutline] Failed to generate outline", err);
@@ -988,15 +997,17 @@ STRICT RULES:
 3. **CHAPTER IDENTIFICATION:** Analyze the text to find the main chapter headings. These could be "Unit", "Chapter", "Part", "Section", "Lesson", or numbered headings like "1. Introduction".
 
 4. **SUB-TOPIC IDENTIFICATION:** For each chapter, scan the text for sub-headings. Sub-headings can be ANY of the following:
-   - A lowercase letter followed by a dot (e.g., "a. Abacus", "b. Napier's Bone").
-   - A roman numeral followed by a dot (e.g., "i. Difference Engine").
-   - A number like "1.1 Introduction" or "2.3 Storage".
-   - A bolded or indented line that introduces a new section.
-   - ANY line that acts as a break between two distinct blocks of text.
+   - A lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process").
+   - A lowercase letter enclosed in parentheses followed by a space (e.g., "(a) Introduction", "(b) Conclusion").
+   - A number sequence like "1.1 Introduction", "1.2 Methodology", "2.3 Storage".
+   - A Roman numeral followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
+   - A Roman numeral enclosed in parentheses followed by a space (e.g., "(i) Case I", "(ii) Case II").
+   - Any bolded line, centered line, or indented line that acts as a section break.
 
 5. Split the chapter into subtopics based on these identified sub-headings. Each sub-heading becomes a separate subtopic. The "content" is the exact text until the next sub-heading.
-6. DO NOT treat "Learning Objectives" or "Introduction" as separate subtopics. Merge them into the introductory part of the first subtopic.
+6. **CRITICAL FALLBACK RULE:** If you cannot find any distinct sub-headings in a chapter, DO NOT leave the subtopics array empty. Create a single subtopic with title "Chapter Content" containing the entire chapter text.
 7. If you see "Exercise", "Exercises", or "Practice", isolate it and create an exercise node with title "Exercises".
+8. Ensure every character of the input text appears exactly once in the output across all chapters.
 
 Input text:
 \${cleanText}
@@ -1085,7 +1096,17 @@ Output only the JSON object, no other text.
     const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
     // Clean and parse the raw JSON
     let cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
-    let parsed = JSON.parse(cleaned);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      try {
+        const repaired = jsonrepair(cleaned);
+        parsed = JSON.parse(repaired);
+      } catch {
+        return null;
+      }
+    }
     // Ensure structure
     if (parsed && typeof parsed === 'object') {
       if (!parsed.subtopics) parsed.subtopics = [];

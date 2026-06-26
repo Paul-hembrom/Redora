@@ -196,9 +196,23 @@ export async function extractTextFromFile(
           batchPromises.push(
             pdf.getPage(j).then(async page => {
               const content = await page.getTextContent();
-              pageTexts[pageIndex] = content.items
-                .map((item: any) => item.str)
-                .join(' ');
+              let pageText = '';
+              let lastY: number | undefined;
+              for (const item of content.items as any[]) {
+                if (item.transform && item.transform.length >= 6) {
+                  const y = item.transform[5];
+                  if (lastY !== undefined && Math.abs(lastY - y) > 5) {
+                    pageText += '\n';
+                  } else if (lastY !== undefined) {
+                    pageText += ' ';
+                  }
+                  pageText += item.str;
+                  lastY = y;
+                } else {
+                  pageText += item.str + (item.hasEOL ? '\n' : ' ');
+                }
+              }
+              pageTexts[pageIndex] = pageText;
               page.cleanup();
             }),
           );
@@ -346,7 +360,7 @@ export function splitIntoChapters(text: string): string[] {
  */
 export function stripFrontMatter(text: string): string {
   // Step 1: Find the exact start position of "Unit 1" or similar chapter headings
-  const unit1Match = text.match(/(?:Unit|Chapter)\s+[0-9IVX]+\s*[:\-]?\s*[A-Z]/i);
+  const unit1Match = text.match(/(?:Unit|Chapter|Section|Part|Lesson|Module)(?:\s+[0-9IVX]+)?(?:\s*[:\-]?\s*[A-Z][a-zA-Z0-9\s]*\b)?\n/i);
   if (unit1Match && unit1Match.index !== undefined) {
     return text.slice(unit1Match.index).trim();
   }
@@ -415,7 +429,7 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   const allChapters: Chapter[] = [];
   let sortCounter = sortCounterStart;
 
-  let chapterRegex = /(?=\n\s*(?:Unit|CHAPTER|Chapter|Section|Part|Lesson|Module|Topic|PART|SECTION)\s*[0-9IVX]+(?:\s*[:\-]\s*[A-Za-z0-9\s]+)?)/gi;
+  let chapterRegex = /(?=\n\s*(?:Unit|CHAPTER|Chapter|Section|Part|Lesson|Module|Topic|PART|SECTION)(?:\s+[0-9IVX]+)?(?:\s*[:\-]?\s*[A-Z][a-zA-Z0-9\s]*\b)?\n?)/gi;
   
   const evalText = text.startsWith('\n') ? text : '\n' + text;
   let originalSplits = evalText.split(chapterRegex).filter(s => s.trim().length > 50);
@@ -434,7 +448,8 @@ export function splitIntoChaptersEnhanced(text: string, titleOffset = 0, sortCou
   for (const part of originalSplits) {
     let titleStr = `Section ${chapterIndex}`;
     let contentToProcess = part.trim();
-    const firstLineMatch = contentToProcess.match(/^(?:(?:Unit|Chapter|Section|Part)\s+[0-9IVX]+(?:[:\-]?\s*[^\n]+)?|\d+\.\s+[^\n]+|\(Page\s*\d+\)[^\n]*)/i);
+    // Allow matching e.g. "Unit INTRODUCTION" or "Chapter 1: Intro"
+    const firstLineMatch = contentToProcess.match(/^(?:(?:Unit|Chapter|Section|Part|Lesson|Module)(?:\s+[0-9IVX]+)?(?:[:\-]?\s*[^\n]+)?|\d+\.\s+[^\n]+|\(Page\s*\d+\)[^\n]*)/i);
     if (firstLineMatch) {
       titleStr = firstLineMatch[0].trim();
       if (contentToProcess.startsWith(titleStr)) {
