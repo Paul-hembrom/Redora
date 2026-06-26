@@ -254,17 +254,23 @@ export async function extractTextFromFile(
       
       const emptyPageIndices: number[] = [];
       for (let i = 0; i < texts.length; i++) {
-        if (!texts[i] || texts[i].trim().length < 50) {
+        if (!texts[i] || texts[i].trim().length < 20) {
           emptyPageIndices.push(i);
         }
       }
 
-      // If more than 10% of pages are empty, OCR those empty pages
-      if (emptyPageIndices.length > 0 && (emptyPageIndices.length / Math.max(1, numPages)) > 0.1) {
-         if (onProgress) onProgress(`Found ${emptyPageIndices.length} pages with little/no text, attempting OCR fallback for them...`);
-         const ocrTexts = await extractPdfOcrForPages(emptyPageIndices);
-         for (const idx of emptyPageIndices) {
-           texts[idx] = ocrTexts[idx];
+      // If more than 85% of pages are empty, it's likely a scanned document.
+      // Otherwise, we assume the empty pages are just images/figures and skip OCR for them.
+      if (emptyPageIndices.length > 0 && (emptyPageIndices.length / Math.max(1, numPages)) > 0.85) {
+         if (onProgress) onProgress(`Document appears to be scanned (${emptyPageIndices.length} empty pages). Attempting OCR fallback (max 30 pages to prevent timeout)...`);
+         // Limit OCR to max 30 pages to prevent extreme timeouts on large scanned books
+         const pagesToOcr = emptyPageIndices.slice(0, 30);
+         const ocrTexts = await extractPdfOcrForPages(pagesToOcr);
+         for (let i = 0; i < pagesToOcr.length; i++) {
+           texts[pagesToOcr[i]] = ocrTexts[i];
+         }
+         if (emptyPageIndices.length > 30) {
+            if (onProgress) onProgress(`Skipped OCR for ${emptyPageIndices.length - 30} pages to avoid timeouts.`);
          }
       }
       
