@@ -177,7 +177,7 @@ export async function extractTextFromFile(
   }
 
   if (extension === 'pdf') {
-    const extractPdf = async (): Promise<{ text: string, numPages: number }> => {
+    const extractPdf = async (): Promise<{ texts: string[], numPages: number }> => {
       const buf = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
@@ -206,27 +206,25 @@ export async function extractTextFromFile(
         await Promise.all(batchPromises);
       }
 
-      return { text: pageTexts.join('\n'), numPages: pdf.numPages };
+      return { texts: pageTexts, numPages: pdf.numPages };
     };
 
-    const extractPdfOcr = async (): Promise<string> => {
+    const extractPdfOcrForPages = async (pageIndicesToOcr: number[]): Promise<string[]> => {
       const buf = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
-      const pageTexts: string[] = new Array(pdf.numPages);
+      const pageTexts: string[] = new Array(pdf.numPages).fill('');
       const batchSize = 3;
 
-      for (let i = 1; i <= pdf.numPages; i += batchSize) {
-        const end = Math.min(i + batchSize - 1, pdf.numPages);
+      for (let i = 0; i < pageIndicesToOcr.length; i += batchSize) {
+        const batchIndices = pageIndicesToOcr.slice(i, i + batchSize);
         if (onProgress) {
-          onProgress(`OCR Fallback: Extracting PDF pages ${i}–${end} of ${pdf.numPages} using AI…`);
+          onProgress(`OCR Fallback: Extracting PDF pages ${i + 1}–${Math.min(i + batchSize, pageIndicesToOcr.length)} of ${pageIndicesToOcr.length} empty pages using AI…`);
         }
 
         const batchPromises: Promise<void>[] = [];
-        for (let j = i; j <= end; j++) {
-          const pageIndex = j - 1;
+        for (const pageIndex of batchIndices) {
           batchPromises.push(
-            pdf.getPage(j).then(async page => {
+            pdf.getPage(pageIndex + 1).then(async page => {
               const viewport = page.getViewport({ scale: 1.5 });
               const canvas = document.createElement('canvas');
               const context = canvas.getContext('2d');
@@ -240,8 +238,6 @@ export async function extractTextFromFile(
                 const base64Data = dataUrl.split(',')[1];
                 
                 pageTexts[pageIndex] = await extractTextFromImage(base64Data, 'image/jpeg');
-              } else {
-                pageTexts[pageIndex] = '';
               }
               page.cleanup();
             })
@@ -250,16 +246,29 @@ export async function extractTextFromFile(
         await Promise.all(batchPromises);
       }
 
-      return pageTexts.join('\n');
+      return pageTexts;
     };
 
     try {
-      let { text, numPages } = await extractPdf();
-      if (text.trim().length < 100 || (text.length / Math.max(1, numPages)) < 50) {
-         if (onProgress) onProgress('PDF contains very little text (likely scanned images), attempting OCR fallback...');
-         text = await extractPdfOcr();
+      let { texts, numPages } = await extractPdf();
+      
+      const emptyPageIndices: number[] = [];
+      for (let i = 0; i < texts.length; i++) {
+        if (!texts[i] || texts[i].trim().length < 50) {
+          emptyPageIndices.push(i);
+        }
       }
-      return text;
+
+      // If more than 10% of pages are empty, OCR those empty pages
+      if (emptyPageIndices.length > 0 && (emptyPageIndices.length / Math.max(1, numPages)) > 0.1) {
+         if (onProgress) onProgress(`Found ${emptyPageIndices.length} pages with little/no text, attempting OCR fallback for them...`);
+         const ocrTexts = await extractPdfOcrForPages(emptyPageIndices);
+         for (const idx of emptyPageIndices) {
+           texts[idx] = ocrTexts[idx];
+         }
+      }
+      
+      return texts.join('\n');
     } catch (error: any) {
       console.error('[documentProcessor] PDF extraction failed:', error);
       throw new Error(error?.message || 'Could not extract text from PDF. It may be protected or the OCR fallback failed.');
@@ -1043,8 +1052,10 @@ export async function processDocument(
           if (result) {
             const chapId = uuidv4();
             const subtopics: Chapter[] = [];
+            let totalExtractedLength = 0;
             // Convert subtopics
             for (const sub of result.subtopics) {
+              totalExtractedLength += (sub.content || '').length;
               subtopics.push({
                 id: uuidv4(),
                 chapterNumber: subtopics.length + 1,
@@ -1060,6 +1071,7 @@ export async function processDocument(
             }
             // Convert exercises
             for (const ex of result.exercises) {
+              totalExtractedLength += (ex.content || '').length;
               subtopics.push({
                 id: uuidv4(),
                 chapterNumber: subtopics.length + 1,
@@ -1073,13 +1085,20 @@ export async function processDocument(
                 children: []
               });
             }
+            
+            // If the LLM lost more than 30% of the content, fallback to raw text to prevent data loss
+            if (totalExtractedLength < chunk.content.length * 0.7) {
+               console.warn(`AI extraction lost too much text for chapter "${chunk.title}". Falling back.`);
+               throw new Error('AI lost too much text');
+            }
+
             // Build the chapter node
             const chapterNode: Chapter = {
               id: chapId,
               chapterNumber: 1, // will be reassigned after merge
               title: chunk.title,
               summary: '',
-              content: '', // content is distributed to subtopics
+              content: subtopics.length === 0 ? chunk.content : '', // fallback if empty
               isGenerating: false,
               parentId: null,
               sortOrder: sortCounter++,
