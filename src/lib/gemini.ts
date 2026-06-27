@@ -983,6 +983,7 @@ CRITICAL RULES:
 4. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
 5. **PRESERVE EXACT ORDER:** The chapters must appear in the JSON array in the exact same sequence they appear in the source text. Do not reorder them.
 6. **NORMALIZE BULLETS:** Replace any standalone \`y\` characters that are used as bullet points (e.g., at the start of a list item) with a standard hyphen \`-\`. Do not replace \`y\` that are part of words.
+7. **EXERCISES:** Do not summarize or break up the exercise section. Keep the exercise content as one continuous block of raw text in the 'exercises' array.
 Output only the JSON array, no other text.
   `;
 
@@ -1088,5 +1089,41 @@ Output only the JSON object, no other text.
   } catch (e) {
     console.error('extractChapterViaAI failed for chapter:', chapterTitle, e);
     return null;
+  }
+}
+
+/**
+ * Generates a detailed, step-by-step solution for a specific exercise question.
+ */
+export async function generateExerciseAnswer(
+  questionText: string,
+  chapterContent: string
+): Promise<string> {
+  const systemInstruction = `
+You are a patient, brilliant, and encouraging science and math tutor. 
+You have been provided with the full context of the chapter the user is studying. 
+The user has asked you to solve or explain a specific exercise question from that chapter.
+Your response must be:
+1. Educational: Explain the underlying concept briefly before giving the answer.
+2. Accurate: Solve the specific question provided using the context of the chapter.
+3. Encourage the user: End with a short, motivating sentence (e.g., "Great job! You are mastering this topic!").
+`;
+
+  const prompt = `
+**Chapter Context:**
+${chapterContent.substring(0, 10000)}
+
+**Student Question from Exercise:**
+${questionText}
+
+**Your Task:**
+Solve the question above and provide a step-by-step explanation. If it is a multiple-choice question, explain why the correct answer is correct and the others are wrong.
+`;
+
+  try {
+    return await callLLM(prompt, systemInstruction, 'text', 2048);
+  } catch (error: any) {
+    if (error instanceof ApiRateLimitError) throw error;
+    throw new Error(cleanErrorMessage(error));
   }
 }

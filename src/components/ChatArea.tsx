@@ -8,7 +8,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChatResponse, generateActionTool } from '../lib/gemini';
+import { generateChatResponse, generateActionTool, generateExerciseAnswer } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
 import { ScrollableActionBar } from './ScrollableActionBar';
@@ -638,6 +638,51 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     }
   };
 
+  const handleAskAIExercise = async (questionText: string) => {
+    if (isTyping) return;
+    setIsTyping(true);
+    setError(null);
+
+    const userMsg: ChatMessage = {
+      id: uuidv4(),
+      role: 'user',
+      text: `Help me with this exercise question:\n\n${questionText}`,
+    };
+    setMessages(prev => [...prev, userMsg]);
+
+    if (!chapter.id.startsWith('lib_')) {
+      fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+      }).catch(console.error);
+    }
+
+    try {
+      const answer = await generateExerciseAnswer(questionText, chapter.content || '');
+      const aiMsg: ChatMessage = {
+        id: uuidv4(),
+        role: 'model',
+        text: answer,
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+
+      if (!chapter.id.startsWith('lib_')) {
+        fetch('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+        }).catch(console.error);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to generate answer.');
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   const renderActionData = (msg: ChatMessage) => {
     if (!msg.actionData) return null;
     
@@ -919,11 +964,34 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
               </div>
             )}
             
-            {chapter.content && (
+            {chapter.content && chapter.type !== 'exercise' && (
               <div className="space-y-3 pt-2">
                 <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase">Original Text</p>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
                   {chapter.content}
+                </div>
+              </div>
+            )}
+            
+            {chapter.content && chapter.type === 'exercise' && (
+              <div className="space-y-3 pt-2">
+                <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase">Exercises</p>
+                <div className="space-y-4">
+                  {chapter.content.split(/(?=\d+\.\s+[A-Z]|(?:True|False|Match)\s+the\s+following)/gi).map((q, i) => q.trim() ? (
+                    <div key={i} className="group relative bg-white/[0.02] border border-white/5 rounded-xl p-6 transition-all hover:bg-white/[0.04]">
+                      <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap break-words pr-12">
+                        {q.trim()}
+                      </div>
+                      <button
+                        onClick={() => handleAskAIExercise(q.trim())}
+                        className="absolute top-4 right-4 p-2 bg-black/40 hover:bg-cyan-500/20 text-white/60 hover:text-cyan-400 rounded-lg backdrop-blur shadow-lg border border-white/10 transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
+                        title="Ask AI Teacher to solve this"
+                      >
+                        <span className="text-sm">⭐</span>
+                        <span className="text-xs font-medium">Ask AI</span>
+                      </button>
+                    </div>
+                  ) : null)}
                 </div>
               </div>
             )}
