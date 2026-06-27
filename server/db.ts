@@ -122,7 +122,8 @@ export async function initDb() {
       await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
     } catch(e) {}
     try {
-      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT CHECK (type IN ('part', 'chapter', 'topic')) DEFAULT 'chapter'`;
+      await sql`ALTER TABLE chapters DROP CONSTRAINT IF EXISTS chapters_type_check`;
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'`;
     } catch(e) {}
 
     await sql`

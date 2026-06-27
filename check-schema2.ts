@@ -2,9 +2,10 @@ import sql from './server/db.js';
 async function run() {
   try {
     const res = await sql`
-      SELECT column_name, data_type 
-      FROM information_schema.columns 
-      WHERE table_name = 'chapters';
+      SELECT conname
+      FROM pg_constraint
+      WHERE conrelid = 'chapters'::regclass
+      AND contype = 'c';
     `;
     console.log(res);
   } catch (e) {
