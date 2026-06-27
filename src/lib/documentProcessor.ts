@@ -11,7 +11,6 @@ import {
   generateDocumentHierarchy,
   generateOutline,
   generateChapterMetadata,
-  generateMinimalSummary,
   callLLM,
   extractViaAI,
   extractChapterViaAI
@@ -930,7 +929,7 @@ export async function extractByOutline(text: string, outline: {title: string, su
 // ---------------------------------------------------------------------------
 
 /**
- * Full pipeline: extract → preprocess → AI Outline → Content Split → (Optional) Deep AI summaries
+ * Full pipeline: extract → preprocess → AI Outline → Content Split
  */
 export async function processDocument(
   file: File,
@@ -948,7 +947,7 @@ export async function processDocument(
   const rawText = await extractTextFromFile(file, onProgress);
   let sanitizedText = rawText.replace(/\x00/g, '');
   if (sanitizedText.trim().length === 0) {
-    throw new Error('No readable text found in this document. Try a different file or a clearer scan.');
+    throw new Error('No readable text found in this document.');
   }
   onProgress('Preprocessing text…');
   sanitizedText = stripFrontMatter(sanitizedText);
@@ -957,193 +956,112 @@ export async function processDocument(
 
   let finalChapters: Chapter[] = [];
 
-  // If the book is relatively small, use the single-pass AI extraction.
-  if (processedText.length < 40000) {
-    onProgress('Analyzing document structure with AI (single-pass)…');
-    const parts = await extractViaAI(processedText);
-    if (parts && parts.length > 0) {
-      onProgress('AI restructuring succeeded. Building hierarchy…');
-      const sortCounter = { value: 0 };
-      finalChapters = [];
-      parseHierarchyIntoChapters({ chapters: parts }, processedText, finalChapters, sortCounter);
+  // --------------------------------------------------------------------------
+  // Step B: Semantic AI Chapter Splitter (DeepSeek identifies chapter boundaries)
+  // --------------------------------------------------------------------------
+  onProgress('Analyzing document chapter structure with AI…');
+  
+  let chapterChunks: { title: string; content: string }[] = [];
+  try {
+    const aiPrompt = `
+You are a document structural analyzer. The text provided is a full textbook.
+Your task is to output a JSON array of chapter segments. Each segment MUST have:
+- "title": The exact heading of the chapter (e.g., "Unit 1: Introduction To Computer", "Chapter 2: History Of Computer").
+- "content": The EXACT original raw text of that chapter from the start of the heading to the end of the chapter (just before the next heading).
+
+STRICT RULES:
+1. DO NOT summarize or modify ANY text. Copy it verbatim.
+2. Identify the correct starting point of the first chapter. Ignore the Table of Contents, Preface, Abbreviations, Model Questions, and Bibliography.
+3. Each chapter's content must be self-contained. The sum of all chapter contents must equal the original raw text, minus the ignored front/back matter.
+
+Text:
+${processedText}
+
+Output only the JSON array, no other text.
+    `;
+    
+    const rawResponse = await callLLM(aiPrompt, undefined, 'json_object', 131072);
+    // Clean and parse JSON
+    let cleaned = rawResponse.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      chapterChunks = parsed;
+      onProgress(`Semantic AI detected ${chapterChunks.length} chapter boundaries.`);
     } else {
-      onProgress('AI restructuring in progress (hybrid mode)…');
-      // Fallback: use outline + regex
-      let outline = await generateOutline(processedText);
-      if (outline && outline.length > 0) {
-        finalChapters = await extractByOutline(processedText, outline);
-      }
-      if (!finalChapters || finalChapters.length === 0) {
-        finalChapters = splitIntoChaptersEnhanced(processedText);
-      }
+        throw new Error('AI returned empty or invalid JSON array');
     }
-  } else {
-    // --- Large book: chunked extraction ---
-    onProgress(`Large book detected (${Math.round(processedText.length/1000)}k chars). Attempting to split into chapters…`);
-    let chapterChunks = splitIntoChaptersEnhanced(processedText);
+  } catch (err) {
+    console.warn('Semantic AI Chapter Split failed. Falling back to regex splitter.', err);
+    onProgress('AI Chapter Split failed. Using regex fallback...');
+    const regexChunks = splitIntoChaptersEnhanced(processedText);
+    chapterChunks = regexChunks.map(ch => ({ title: ch.title, content: ch.content }));
+  }
 
-    // If regex splitter failed, try AI outline to get chapter titles
-    if (!chapterChunks || chapterChunks.length <= 1) {
-      onProgress('Standard chapter extraction incomplete. Using advanced structural analysis…');
-      const outline = await generateOutline(processedText);
-      if (outline && outline.length > 0) {
-        // Build chapter chunks from outline
-        chapterChunks = outline.map((ch, index) => {
-          const title = ch.title.trim();
-          const regexStr = title.split(/\\s+/).map(escapeRegExp).join('\\s+');
-          const idx = processedText.indexOf(title);
+  // --------------------------------------------------------------------------
+  // Step C: Process each chapter chunk using existing AI sub-topic splitter
+  // --------------------------------------------------------------------------
+  onProgress(`Processing ${chapterChunks.length} chapters via parallel AI for sub-topics…`);
+
+  const limit = createConcurrencyLimit(MAX_CONCURRENCY);
+  const chapterResults: Chapter[] = [];
+  let sortCounter = 0;
+
+  const jobs = chapterChunks.map((chunk, index) =>
+    limit(async () => {
+      onProgress(`Extracting subtopics for: ${chunk.title}…`);
+      try {
+        // Pass the chunk to your existing AI sub-topic extractor
+        const result = await extractChapterViaAI(chunk.content, chunk.title);
+        if (result) {
+          const chapId = uuidv4();
+          const subtopics: Chapter[] = [];
           
-          let start = -1;
-          if (idx !== -1) {
-            start = idx;
-          } else {
-            const match = processedText.match(new RegExp(regexStr, 'i'));
-            if (match && match.index !== undefined) start = match.index;
-          }
-
-          if (start !== -1) {
-            let nextTitleIdx = -1;
-            if (index < outline.length - 1) {
-               const nextTitle = outline[index+1].title.trim();
-               nextTitleIdx = processedText.indexOf(nextTitle, start + title.length);
-               if (nextTitleIdx === -1) {
-                  const nextRegexStr = nextTitle.split(/\\s+/).map(escapeRegExp).join('\\s+');
-                  // To search after start, we can substring the processedText
-                  const afterStart = processedText.substring(start + title.length);
-                  const nextMatch = afterStart.match(new RegExp(nextRegexStr, 'i'));
-                  if (nextMatch && nextMatch.index !== undefined) {
-                     nextTitleIdx = start + title.length + nextMatch.index;
-                  }
-               }
-            }
-            const end = nextTitleIdx !== -1 ? nextTitleIdx : processedText.length;
-            return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: processedText.substring(start, end), isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
-          }
-          // If all fails, return a dummy chunk
-          return { id: uuidv4(), chapterNumber: index+1, title, summary: '', content: '', isGenerating: false, parentId: null, sortOrder: index, type: 'chapter', children: [] };
-        });
-        // Filter out empty chunks
-        chapterChunks = chapterChunks.filter(ch => ch.content.length > 100);
-      }
-    }
-
-    // If still no chapters, just make the whole text one chunk
-    if (!chapterChunks || chapterChunks.length === 0) {
-      chapterChunks = [{
-        id: uuidv4(),
-        chapterNumber: 1,
-        title: 'Document Content',
-        summary: '',
-        content: processedText,
-        isGenerating: false,
-        parentId: null,
-        sortOrder: 0,
-        type: 'chapter',
-        children: []
-      }];
-    }
-
-    // Enforce max chunk size to prevent AI truncation (max ~3500 tokens)
-    const MAX_CHUNK_CHARS = 14000;
-    const enforcedChunks: Chapter[] = [];
-    for (const chunk of chapterChunks) {
-      if (chunk.content.length <= MAX_CHUNK_CHARS) {
-        enforcedChunks.push(chunk);
-      } else {
-        let content = chunk.content;
-        let partNum = 1;
-        while (content.length > 0) {
-          if (content.length <= MAX_CHUNK_CHARS) {
-            enforcedChunks.push({ ...chunk, id: uuidv4(), title: `${chunk.title} (Part ${partNum})`, content });
-            break;
-          }
-          let splitIdx = content.lastIndexOf('\n\n', MAX_CHUNK_CHARS);
-          if (splitIdx < MAX_CHUNK_CHARS * 0.5) splitIdx = content.lastIndexOf('\n', MAX_CHUNK_CHARS);
-          if (splitIdx < MAX_CHUNK_CHARS * 0.5) splitIdx = content.lastIndexOf('. ', MAX_CHUNK_CHARS);
-          if (splitIdx < MAX_CHUNK_CHARS * 0.5) splitIdx = MAX_CHUNK_CHARS;
-          
-          enforcedChunks.push({ ...chunk, id: uuidv4(), title: `${chunk.title} (Part ${partNum})`, content: content.substring(0, splitIdx) });
-          content = content.substring(splitIdx).trim();
-          partNum++;
-        }
-      }
-    }
-    chapterChunks = enforcedChunks;
-
-    onProgress(`Processing ${chapterChunks.length} chunks via parallel AI…`);
-
-    const limit = createConcurrencyLimit(MAX_CONCURRENCY);
-    const chapterResults: Chapter[] = new Array(chapterChunks.length);
-    let sortCounter = 0;
-
-    const jobs = chapterChunks.map((chunk, index) =>
-      limit(async () => {
-        onProgress(`Extracting subtopics for: ${chunk.title}…`);
-        try {
-          const result = await extractChapterViaAI(chunk.content, chunk.title);
-          if (result) {
-            const chapId = uuidv4();
-            const subtopics: Chapter[] = [];
-            let totalExtractedLength = 0;
-            // Convert subtopics
-            for (const sub of result.subtopics) {
-              totalExtractedLength += (sub.content || '').length;
-              subtopics.push({
-                id: uuidv4(),
-                chapterNumber: subtopics.length + 1,
-                title: sub.title,
-                summary: '',
-                content: sub.content,
-                isGenerating: false,
-                parentId: chapId,
-                sortOrder: sortCounter++,
-                type: 'topic',
-                children: []
-              });
-            }
-            // Convert exercises
-            for (const ex of result.exercises) {
-              totalExtractedLength += (ex.content || '').length;
-              subtopics.push({
-                id: uuidv4(),
-                chapterNumber: subtopics.length + 1,
-                title: ex.title,
-                summary: '',
-                content: ex.content,
-                isGenerating: false,
-                parentId: chapId,
-                sortOrder: sortCounter++,
-                type: 'exercise',
-                children: []
-              });
-            }
-            
-            // If the LLM lost more than 30% of the content, fallback to raw text to prevent data loss
-            if (totalExtractedLength < chunk.content.length * 0.7) {
-               console.warn(`AI extraction lost too much text for chapter "${chunk.title}". Falling back.`);
-               throw new Error('AI lost too much text');
-            }
-
-            // Build the chapter node
-            const chapterNode: Chapter = {
-              id: chapId,
-              chapterNumber: 1, // will be reassigned after merge
-              title: chunk.title,
+          // Process subtopics
+          for (const sub of result.subtopics) {
+            subtopics.push({
+              id: uuidv4(),
+              chapterNumber: subtopics.length + 1,
+              title: sub.title,
               summary: '',
-              content: subtopics.length === 0 ? chunk.content : '', // fallback if empty
+              content: sub.content,
               isGenerating: false,
-              parentId: null,
+              parentId: chapId,
               sortOrder: sortCounter++,
-              type: 'chapter',
-              children: subtopics
-            };
-            chapterResults[index] = chapterNode;
-          } else {
-            throw new Error('AI returned null');
+              type: 'topic',
+              children: []
+            });
           }
-        } catch (err) {
-          console.warn(`AI extraction failed for chapter "${chunk.title}". Falling back to raw text.`, err);
-          // Always push a fallback chapter, never fail the whole book
+          
+          // Process exercises
+          for (const ex of result.exercises) {
+            subtopics.push({
+              id: uuidv4(),
+              chapterNumber: subtopics.length + 1,
+              title: ex.title,
+              summary: '',
+              content: ex.content,
+              isGenerating: false,
+              parentId: chapId,
+              sortOrder: sortCounter++,
+              type: 'exercise',
+              children: []
+            });
+          }
+          
+          chapterResults.push({
+            id: chapId,
+            chapterNumber: index + 1,
+            title: chunk.title,
+            summary: '',
+            content: '',
+            isGenerating: false,
+            parentId: null,
+            sortOrder: sortCounter++,
+            type: 'chapter',
+            children: subtopics
+          });
+        } else {
+          // If AI sub-topic extraction fails, just use the raw chapter text
           const chapId = uuidv4();
           const fallbackTopic: Chapter = {
             id: uuidv4(),
@@ -1153,59 +1071,66 @@ export async function processDocument(
             content: chunk.content,
             isGenerating: false,
             parentId: chapId,
-            sortOrder: 1,
+            sortOrder: sortCounter++,
             type: 'topic',
             children: []
           };
-          const fallbackChapter: Chapter = {
+          chapterResults.push({
             id: chapId,
-            chapterNumber: 1,
+            chapterNumber: index + 1,
             title: chunk.title,
             summary: '',
             content: '',
             isGenerating: false,
             parentId: null,
-            sortOrder: 0,
+            sortOrder: sortCounter++,
             type: 'chapter',
             children: [fallbackTopic]
-          };
-          chapterResults[index] = fallbackChapter;
+          });
         }
-      })
-    );
-
-    await Promise.all(jobs);
-
-    // Reassign chapter numbers and sort order
-    let finalSort = 0;
-    let chapNum = 1;
-    for (const ch of chapterResults) {
-      ch.chapterNumber = chapNum++;
-      ch.sortOrder = finalSort++;
-      // Also reassign children sort orders if needed
-      if (ch.children) {
-        let childChapNum = 1;
-        for (const child of ch.children) {
-          child.chapterNumber = childChapNum++;
-          child.sortOrder = finalSort++;
-        }
+      } catch (err) {
+        // Fallback on any chapter error
+        const chapId = uuidv4();
+        const fallbackTopic: Chapter = {
+          id: uuidv4(),
+          chapterNumber: 1,
+          title: 'Full Chapter Content',
+          summary: '',
+          content: chunk.content,
+          isGenerating: false,
+          parentId: chapId,
+          sortOrder: sortCounter++,
+          type: 'topic',
+          children: []
+        };
+        chapterResults.push({
+          id: chapId,
+          chapterNumber: index + 1,
+          title: chunk.title,
+          summary: '',
+          content: '',
+          isGenerating: false,
+          parentId: null,
+          sortOrder: sortCounter++,
+          type: 'chapter',
+          children: [fallbackTopic]
+        });
       }
-    }
-    finalChapters = chapterResults;
-  }
+    })
+  );
+
+  await Promise.all(jobs);
+
+  finalChapters = chapterResults;
 
   // --------------------------------------------------------------------------
-  // Post‑processing: Clean duplicates/flatten hierarchy
+  // Post‑processing & Deep Metadata Generation (unchanged)
   // --------------------------------------------------------------------------
   onProgress(`Processing ${finalChapters.length} sections into hierarchy…`);
   finalChapters = cleanAcademicPaperHierarchy(finalChapters);
   finalChapters.forEach(ch => { ch.isGenerating = false; });
-
   callbacks?.onDiscovered?.(finalChapters);
 
-  // --------------------------------------------------------------------------
-  // Step C: If \`options.deepProcess\` is true, run Batch AI Metadata
-  // --------------------------------------------------------------------------
   if (options.deepProcess) {
     onProgress('Generating detailed summaries (Deep Process)…');
     const BATCH_SIZE = 5;
@@ -1247,7 +1172,6 @@ export async function processDocument(
     await Promise.all(deepJobs);
   }
 
-  // Re‑assign sort order to top‑level items
   let sortOrderCounter = 0;
   for (const root of finalChapters) {
     root.sortOrder = sortOrderCounter++;

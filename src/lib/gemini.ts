@@ -88,7 +88,7 @@ async function callDeepSeek(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 300 seconds timeout
     let res: Response;
     try {
       res = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -869,6 +869,32 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
   }
 }
 
+export async function extractTerminology(text: string, customFocus?: string): Promise<{term: string, definition: string}[] | null> {
+  const focusPrompt = customFocus 
+    ? `Specifically focus on extracting terms related to: ${customFocus}.`
+    : `Focus on the most important technical terms, vocabulary, jargon, concepts, or events.`;
+
+  const prompt = `
+Task: Extract key terminology from the provided text.
+${focusPrompt}
+Provide clear, precise, and educational definitions suited for study and flashcards.
+
+Text:
+${text.substring(0, 30000)}
+
+IMPORTANT: You must return ONLY a valid JSON object exactly matching this structure: { "terms": [{ "term": "...", "definition": "..." }] }. No markdown formatting.
+  `.trim();
+
+  try {
+    const raw = await callLLM(prompt, undefined, 'json_object');
+    const parsed = JSON.parse(raw);
+    return parsed.terms || null;
+  } catch (error: any) {
+    console.error('extractTerminology failed:', error);
+    return null;
+  }
+}
+
 // ──────────────────────────────────────────────
 // 10. NEW public functions (TTS, STT, Video)
 // ──────────────────────────────────────────────
@@ -928,52 +954,9 @@ function pcmToWavBase64(rawBase64: string, mimeType: string): string {
   return btoa(binary);
 }
 
-function writeString(view: DataView, offset: number, str: string) {
-  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-}
-
-// ──────────────────────────────────────────────
-// Extra Terminology Extractor function
-// ──────────────────────────────────────────────
-export async function extractTerminology(content: string, customPrompt?: string): Promise<{ term: string; definition: string }[]> {
-  const defaultTask = "Identify and extract the most important technical terms, vocabulary, jargon, names of systems, key equations, concepts, or events from the provided text, and provide clear, precise, and educational definitions suited for study and flashcards.";
-  const prompt = `
-Task: \${customPrompt || defaultTask}
-
-Source Text Content:
-\${content.substring(0, 30000)}
-
-IMPORTANT: You must return ONLY a valid JSON object matching this structure:
-{
-  "terms": [
-    { "term": "Term Name", "definition": "A clear, concise, and thorough definition or explanation of the term." }
-  ]
-}
-No markdown formatting, no explanations outside of the JSON block.
-  `.trim();
-
-  try {
-    const raw = await callLLM(prompt, undefined, 'json_object');
-    const parsed = JSON.parse(raw);
-    return parsed.terms || [];
-  } catch (error: any) {
-    if (error instanceof ApiRateLimitError) throw error;
-    throw new Error(error.message || "Failed to extract terminology.");
-  }
-}
-
-// ──────────────────────────────────────────────
-// 12. Ultra-minimal fallback summarizer
-// ──────────────────────────────────────────────
-export async function generateMinimalSummary(text: string): Promise<string> {
-  const prompt = `Summarise this text in one sentence:
-
-${text.substring(0, 4000)}`;
-  try {
-    return await withRetry(() => callLLM(prompt, undefined, 'text', 1024), 2, 2000);
-  } catch (err) {
-    console.error('Minimal fallback summarize failed:', err);
-    return 'Summary temporarily unavailable – please try again later.';
+function writeString(view: DataView, offset: number, string: string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
   }
 }
 
@@ -981,43 +964,28 @@ ${text.substring(0, 4000)}`;
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
 export async function extractViaAI(text: string): Promise<any[] | null> {
-  const cleanText = text.substring(0, 350000);
-  
+  const cleanText = text; // Do not truncate. 1M context handles full books.
   const prompt = `
-You are a document parsing AI. The provided text is a book.
-Your task is to extract the EXACT textbook hierarchy into a JSON array.
+${cleanText}
 
-STRICT RULES:
+---
+Analyze the text above, which is a complete textbook.
+Your task is to output a JSON array of chapter objects.
+Each object must have:
+- "title": The exact chapter heading.
+- "subtopics": An array of {"title": "...", "content": "..."}.
+- "exercises": An array of {"title": "...", "content": "..."}.
+CRITICAL RULES:
 1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
-2. Output a JSON array of chapters. Each chapter has:
-   - "title": The exact chapter heading.
-   - "subtopics": An array of { "title": string, "content": string }.
-   - "exercises": An array of { "title": string, "content": string }.
-
-3. **CHAPTER IDENTIFICATION:** Analyze the text to find the main chapter headings. These could be "Unit", "Chapter", "Part", "Section", "Lesson", or numbered headings like "1. Introduction".
-
-4. **SUB-TOPIC IDENTIFICATION:** For each chapter, scan the text for sub-headings. Sub-headings can be ANY of the following:
-   - A lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process").
-   - A lowercase letter enclosed in parentheses followed by a space (e.g., "(a) Introduction", "(b) Conclusion").
-   - A number sequence like "1.1 Introduction", "1.2 Methodology", "2.3 Storage".
-   - A Roman numeral followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
-   - A Roman numeral enclosed in parentheses followed by a space (e.g., "(i) Case I", "(ii) Case II").
-   - Any bolded line, centered line, or indented line that acts as a section break.
-
-5. Split the chapter into subtopics based on these identified sub-headings. Each sub-heading becomes a separate subtopic. The "content" is the exact text until the next sub-heading.
-6. **CRITICAL FALLBACK RULE:** If you cannot find any distinct sub-headings in a chapter, DO NOT leave the subtopics array empty. Create a single subtopic with title "Chapter Content" containing the entire chapter text.
-7. If you see "Exercise", "Exercises", or "Practice", isolate it and create an exercise node with title "Exercises".
-8. Ensure every character of the input text appears exactly once in the output across all chapters.
-
-Input text:
-\${cleanText}
-
+2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
+3. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers.
+4. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
 Output only the JSON array, no other text.
-`;
+  `;
 
   let raw: string;
   try {
-    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
+    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 262144), 3, 5000);
   } catch (e) {
     console.error('extractViaAI callLLM failed:', e);
     return null;
@@ -1095,7 +1063,7 @@ Output only the JSON object, no other text.
   try {
     const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
     // Clean and parse the raw JSON
-    let cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
+    let cleaned = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
     let parsed: any;
     try {
       parsed = JSON.parse(cleaned);
