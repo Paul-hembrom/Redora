@@ -15,6 +15,7 @@ import { ScrollableActionBar } from './ScrollableActionBar';
 import { ImageCard } from './ImageCard';
 import { InteractiveLesson } from './InteractiveLesson';
 import { BetaBadge } from './BetaBadge';
+import { ExerciseCard } from './ExerciseCard';
 
 import { useAuth } from '../contexts/AuthContext';
 import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
@@ -978,19 +979,12 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase">Exercises</p>
                 <div className="space-y-4">
                   {chapter.content.split(/(?=\d+\.\s+[A-Z]|(?:True|False|Match)\s+the\s+following)/gi).map((q, i) => q.trim() ? (
-                    <div key={i} className="group relative bg-white/[0.02] border border-white/5 rounded-xl p-6 transition-all hover:bg-white/[0.04]">
-                      <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap break-words pr-12">
-                        {q.trim()}
-                      </div>
-                      <button
-                        onClick={() => handleAskAIExercise(q.trim())}
-                        className="absolute top-4 right-4 p-2 bg-black/40 hover:bg-cyan-500/20 text-white/60 hover:text-cyan-400 rounded-lg backdrop-blur shadow-lg border border-white/10 transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
-                        title="Ask AI Teacher to solve this"
-                      >
-                        <span className="text-sm">⭐</span>
-                        <span className="text-xs font-medium">Ask AI</span>
-                      </button>
-                    </div>
+                    <ExerciseCard 
+                      key={i} 
+                      question={q.trim()} 
+                      chapterContent={chapter.content || ''} 
+                      onAskAI={handleAskAIExercise} 
+                    />
                   ) : null)}
                 </div>
               </div>
