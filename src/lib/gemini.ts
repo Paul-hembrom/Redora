@@ -975,18 +975,14 @@ Each object must have:
 - "title": The exact chapter heading.
 - "subtopics": An array of {"title": "...", "content": "..."}.
 - "exercises": An array of {"title": "...", "content": "..."}.
+
 CRITICAL RULES:
 1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
 3. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers.
 4. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
-
-CRITICAL FORMATTING RULE:
-You MUST clean up the visual layout of the text while preserving the EXACT original words.
-- For bulleted lists (identified by symbols like \`y\`, \`•\`, \`-\`, \`*\`, or \`o\`), separate each bullet item onto its own new line, indented with a dash or bullet character (e.g., \`- Item 1\`).
-- Ensure proper line breaks (\`\\n\\n\`) between paragraphs and sections.
-- The final \`content\` string inside every \`subtopic\` and \`exercise\` must look neat, readable, and professionally typeset when displayed in a chat interface.
-
+5. **PRESERVE EXACT ORDER:** The chapters must appear in the JSON array in the exact same sequence they appear in the source text. Do not reorder them.
+6. **NORMALIZE BULLETS:** Replace any standalone \`y\` characters that are used as bullet points (e.g., at the start of a list item) with a standard hyphen \`-\`. Do not replace \`y\` that are part of words.
 Output only the JSON array, no other text.
   `;
 
