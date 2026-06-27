@@ -964,7 +964,9 @@ function writeString(view: DataView, offset: number, string: string) {
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
 export async function extractViaAI(text: string): Promise<any[] | null> {
-  const cleanText = text; // Do not truncate. 1M context handles full books.
+  // Fix PDF extraction artifacts where bullet points appear as 'y'
+  const preProcessedText = text.replace(/(^|\n)\s*y\s+/g, '$1- ');
+  const cleanText = preProcessedText; // Do not truncate. 1M context handles full books.
   const prompt = `
 ${cleanText}
 
