@@ -1299,7 +1299,7 @@ app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
       throw e;
     }
 
-    const { title, summary, subject, grade, keyConcepts, class_context } = req.body;
+    const { title, summary, content, subject, grade, keyConcepts, class_context } = req.body;
     const ai = new GoogleGenAI({ 
       apiKey: process.env.GEMINI_API_KEY || '',
       httpOptions: {
@@ -1319,10 +1319,11 @@ Your task is to find the best educational YouTube videos for a specific chapter 
 ${contextPrefix}
 Chapter Title: ${title}
 Subject: ${subject}
-Summary: ${summary}
+Summary: ${summary || ''}
+Content Snippet: ${content ? content.substring(0, 1500) : ''}
 Key Concepts: ${conceptsStr}
 
-Step 1: Extract the core learning intent from the chapter summary.
+Step 1: Extract the core learning intent from the chapter summary and content snippet.
 Step 2: Break down the learning intent into key concepts (especially visual ones).
 Step 3: Generate 5-10 highly optimized YouTube search queries suitable for the specified class context. If Class Context is provided, strongly prefix or bias the search queries with it (e.g. "${class_context}: Photosynthesis animation").
 Step 4: Predict ideal videos and assign a "quality_score" out of 100 based on expected educational clarity, animation quality, and context match.

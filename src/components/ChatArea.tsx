@@ -519,6 +519,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         body: JSON.stringify({
           title: chapter.title,
           summary: chapter.summary,
+          content: chapter.content,
           subject: 'General Education',
           grade: 'High School',
           keyConcepts: (chapter as any).key_concepts || [],

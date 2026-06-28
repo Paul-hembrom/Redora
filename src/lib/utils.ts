@@ -8,8 +8,8 @@ export function cn(...inputs: ClassValue[]) {
 export function smartNormalizeText(text: string): string {
   if (!text) return text;
   // 1. Fix the corrupted 'y' bullet points.
-  // Matches a "y " at the start of a line, and replaces it with "- "
-  const fixedBullets = text.replace(/^y\s+/gm, '- ');
+  // Matches a "y " at the start of a line (with optional leading whitespace), and replaces it with "- "
+  const fixedBullets = text.replace(/^[ \t]*y\s+/gm, '- ');
 
   // 2. Remove hard wraps (lines ending with a letter/number but NOT a period)
   const unwrapped = fixedBullets.replace(/([^\s\.])(\n)([^\s])/g, '$1 $3');

@@ -972,8 +972,10 @@ ${cleanText}
 
 ---
 Analyze the text above, which is a complete textbook.
-Your task is to output a JSON array of chapter objects.
-Each object must have:
+Your task is to output a **single JSON object** with a key called "chapters".
+The value of "chapters" MUST be an array of chapter objects in the exact order they appear in the source text.
+
+Each chapter object must have:
 - "title": The exact chapter heading.
 - "subtopics": An array of {"title": "...", "content": "..."}.
 - "exercises": An array of {"title": "...", "content": "..."}.
@@ -981,12 +983,11 @@ Each object must have:
 CRITICAL RULES:
 1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
-3. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers.
-4. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
-5. **PRESERVE EXACT ORDER:** The chapters must appear in the JSON array in the exact same sequence they appear in the source text. Do not reorder them.
-6. **NORMALIZE BULLETS:** Replace any standalone \`y\` characters that are used as bullet points (e.g., at the start of a list item) with a standard hyphen \`-\`. Do not replace \`y\` that are part of words.
-7. **EXERCISES:** Do not summarize or break up the exercise section. Keep the exercise content as one continuous block of raw text in the 'exercises' array.
-Output only the JSON array, no other text.
+3. PRESERVE ORDER: The chapters in the array MUST be in the exact sequence they appear in the source text. Do NOT sort alphabetically.
+4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers.
+5. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
+6. **CRITICAL BULLET FIX:** Normalize ANY corrupted 'y' bullet points into standard hyphens '-'. If a line starts with whitespace followed by a 'y' and a space, convert it to a standard list item. 
+Output only the JSON object containing the "chapters" array. No other text.
   `;
 
   let raw: string;
