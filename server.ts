@@ -10,9 +10,10 @@ import sql, { dbReady } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
 import { getUserRoleInOrg } from './server/roles.js';
-import { generateChapterMetadata } from './src/lib/gemini.js';
+import { generateChapterMetadata, generateSearchQueries } from './src/lib/gemini.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
+
 
 export const app = express();
 
@@ -1299,7 +1300,7 @@ app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
       throw e;
     }
 
-    const { title, summary, content, subject, grade, keyConcepts, class_context } = req.body;
+    const { title, summary, content, subject, grade, keyConcepts, class_context, search_queries } = req.body;
     const ai = new GoogleGenAI({ 
       apiKey: process.env.GEMINI_API_KEY || '',
       httpOptions: {
@@ -1394,7 +1395,7 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
 
       if (!dsSucceeded) {
         console.warn("Using Fallback #2 for retrieve-videos.");
-        const fallbackQueries = [`${title} ${keyConcepts?.slice(0,3).join(' ') || ''}`.trim(), title];
+        const fallbackQueries = search_queries || [`${title} ${keyConcepts?.slice(0,3).join(' ') || ''}`.trim(), title];
         responseText = JSON.stringify({
           chapter: title,
           learning_intent: summary || title,

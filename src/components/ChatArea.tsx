@@ -8,7 +8,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChatResponse, generateActionTool, generateExerciseAnswer } from '../lib/gemini';
+import { generateChatResponse, generateActionTool, generateExerciseAnswer, generateSearchQueries } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
 import { ScrollableActionBar } from './ScrollableActionBar';
@@ -511,19 +511,29 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     }
 
     try {
+      const classContext = (document.cookie.includes('sb-org-id=') && orgName) ? orgName : "";
+      
+      const search_queries = await generateSearchQueries(
+        chapter.title,
+        chapter.content || '',
+        classContext || 'High School',
+        'General Education'
+      );
+
       const response = await fetch('/api/retrieve-videos', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          title: chapter.title,
+          title: search_queries && search_queries.length > 0 ? search_queries[0] : chapter.title,
           summary: chapter.summary,
           content: chapter.content,
           subject: 'General Education',
           grade: 'High School',
           keyConcepts: (chapter as any).key_concepts || [],
-          class_context: (document.cookie.includes('sb-org-id=') && orgName) ? orgName : "",
+          class_context: classContext,
+          search_queries: search_queries
         })
       });
 

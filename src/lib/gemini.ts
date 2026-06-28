@@ -1130,3 +1130,50 @@ Solve the question above and provide a step-by-step explanation. If it is a mult
     throw new Error(cleanErrorMessage(error));
   }
 }
+
+// ──────────────────────────────────────────────
+// 14. YouTube Search Query Generation
+// ──────────────────────────────────────────────
+export async function generateSearchQueries(
+  subtopicTitle: string,
+  content: string,
+  classContext: string,
+  subject: string
+): Promise<string[]> {
+  const prompt = `
+You are an expert Educational Video Retrieval Engine.
+Your task is to generate 5-10 highly optimized YouTube search queries based on the specific content of this subtopic.
+
+Class Context / Grade Level: ${classContext}
+Subject: ${subject}
+Subtopic Title: ${subtopicTitle}
+Content Snippet: ${content ? content.substring(0, 1500) : ''}
+
+Step 1: Extract the core learning intent from the content snippet.
+Step 2: Break down the learning intent into key concepts (especially visual ones).
+Step 3: Generate highly specific YouTube search queries that target the EXACT material discussed in the content snippet.
+IMPORTANT: You MUST prefix or bias every search query with the appropriate grade level and subject (e.g. "${classContext} ${subject}: CPU processing of data explained"). Do NOT return generic queries.
+
+Return ONLY a JSON array of strings representing the search queries. Do not include markdown formatting or explanations.
+Example:
+["specific query 1", "specific query 2", "specific query 3"]
+  `;
+
+  try {
+    const raw = await callLLM(prompt, undefined, 'json_object', 1024);
+    if (!raw) return [];
+    let cleaned = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '').trim();
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object') {
+       const vals = Object.values(parsed);
+       const arr = vals.find(v => Array.isArray(v));
+       if (arr) return arr as string[];
+       if (parsed.search_queries && Array.isArray(parsed.search_queries)) return parsed.search_queries;
+    }
+    return [];
+  } catch (e) {
+    console.error('generateSearchQueries failed:', e);
+    return [];
+  }
+}
