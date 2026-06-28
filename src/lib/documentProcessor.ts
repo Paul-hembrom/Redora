@@ -1004,11 +1004,12 @@ Output only the JSON array, no other text.
 
   const limit = createConcurrencyLimit(MAX_CONCURRENCY);
   const chapterResults: Chapter[] = [];
-  let sortCounter = 0;
 
   const jobs = chapterChunks.map((chunk, index) =>
     limit(async () => {
       onProgress(`Extracting subtopics for: ${chunk.title}…`);
+      const baseSort = index * 1000;
+      let localSort = 1;
       try {
         // Pass the chunk to your existing AI sub-topic extractor
         const result = await extractChapterViaAI(chunk.content, chunk.title);
@@ -1026,7 +1027,7 @@ Output only the JSON array, no other text.
               content: sub.content,
               isGenerating: false,
               parentId: chapId,
-              sortOrder: sortCounter++,
+              sortOrder: baseSort + (localSort++),
               type: 'topic',
               children: []
             });
@@ -1042,7 +1043,7 @@ Output only the JSON array, no other text.
               content: ex.content,
               isGenerating: false,
               parentId: chapId,
-              sortOrder: sortCounter++,
+              sortOrder: baseSort + (localSort++),
               type: 'exercise',
               children: []
             });
@@ -1056,7 +1057,7 @@ Output only the JSON array, no other text.
             content: '',
             isGenerating: false,
             parentId: null,
-            sortOrder: sortCounter++,
+            sortOrder: baseSort,
             type: 'chapter',
             children: subtopics
           });
@@ -1071,7 +1072,7 @@ Output only the JSON array, no other text.
             content: chunk.content,
             isGenerating: false,
             parentId: chapId,
-            sortOrder: sortCounter++,
+            sortOrder: baseSort + (localSort++),
             type: 'topic',
             children: []
           };
@@ -1083,7 +1084,7 @@ Output only the JSON array, no other text.
             content: '',
             isGenerating: false,
             parentId: null,
-            sortOrder: sortCounter++,
+            sortOrder: baseSort,
             type: 'chapter',
             children: [fallbackTopic]
           });
@@ -1099,7 +1100,7 @@ Output only the JSON array, no other text.
           content: chunk.content,
           isGenerating: false,
           parentId: chapId,
-          sortOrder: sortCounter++,
+          sortOrder: baseSort + (localSort++),
           type: 'topic',
           children: []
         };
@@ -1111,7 +1112,7 @@ Output only the JSON array, no other text.
           content: '',
           isGenerating: false,
           parentId: null,
-          sortOrder: sortCounter++,
+          sortOrder: baseSort,
           type: 'chapter',
           children: [fallbackTopic]
         });
@@ -1121,6 +1122,7 @@ Output only the JSON array, no other text.
 
   await Promise.all(jobs);
 
+  chapterResults.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
   finalChapters = chapterResults;
 
   // --------------------------------------------------------------------------

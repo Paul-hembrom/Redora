@@ -16,6 +16,7 @@ import { ImageCard } from './ImageCard';
 import { InteractiveLesson } from './InteractiveLesson';
 import { BetaBadge } from './BetaBadge';
 import { ExerciseCard } from './ExerciseCard';
+import { smartNormalizeText } from '../lib/utils';
 
 import { useAuth } from '../contexts/AuthContext';
 import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
@@ -967,9 +968,29 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             
             {chapter.content && chapter.type !== 'exercise' && (
               <div className="space-y-3 pt-2">
-                <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase">Original Text</p>
+                <div style={{ 
+                  fontSize: '1.25rem', 
+                  fontWeight: 'bold', 
+                  marginBottom: '1rem', 
+                  paddingBottom: '0.5rem',
+                  borderBottom: '1px solid rgba(255,255,255,0.1)',
+                  color: 'rgba(255,255,255,0.9)'
+                }}>
+                  {chapter.title || 'Chapter Content'}
+                </div>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
-                  {chapter.content}
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({node, ...props}) => <h1 style={{fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem'}} {...props} />,
+                      h2: ({node, ...props}) => <h2 style={{fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.8rem', marginBottom: '0.5rem'}} {...props} />,
+                      ul: ({node, ...props}) => <ul style={{paddingLeft: '1.5rem', marginBottom: '0.5rem', listStyleType: 'disc'}} {...props} />,
+                      li: ({node, ...props}) => <li style={{marginBottom: '0.2rem'}} {...props} />,
+                      p: ({node, ...props}) => <p style={{lineHeight: '1.7', marginBottom: '0.8rem'}} {...props} />
+                    }}
+                  >
+                    {smartNormalizeText(chapter.content)}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}
