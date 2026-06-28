@@ -24,12 +24,33 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // --- Helpers ---
-const flattenChapters = (chapters: any[] = []): any[] => {
+const flattenChapters = (chapters: any[] = [], parentPrefix: string = ''): any[] => {
   let result: any[] = [];
   if (!Array.isArray(chapters)) return result;
-  chapters.forEach(ch => {
-    result.push(ch);
-    if (ch.children) result = result.concat(flattenChapters(ch.children));
+  
+  const sorted = [...chapters].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  
+  sorted.forEach((ch, index) => {
+    let displayNumber = '';
+    
+    if (!parentPrefix) {
+      displayNumber = `${ch.chapterNumber}`;
+    } else {
+      let subIdentifier = '';
+      const match = ch.title.match(/^([a-zA-Z]|\d+)\.\s*/);
+      if (match) {
+        subIdentifier = match[1].toLowerCase();
+      } else {
+        subIdentifier = String.fromCharCode(97 + index);
+      }
+      displayNumber = `${parentPrefix}.${subIdentifier}`;
+    }
+    
+    const newCh = { ...ch, displayNumber };
+    result.push(newCh);
+    if (ch.children) {
+      result = result.concat(flattenChapters(ch.children, displayNumber));
+    }
   });
   return result;
 };

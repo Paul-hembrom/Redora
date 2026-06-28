@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ReadAloudButton } from './ReadAloudButton';
 import { useAuth } from '../contexts/AuthContext';
+import { smartNormalizeText } from '../lib/utils';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -124,7 +125,7 @@ const ChapterNode = ({
           )}
           <span className="truncate flex items-center gap-1.5">
             {chapter.type === 'exercise' && <span className="text-base leading-none">📝</span>}
-            {chapter.isGenerating ? 'Generating...' : chapter.title}
+            {chapter.isGenerating ? 'Generating...' : (chapter.displayNumber ? `${chapter.displayNumber}. ${chapter.title.replace(/^([a-zA-Z]|\d+(\.\d+)*)\.\s+/, '')}` : chapter.title)}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -180,7 +181,7 @@ const ChapterNode = ({
           ) : (
             <>
               <div className="prose prose-invert prose-sm max-w-none font-light">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
                 <ReadAloudButton text={chapter.summary} className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400" />
@@ -999,6 +1000,29 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                   roots.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
                   roots.forEach(sortNode);
 
+                  const assignDisplayNumbers = (nodes: any[], parentPrefix = '') => {
+                    nodes.forEach((node, index) => {
+                      let displayNumber = '';
+                      if (!parentPrefix) {
+                        displayNumber = `${node.chapterNumber}`;
+                      } else {
+                        let subIdentifier = '';
+                        const match = (node.title || '').match(/^([a-zA-Z]|\d+)\.\s*/);
+                        if (match) {
+                          subIdentifier = match[1].toLowerCase();
+                        } else {
+                          subIdentifier = String.fromCharCode(97 + index);
+                        }
+                        displayNumber = `${parentPrefix}.${subIdentifier}`;
+                      }
+                      node.displayNumber = displayNumber;
+                      if (node.children) {
+                        assignDisplayNumbers(node.children, displayNumber);
+                      }
+                    });
+                  };
+                  assignDisplayNumbers(roots);
+
                   return roots.map(chapter => (
                     <ChapterNode 
                       key={chapter.id}
@@ -1049,7 +1073,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
            </button>
            {studyPlan && (
              <div className="mt-4 prose prose-invert prose-sm max-w-none prose-h2:text-cyan-400 prose-h2:text-lg prose-p:text-white/80 prose-li:text-white/80 pb-10">
-               <ReactMarkdown remarkPlugins={[remarkGfm]}>{studyPlan}</ReactMarkdown>
+               <ReactMarkdown remarkPlugins={[remarkGfm]}>{smartNormalizeText(studyPlan)}</ReactMarkdown>
              </div>
            )}
         </div>

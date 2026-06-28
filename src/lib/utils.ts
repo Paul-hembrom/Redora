@@ -11,8 +11,11 @@ export function smartNormalizeText(text: string): string {
   // Matches a "y " at the start of a line (with optional leading whitespace), and replaces it with "- "
   const fixedBullets = text.replace(/^[ \t]*y\s+/gm, '- ');
 
+  // 1.5 Fix literal bullet points to use standard markdown syntax
+  const fixedLiteralBullets = fixedBullets.replace(/^[ \t]*[•]\s*/gm, '- ');
+
   // 2. Remove hard wraps (lines ending with a letter/number but NOT a period)
-  const unwrapped = fixedBullets.replace(/([^\s\.])(\n)([^\s])/g, '$1 $3');
+  const unwrapped = fixedLiteralBullets.replace(/([^\s\.])(\n)([^\s])/g, '$1 $3');
 
   // 3. Ensure lists and captions have space
   const spaced = unwrapped

@@ -18,6 +18,7 @@ export interface Chapter {
   sortOrder?: number;
   type?: 'part' | 'chapter' | 'topic' | 'exercise';
   children?: Chapter[];
+  displayNumber?: string;
 }
 
 export interface Document {

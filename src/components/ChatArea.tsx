@@ -828,7 +828,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       />
       <div className="flex flex-col lg:flex-row lg:items-center justify-between px-4 md:px-8 py-3 lg:py-0 lg:h-16 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10 gap-3 border-b border-white/5">
         <div className="min-w-0 shrink-0">
-          <h2 className="text-sm font-display font-semibold text-white truncate">Chapter {chapter.chapterNumber}: {chapter.title}</h2>
+          <h2 className="text-sm font-display font-semibold text-white truncate">Chapter {chapter.displayNumber || chapter.chapterNumber}: {chapter.title.replace(/^([a-zA-Z]|\d+(\.\d+)*)\.\s+/, '')}</h2>
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
         <ScrollableActionBar className="w-full lg:w-auto pb-1 lg:pb-0 min-w-0" innerClassName="gap-2">
@@ -972,7 +972,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
               <div className="space-y-3">
                 <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
                 <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{chapter.summary}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
                 </div>
               </div>
             )}
@@ -1056,7 +1056,15 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     {msg.type && msg.type !== 'text' && msg.type !== 'image_fallback' ? (
                       <p className="text-xs font-semibold uppercase tracking-wider opacity-50 mb-2">{msg.text}</p>
                     ) : (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          ul: ({node, ...props}) => <ul style={{paddingLeft: '1.5rem', marginBottom: '0.5rem', listStyleType: 'disc'}} {...props} />,
+                          li: ({node, ...props}) => <li style={{marginBottom: '0.2rem'}} {...props} />
+                        }}
+                      >
+                        {smartNormalizeText(msg.text)}
+                      </ReactMarkdown>
                     )}
                   </div>
                   {msg.type === 'image_fallback' && (
