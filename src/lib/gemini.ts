@@ -965,7 +965,7 @@ function writeString(view: DataView, offset: number, string: string) {
 // ──────────────────────────────────────────────
 export async function extractViaAI(text: string): Promise<any[] | null> {
   // Fix PDF extraction artifacts where bullet points appear as 'y'
-  const preProcessedText = text.replace(/(^|\n)\s*y\s+/g, '$1- ');
+  const preProcessedText = text.replace(/^[ \t\xA0]*[yY][ \t\xA0]+/gm, '- ');
   const cleanText = preProcessedText; // Do not truncate. 1M context handles full books.
   const prompt = `
 ${cleanText}

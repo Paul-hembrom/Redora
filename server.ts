@@ -1508,6 +1508,37 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
       } catch (err) {
          console.error("Pexels fetch error", err);
       }
+    } else {
+      // Fallback to generating an educational image using Gemini
+      try {
+        const imageResponse = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: {
+            parts: [{ text: `Create a clean, minimalist educational illustration or diagram about: ${search_query}. Style: flat design, highly educational, clear.` }]
+          },
+          config: {
+            imageConfig: {
+              aspectRatio: "16:9"
+            }
+          }
+        });
+        
+        for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData) {
+            const base64Data = part.inlineData.data;
+            const mimeType = part.inlineData.mimeType || "image/png";
+            const imageUrl = `data:${mimeType};base64,${base64Data}`;
+            images.push({
+              url: imageUrl,
+              thumbnail: imageUrl,
+              alt: `Generated educational diagram for ${search_query}`,
+              source: "generated"
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Gemini image generation error", err);
+      }
     }
 
     res.json({ images });
