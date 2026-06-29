@@ -28,5 +28,37 @@ export const markdownComponents = {
   },
   p: ({node, children, ...props}: any) => {
     return <p style={{lineHeight: '1.7', marginTop: 0, marginBottom: '0.8rem', whiteSpace: 'pre-wrap'}} {...props}>{children}</p>;
-  }
+  },
+  table: ({node, children, ...props}: any) => (
+    <div style={{ overflowX: 'auto', marginBottom: '1.5rem', borderRadius: '0.5rem', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }} {...props}>
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({node, children, ...props}: any) => (
+    <thead style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }} {...props}>
+      {children}
+    </thead>
+  ),
+  tbody: ({node, children, ...props}: any) => (
+    <tbody {...props}>
+      {children}
+    </tbody>
+  ),
+  tr: ({node, children, ...props}: any) => (
+    <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }} {...props}>
+      {children}
+    </tr>
+  ),
+  th: ({node, children, ...props}: any) => (
+    <th style={{ border: '1px solid rgba(255, 255, 255, 0.1)', padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '600', color: 'rgba(255, 255, 255, 0.9)' }} {...props}>
+      {children}
+    </th>
+  ),
+  td: ({node, children, ...props}: any) => (
+    <td style={{ border: '1px solid rgba(255, 255, 255, 0.1)', padding: '0.75rem 1rem', color: 'rgba(255, 255, 255, 0.7)' }} {...props}>
+      {children}
+    </td>
+  )
 };
