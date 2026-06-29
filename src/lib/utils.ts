@@ -12,7 +12,8 @@ export function smartNormalizeText(text: string): string {
   const fixedBullets = text.replace(/^[ \t]*y\s+/gm, '- ');
 
   // 1.5 Fix literal bullet points to use standard markdown syntax
-  const fixedLiteralBullets = fixedBullets.replace(/^[ \t]*[•]\s*/gm, '- ');
+  // Use a more robust regex that catches •, ◦, ▪
+  const fixedLiteralBullets = fixedBullets.replace(/^[ \t]*[•◦▪](\s*)/gm, '- ');
 
   // 2. Remove hard wraps (lines ending with a letter/number but NOT a period)
   const unwrapped = fixedLiteralBullets.replace(/([^\s\.])(\n)([^\s])/g, '$1 $3');

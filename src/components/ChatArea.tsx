@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
 import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { markdownComponents } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
 import { clsx, type ClassValue } from 'clsx';
@@ -972,7 +973,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
               <div className="space-y-3">
                 <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
                 <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
                 </div>
               </div>
             )}
@@ -992,13 +993,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
-                    components={{
-                      h1: ({node, ...props}) => <h1 style={{fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem'}} {...props} />,
-                      h2: ({node, ...props}) => <h2 style={{fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.8rem', marginBottom: '0.5rem'}} {...props} />,
-                      ul: ({node, ...props}) => <ul style={{paddingLeft: '1.5rem', marginBottom: '0.5rem', listStyleType: 'disc'}} {...props} />,
-                      li: ({node, ...props}) => <li style={{marginBottom: '0.2rem'}} {...props} />,
-                      p: ({node, ...props}) => <p style={{lineHeight: '1.7', marginBottom: '0.8rem'}} {...props} />
-                    }}
+                    components={markdownComponents}
                   >
                     {smartNormalizeText(chapter.content)}
                   </ReactMarkdown>
@@ -1058,10 +1053,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     ) : (
                       <ReactMarkdown 
                         remarkPlugins={[remarkGfm]}
-                        components={{
-                          ul: ({node, ...props}) => <ul style={{paddingLeft: '1.5rem', marginBottom: '0.5rem', listStyleType: 'disc'}} {...props} />,
-                          li: ({node, ...props}) => <li style={{marginBottom: '0.2rem'}} {...props} />
-                        }}
+                        components={markdownComponents}
                       >
                         {smartNormalizeText(msg.text)}
                       </ReactMarkdown>

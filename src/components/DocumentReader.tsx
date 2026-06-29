@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Document } from '../types';
 import { BookOpen, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { markdownComponents } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
 import { ReadAloudButton } from './ReadAloudButton';
 import { smartNormalizeText } from '../lib/utils';
@@ -124,7 +125,7 @@ export default function DocumentReader({ document }: Props) {
                       <ReadAloudButton text={chapter.summary} className="bg-transparent" iconSizeClasses="w-4 h-4" />
                     </div>
                     <div className="prose prose-invert prose-sm max-w-none text-white/70 font-light">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
                     </div>
                   </div>
                 )}
