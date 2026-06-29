@@ -1042,7 +1042,7 @@ Output only the JSON object containing the "chapters" array. No other text.
   }
 }
 
-export async function extractChapterViaAI(chapterText: string, chapterTitle: string): Promise<{ subtopics: { title: string, content: string }[], exercises: { title: string, content: string }[] } | null> {
+export async function extractChapterViaAI(chapterText: string, chapterTitle: string): Promise<{ subtopics: { title: string, content: string }[], exercises: { title: string, content: string, sub_entries?: {heading: string, subtype: string}[] }[] } | null> {
   const prompt = `
 You are a strict textbook parser. The text provided is a single chapter of a book with the title: "${chapterTitle}".
 Your task is to parse this chapter and output a JSON object with two keys: "subtopics" and "exercises".
@@ -1056,8 +1056,11 @@ STRICT RULES:
    - A Roman numeral followed by a dot and a space (e.g., "i. Difference Engine", "ii. Analytical Engine").
    - A Roman numeral enclosed in parentheses followed by a space (e.g., "(i) Case I", "(ii) Case II").
    - Any bolded line, centered line, or indented line that acts as a section break.
-3. For each sub-heading, create a subtopic object with "title" (the exact heading) and "content" (the exact text until the next sub-heading).
-4. If you find "Exercise", "Exercises", or "Practice", create an exercise object with "title" (e.g., "Exercises") and "content" (the exact text of that block).
+3. For each sub-heading, create a subtopic object with "title" (the exact heading) and "content" (the exact text until the next sub-heading). DO NOT merge exercises into subtopics.
+4. Ensure that EVERY exercise section is placed into a dedicated 'exercise' node at the end of the chapter. DO NOT merge exercises into the last subtopic.
+   - The exercise node MUST have the "title" set to "Chapter Exercises".
+   - In the "content" field, output the full exercise text but add Markdown headings (#### ) for each exercise type heading (e.g., "#### Select the best answer from the given options:", "#### State whether the following statements are 'True' or 'False':", "#### Answer the following questions:").
+   - Create a "sub_entries" array inside the exercise node. For each exercise type heading you detect, add an object with "heading" (the exact text of the heading) and "subtype" (one of: "mcq", "fill_blank", "true_false", "match", "short_answer", "long_answer", "unknown").
 5. **CRITICAL FALLBACK RULE:** If you cannot find any distinct sub-headings in this chapter, DO NOT return null. Instead, return a JSON object with a single subtopic. Set the title to "Chapter Content" and put the ENTIRE chapter text into the content string.
 6. Ensure every character of the input text appears exactly once in the output across all subtopics and exercises.
 

@@ -1015,34 +1015,53 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 </div>
                 <div className="space-y-4">
                   {(() => {
-                    const blocks = chapter.content.split(/(?=(?:^|\n)\s*(?:\d+\.\s+[A-Z]|[A-Za-z]\.\s+[A-Z]|State whether|Match the|Fill in the|Write full|Write technical|Select the|Project Work|Answer the|Q\d+\.?\s))/i).filter(q => q.trim());
-                    let currentType: 'true-false' | 'fill-in-the-blank' | 'match' | 'multiple-choice' | 'short-long' | 'unknown' = 'unknown';
-                    
-                    return blocks.map((q, i) => {
-                      const text = q.trim();
-                      const lower = text.toLowerCase();
+                    const subsections = chapter.content.split(/(?=(?:^|\n)\s*####\s)/i).filter(s => s.trim());
+                    return subsections.map((subsection, subIdx) => {
+                      const isHeadingSection = subsection.trim().startsWith('####');
+                      let headingText = '';
+                      let bodyText = subsection.trim();
+                      
+                      if (isHeadingSection) {
+                        const lines = bodyText.split('\n');
+                        headingText = lines[0].replace(/####\s*/, '').trim();
+                        bodyText = lines.slice(1).join('\n').trim();
+                      }
+
+                      const lower = headingText.toLowerCase();
+                      let currentType: 'true-false' | 'fill-in-the-blank' | 'match' | 'multiple-choice' | 'short-long' | 'unknown' = 'unknown';
                       if (lower.includes('true') || lower.includes('false') || lower.includes('state whether')) {
                         currentType = 'true-false';
                       } else if (lower.includes('fill in') || lower.includes('blank') || lower.includes('write full')) {
                         currentType = 'fill-in-the-blank';
                       } else if (lower.includes('match') || lower.includes('group a')) {
                         currentType = 'match';
-                      } else if (lower.includes('multiple choice') || lower.includes('choose the correct')) {
+                      } else if (lower.includes('multiple choice') || lower.includes('choose the correct') || lower.includes('select the')) {
                         currentType = 'multiple-choice';
-                      } else if (lower.includes('answer the following') || lower.includes('explain')) {
+                      } else if (lower.includes('answer the following') || lower.includes('explain') || lower.includes('write technical')) {
                         currentType = 'short-long';
                       }
+
+                      // Split by numbered or lettered list items if they exist
+                      const questions = bodyText.split(/(?=(?:^|\n)\s*(?:\d+\.\s+|[a-z]\.\s+))/i).filter(q => q.trim());
                       
                       return (
-                        <ExerciseCard 
-                          key={i} 
-                          question={text} 
-                          chapterContent={chapter.content || ''} 
-                          onAskAI={(qText) => {
-                            // Call with detected type
-                            handleAskAIExercise(qText, currentType);
-                          }} 
-                        />
+                        <div key={subIdx} className="mb-8 last:mb-0">
+                          {headingText && (
+                            <h4 className="font-bold text-[1.1em] text-white mb-4 mt-2 pb-2 border-b border-white/10">{headingText}</h4>
+                          )}
+                          <div className="space-y-4">
+                            {questions.map((q, qIdx) => (
+                              <ExerciseCard 
+                                key={qIdx} 
+                                question={q.trim()} 
+                                chapterContent={chapter.content || ''} 
+                                onAskAI={(qText) => {
+                                  handleAskAIExercise(qText, currentType);
+                                }} 
+                              />
+                            ))}
+                          </div>
+                        </div>
                       );
                     });
                   })()}

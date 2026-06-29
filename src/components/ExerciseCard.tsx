@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { generateExerciseAnswer } from '../lib/gemini';
 import { motion, AnimatePresence } from 'motion/react';
-import Markdown from 'react-markdown';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ExerciseCardProps {
   question: string;
@@ -42,21 +43,11 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
   return (
     <div className="group relative bg-white/[0.02] border border-white/5 rounded-xl p-6 transition-all hover:bg-white/[0.04]">
       <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap break-words pr-12">
-        {(() => {
-          const lines = question.split('\n');
-          const firstLine = lines[0];
-          const isHeading = /^(?:State whether|Match the|Fill in the|Write full|Write technical|Answer the|Select the|Project Work|Q\d+)/i.test(firstLine.trim()) && !/^\d+\./.test(firstLine.trim());
-          
-          if (isHeading) {
-            return (
-              <div className="flex flex-col">
-                <div className="font-sans font-bold text-xl text-white mb-4 pb-2 border-b border-white/10">{firstLine}</div>
-                <div>{lines.slice(1).join('\n')}</div>
-              </div>
-            );
-          }
-          return question;
-        })()}
+        <ReactMarkdown 
+          remarkPlugins={[remarkGfm]}
+        >
+          {question}
+        </ReactMarkdown>
       </div>
       
       <div className="absolute top-4 right-4 flex items-center gap-2">
