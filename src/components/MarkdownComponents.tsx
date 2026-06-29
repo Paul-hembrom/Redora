@@ -13,54 +13,20 @@ export const markdownComponents = {
     if (isOrdered) {
       return (
         <li style={{marginBottom: '0.4rem', display: 'flex', alignItems: 'baseline'}} {...props}>
-          <span style={{ flexShrink: 0 }}>{index + 1}.&nbsp;</span>
-          <div style={{ flex: 1 }}>{children}</div>
+          <span style={{ flexShrink: 0, marginRight: '0.5rem' }}>{index + 1}.</span>
+          <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
         </li>
       );
     }
 
     return (
       <li style={{marginBottom: '0.4rem', display: 'flex', alignItems: 'baseline'}} {...props}>
-        <span style={{ flexShrink: 0 }}>•&nbsp;</span>
-        <div style={{ flex: 1 }}>{children}</div>
+        <span style={{ flexShrink: 0, marginRight: '0.5rem' }}>•</span>
+        <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
       </li>
     );
   },
   p: ({node, children, ...props}: any) => {
-    let isBullet = false;
-    let bulletChar = '';
-    let restContent: React.ReactNode[] = [];
-    
-    const childrenArray = React.Children.toArray(children);
-    if (childrenArray.length > 0) {
-      const firstChild = childrenArray[0];
-      if (typeof firstChild === 'string') {
-        const match = firstChild.match(/^([•◦▪\-])\s+(.*)/s);
-        if (match) {
-          isBullet = true;
-          bulletChar = match[1];
-          restContent = [match[2], ...childrenArray.slice(1)];
-        } else if (firstChild.trim() === '•' || firstChild.trim() === '-' || firstChild.trim() === '◦' || firstChild.trim() === '▪') {
-           isBullet = true;
-           bulletChar = firstChild.trim();
-           restContent = childrenArray.slice(1);
-        } else if (firstChild.startsWith('•') || firstChild.startsWith('-') || firstChild.startsWith('◦') || firstChild.startsWith('▪')) {
-           isBullet = true;
-           bulletChar = firstChild.charAt(0);
-           restContent = [firstChild.slice(1).trimStart(), ...childrenArray.slice(1)];
-        }
-      }
-    }
-
-    if (isBullet) {
-      return (
-        <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '0.8rem' }} {...props}>
-          <span style={{ flexShrink: 0 }}>{bulletChar}&nbsp;</span>
-          <div style={{ flex: 1 }}>{restContent}</div>
-        </div>
-      );
-    }
-
-    return <p style={{lineHeight: '1.7', marginBottom: '0.8rem'}} {...props}>{children}</p>;
+    return <p style={{lineHeight: '1.7', marginTop: 0, marginBottom: '0.8rem', whiteSpace: 'pre-wrap'}} {...props}>{children}</p>;
   }
 };
