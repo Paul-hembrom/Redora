@@ -49,10 +49,10 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
           
           if (isHeading) {
             return (
-              <>
-                <div className="font-sans font-bold text-lg text-white mb-2">{firstLine}</div>
-                {lines.slice(1).join('\n')}
-              </>
+              <div className="flex flex-col">
+                <div className="font-sans font-bold text-xl text-white mb-4 pb-2 border-b border-white/10">{firstLine}</div>
+                <div>{lines.slice(1).join('\n')}</div>
+              </div>
             );
           }
           return question;
