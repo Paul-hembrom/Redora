@@ -807,7 +807,7 @@ export async function extractByOutline(text: string, outline: {title: string, su
     let exerciseContent = '';
 
     // Extract Exercise block if it exists
-    const exerciseRegex = /\n\s*(?:Exercise|Exercises|Practice)\b/i; 
+    const exerciseRegex = /(?:\n|^)\s*(?:Exercises?|Practice|Let's Practice|Questions|Review|Evaluate|Assessment)\s*(?:\n|:)/i; 
     const exerciseMatch = chapterContent.match(exerciseRegex);
     if (exerciseMatch && exerciseMatch.index !== undefined) {
       mainContent = chapterContent.substring(0, exerciseMatch.index).trim();

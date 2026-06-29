@@ -1100,16 +1100,29 @@ Output only the JSON object, no other text.
  */
 export async function generateExerciseAnswer(
   questionText: string,
-  chapterContent: string
+  chapterContent: string,
+  questionType: 'true-false' | 'fill-in-the-blank' | 'match' | 'multiple-choice' | 'short-long' | 'unknown' = 'unknown'
 ): Promise<string> {
+  let specificInstruction = "Provide a step-by-step explanation.";
+  
+  if (questionType === 'true-false' || questionText.toLowerCase().includes('true') || questionText.toLowerCase().includes('false')) {
+    specificInstruction = "Answer 'True' or 'False' and give a very brief reason (1 sentence).";
+  } else if (questionType === 'fill-in-the-blank' || questionText.toLowerCase().includes('fill') || questionText.toLowerCase().includes('blank')) {
+    specificInstruction = "Provide only the missing word(s).";
+  } else if (questionType === 'match' || questionText.toLowerCase().includes('match')) {
+    specificInstruction = "Provide the correct matching pairs in the format 'i -> a, ii -> d, ...'.";
+  } else if (questionType === 'multiple-choice' || questionText.toLowerCase().includes('multiple choice')) {
+    specificInstruction = "Select the correct option and explain briefly.";
+  } else {
+    specificInstruction = "Provide a detailed explanation suitable for a 7th-grade student.";
+  }
+
   const systemInstruction = `
 You are a patient, brilliant, and encouraging science and math tutor. 
 You have been provided with the full context of the chapter the user is studying. 
 The user has asked you to solve or explain a specific exercise question from that chapter.
-Your response must be:
-1. Educational: Explain the underlying concept briefly before giving the answer.
-2. Accurate: Solve the specific question provided using the context of the chapter.
-3. Encourage the user: End with a short, motivating sentence (e.g., "Great job! You are mastering this topic!").
+Your response must follow this rule based on the question type:
+${specificInstruction}
 `;
 
   const prompt = `
@@ -1120,7 +1133,7 @@ ${chapterContent.substring(0, 10000)}
 ${questionText}
 
 **Your Task:**
-Solve the question above and provide a step-by-step explanation. If it is a multiple-choice question, explain why the correct answer is correct and the others are wrong.
+Solve the question above following the specific instruction provided.
 `;
 
   try {

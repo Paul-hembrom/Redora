@@ -652,7 +652,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     }
   };
 
-  const handleAskAIExercise = async (questionText: string) => {
+  const handleAskAIExercise = async (questionText: string, questionType?: 'true-false' | 'fill-in-the-blank' | 'match' | 'multiple-choice' | 'short-long' | 'unknown') => {
     if (isTyping) return;
     setIsTyping(true);
     setError(null);
@@ -673,7 +673,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     }
 
     try {
-      const answer = await generateExerciseAnswer(questionText, chapter.content || '');
+      const answer = await generateExerciseAnswer(questionText, chapter.content || '', questionType);
       const aiMsg: ChatMessage = {
         id: uuidv4(),
         role: 'model',
@@ -1003,16 +1003,49 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             
             {chapter.content && chapter.type === 'exercise' && (
               <div className="space-y-3 pt-2">
-                <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase">Exercises</p>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase">Exercises</p>
+                  <button
+                    onClick={() => handleAskAIExercise(`I am a teacher. Help me solve these exercises. For true/false, give true or false with a brief reason. For fill-in-the-blanks, provide the missing word. For match the following, provide the matching pairs. For long questions, provide a detailed explanation.\n\n${chapter.content}`)}
+                    className="px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-medium rounded-lg border border-cyan-500/20 transition-colors flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    AI Help (Full)
+                  </button>
+                </div>
                 <div className="space-y-4">
-                  {chapter.content.split(/(?=\d+\.\s+[A-Z]|(?:True|False|Match)\s+the\s+following)/gi).map((q, i) => q.trim() ? (
-                    <ExerciseCard 
-                      key={i} 
-                      question={q.trim()} 
-                      chapterContent={chapter.content || ''} 
-                      onAskAI={handleAskAIExercise} 
-                    />
-                  ) : null)}
+                  {(() => {
+                    const blocks = chapter.content.split(/(?=(?:^|\n)\s*(?:\d+\.\s+[A-Z]|[A-Za-z]\.\s+[A-Z]|State whether|Match the|Fill in the|Write full|Answer the|Q\d+\.?\s))/i).filter(q => q.trim());
+                    let currentType: 'true-false' | 'fill-in-the-blank' | 'match' | 'multiple-choice' | 'short-long' | 'unknown' = 'unknown';
+                    
+                    return blocks.map((q, i) => {
+                      const text = q.trim();
+                      const lower = text.toLowerCase();
+                      if (lower.includes('true') || lower.includes('false') || lower.includes('state whether')) {
+                        currentType = 'true-false';
+                      } else if (lower.includes('fill in') || lower.includes('blank') || lower.includes('write full')) {
+                        currentType = 'fill-in-the-blank';
+                      } else if (lower.includes('match') || lower.includes('group a')) {
+                        currentType = 'match';
+                      } else if (lower.includes('multiple choice') || lower.includes('choose the correct')) {
+                        currentType = 'multiple-choice';
+                      } else if (lower.includes('answer the following') || lower.includes('explain')) {
+                        currentType = 'short-long';
+                      }
+                      
+                      return (
+                        <ExerciseCard 
+                          key={i} 
+                          question={text} 
+                          chapterContent={chapter.content || ''} 
+                          onAskAI={(qText) => {
+                            // Call with detected type
+                            handleAskAIExercise(qText, currentType);
+                          }} 
+                        />
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}
