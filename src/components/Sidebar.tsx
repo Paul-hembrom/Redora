@@ -428,7 +428,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
 
   const handleDownload = (doc: Document) => {
     const safeChaptersToExport = Array.isArray(doc.chapters) ? doc.chapters : [];
-    const content = safeChaptersToExport.map(ch => `${ch.chapterNumber}. ${ch.title}\n\n${ch.content}`).join('\n\n---\n\n');
+    const content = safeChaptersToExport.map(ch => `${ch.displayNumber || ch.chapterNumber}. ${ch.title.replace(/^([a-zA-Z]|\\d+(\\.\\d+)*)\\.\\s+/, '')}\n\n${ch.content}`).join('\n\n---\n\n');
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
