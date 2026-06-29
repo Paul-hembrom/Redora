@@ -159,6 +159,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
+  const [isSpeakingChapter, setIsSpeakingChapter] = useState(false);
   const [isTtsLoading, setIsTtsLoading] = useState(false);
   const ttsAudioRef = useRef<HTMLAudioElement>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -214,6 +215,52 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       setIsTtsLoading(false);
     }
   };
+
+  const handleListenChapter = () => {
+    if (!('speechSynthesis' in window)) {
+      alert("Your browser does not support text-to-speech.");
+      return;
+    }
+
+    if (isSpeakingChapter) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingChapter(false);
+      return;
+    }
+
+    // Stop any other audio
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      setPlayingMessageId(null);
+    }
+    
+    // Clear any previous speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(chapter.content || chapter.summary || '');
+    utterance.rate = playbackRate;
+    
+    utterance.onend = () => {
+      setIsSpeakingChapter(false);
+    };
+    
+    utterance.onerror = (e) => {
+      console.error('Speech synthesis error', e);
+      setIsSpeakingChapter(false);
+    };
+
+    setIsSpeakingChapter(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  useEffect(() => {
+    // Cleanup speech synthesis on unmount or chapter change
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [chapter.id]);
 
   const handleTogglePin = async (msg: ChatMessage) => {
     try {
@@ -833,6 +880,19 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
         <ScrollableActionBar className="w-full lg:w-auto pb-1 lg:pb-0 min-w-0" innerClassName="gap-2">
+          <button
+            onClick={handleListenChapter}
+            className={cn(
+              "flex items-center shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
+              isSpeakingChapter 
+                ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/30" 
+                : "bg-black/40 text-white/80 border-white/5 hover:bg-white/5 hover:text-white"
+            )}
+            title={isSpeakingChapter ? "Stop Listening" : "Listen to Chapter"}
+          >
+            {isSpeakingChapter ? <Square className="w-4 h-4 mr-1.5 fill-current" /> : <Volume2 className="w-4 h-4 mr-1.5" />}
+            {isSpeakingChapter ? "Stop" : "Listen"}
+          </button>
           <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
              <Volume2 className="w-3.5 h-3.5 text-white/40 ml-1" />
              <select 
@@ -1047,7 +1107,9 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       return (
                         <div key={subIdx} className="mb-8 last:mb-0">
                           {headingText && (
-                            <h4 className="font-bold text-[1.1em] text-white mb-4 mt-2 pb-2 border-b border-white/10">{headingText}</h4>
+                            <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                              {`#### ${headingText}`}
+                            </ReactMarkdown>
                           )}
                           <div className="space-y-4">
                             {questions.map((q, qIdx) => (

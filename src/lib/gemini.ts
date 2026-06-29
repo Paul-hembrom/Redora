@@ -978,15 +978,19 @@ The value of "chapters" MUST be an array of chapter objects in the exact order t
 Each chapter object must have:
 - "title": The exact chapter heading.
 - "subtopics": An array of {"title": "...", "content": "..."}.
-- "exercises": An array of {"title": "...", "content": "..."}.
+- "exercises": An array of {"title": "...", "content": "...", "sub_entries": [{"heading": "...", "subtype": "..."}]}.
 
 CRITICAL RULES:
 1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
 3. PRESERVE ORDER: The chapters in the array MUST be in the exact sequence they appear in the source text. Do NOT sort alphabetically.
-4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers.
-5. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
-6. **CRITICAL BULLET FIX:** Normalize ANY corrupted 'y' bullet points into standard hyphens '-'. If a line starts with whitespace followed by a 'y' and a space, convert it to a standard list item. 
+4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers. DO NOT merge exercises into subtopics.
+5. Extract EVERY exercise section into the "exercises" array. 
+   - The exercise MUST have the "title" set to "Chapter Exercises".
+   - In the "content" field, output the full exercise text but add Markdown headings (#### ) for each exercise type heading (e.g., "#### Select the best answer from the given options:", "#### State whether the following statements are 'True' or 'False':", "#### Answer the following questions:").
+   - Create a "sub_entries" array inside the exercise node. For each exercise type heading you detect, add an object with "heading" (the exact text of the heading) and "subtype" (one of: "mcq", "fill_blank", "true_false", "match", "short_answer", "long_answer", "unknown").
+6. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
+7. **CRITICAL BULLET FIX:** Normalize ANY corrupted 'y' bullet points into standard hyphens '-'. If a line starts with whitespace followed by a 'y' and a space, convert it to a standard list item. 
 Output only the JSON object containing the "chapters" array. No other text.
   `;
 
@@ -1006,8 +1010,8 @@ Output only the JSON object containing the "chapters" array. No other text.
   const mapToTopics = (arr: any[]) => {
     return arr.map((chap: any) => {
       const topics: any[] = [];
-      if (Array.isArray(chap.subtopics)) topics.push(...chap.subtopics);
-      if (Array.isArray(chap.exercises)) topics.push(...chap.exercises);
+      if (Array.isArray(chap.subtopics)) topics.push(...chap.subtopics.map((t: any) => ({ ...t, type: 'topic' })));
+      if (Array.isArray(chap.exercises)) topics.push(...chap.exercises.map((e: any) => ({ ...e, type: 'exercise' })));
       if (Array.isArray(chap.topics)) topics.push(...chap.topics);
       return {
         title: chap.title,

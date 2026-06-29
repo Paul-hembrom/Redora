@@ -3,6 +3,7 @@ import { generateExerciseAnswer } from '../lib/gemini';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { markdownComponents } from './MarkdownComponents';
 
 interface ExerciseCardProps {
   question: string;
@@ -45,6 +46,7 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
       <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap break-words pr-12">
         <ReactMarkdown 
           remarkPlugins={[remarkGfm]}
+          components={markdownComponents}
         >
           {question}
         </ReactMarkdown>
