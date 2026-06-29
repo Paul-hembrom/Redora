@@ -1015,7 +1015,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 </div>
                 <div className="space-y-4">
                   {(() => {
-                    const blocks = chapter.content.split(/(?=(?:^|\n)\s*(?:\d+\.\s+[A-Z]|[A-Za-z]\.\s+[A-Z]|State whether|Match the|Fill in the|Write full|Answer the|Q\d+\.?\s))/i).filter(q => q.trim());
+                    const blocks = chapter.content.split(/(?=(?:^|\n)\s*(?:\d+\.\s+[A-Z]|[A-Za-z]\.\s+[A-Z]|State whether|Match the|Fill in the|Write full|Write technical|Select the|Project Work|Answer the|Q\d+\.?\s))/i).filter(q => q.trim());
                     let currentType: 'true-false' | 'fill-in-the-blank' | 'match' | 'multiple-choice' | 'short-long' | 'unknown' = 'unknown';
                     
                     return blocks.map((q, i) => {

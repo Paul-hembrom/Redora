@@ -42,7 +42,21 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
   return (
     <div className="group relative bg-white/[0.02] border border-white/5 rounded-xl p-6 transition-all hover:bg-white/[0.04]">
       <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap break-words pr-12">
-        {question}
+        {(() => {
+          const lines = question.split('\n');
+          const firstLine = lines[0];
+          const isHeading = /^(?:State whether|Match the|Fill in the|Write full|Write technical|Answer the|Select the|Project Work|Q\d+)/i.test(firstLine.trim()) && !/^\d+\./.test(firstLine.trim());
+          
+          if (isHeading) {
+            return (
+              <>
+                <div className="font-sans font-bold text-lg text-white mb-2">{firstLine}</div>
+                {lines.slice(1).join('\n')}
+              </>
+            );
+          }
+          return question;
+        })()}
       </div>
       
       <div className="absolute top-4 right-4 flex items-center gap-2">
