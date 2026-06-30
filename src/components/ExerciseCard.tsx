@@ -68,11 +68,11 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
         </button>
         <button
           onClick={() => onAskAI(question)}
-          className="p-2 bg-black/40 hover:bg-cyan-500/20 text-white/60 hover:text-cyan-400 rounded-lg backdrop-blur shadow-lg border border-white/10 transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
+          className="px-3 py-1.5 bg-black/40 hover:bg-cyan-500/20 text-white/60 hover:text-cyan-400 rounded-lg backdrop-blur shadow-lg border border-white/10 transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2"
           title="Ask AI Teacher to solve this"
         >
-          <span className="text-sm">⭐</span>
-          <span className="text-xs font-medium">Ask AI</span>
+          <span className="text-sm">✨</span>
+          <span className="text-xs font-medium">AI</span>
         </button>
       </div>
 
