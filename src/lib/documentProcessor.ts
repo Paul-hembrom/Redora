@@ -1126,7 +1126,22 @@ Output only the JSON array, no other text.
   chapterResults.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 
   // --- POST-PROCESSING FALLBACK ---
-  for (const chapter of chapterResults) {
+  // Run AI exercise extraction in parallel for speed
+  const extractionJobs = chapterResults.map(async (chapter) => {
+    const fullText = (chapter.content || '') + '\n' + (chapter.children || []).map(c => c.content).join('\n');
+    let aiExercises = null;
+    try {
+      console.log(`Starting second-pass exercise extraction for chapter: ${chapter.title}`);
+      aiExercises = await extractExercisesForChapter(chapter.title, fullText);
+    } catch (e) {
+      console.warn(`AI exercise extraction failed for chapter ${chapter.title}:`, e);
+    }
+    return { chapter, aiExercises };
+  });
+
+  const extractionResults = await Promise.all(extractionJobs);
+
+  for (const { chapter, aiExercises } of extractionResults) {
     const topics = chapter.children?.filter(c => c.type === 'topic') || [];
     const exercises = chapter.children?.filter(c => c.type === 'exercise') || [];
 
@@ -1151,15 +1166,6 @@ Output only the JSON array, no other text.
           chapter.children = [...newTopics, ...exercises];
         }
       }
-    }
-
-    // 2. Second-Pass: AI Exercise Extraction
-    const fullText = (chapter.content || '') + '\n' + (chapter.children || []).map(c => c.content).join('\n');
-    let aiExercises = null;
-    try {
-      aiExercises = await extractExercisesForChapter(chapter.title, fullText);
-    } catch (e) {
-      console.warn('AI exercise extraction failed:', e);
     }
 
     if (aiExercises) {

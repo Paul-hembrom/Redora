@@ -1218,6 +1218,7 @@ Exercise content includes: multiple‑choice, true/false, fill‑in‑the‑blan
 Return the exercise content as a single Markdown block.
 - Use \`#### \` headings before each exercise type (e.g., \`#### Select the best answer\`, \`#### Write full forms\`).
 - Preserve all original text, numbering, tables, and formatting exactly as it appears.
+- For "Match the following" sections, output the content as a two-column Markdown table with headers "Group A" and "Group B". Each row must contain one item from Group A and its matching item from Group B. Do NOT output them as separate lists.
 - If there is NO exercise content, return the exact string "NO_EXERCISES".
 Output only the exercise Markdown or "NO_EXERCISES", no other text.
   `;
@@ -1227,7 +1228,11 @@ Output only the exercise Markdown or "NO_EXERCISES", no other text.
     if (raw.trim() === 'NO_EXERCISES' || raw.trim().length < 10) {
       return null;
     }
-    return raw.trim();
+    let exercises = raw.trim();
+    exercises = exercises.replace(/^(?:[\s\n]*download\s*pdf[\s\n\d]*|[\s\n]*←\s*previous:.*|[\s\n]*next:\s*→?.*?[\n\r]+)/i, '').trim();
+    exercises = exercises.replace(/[\s\n]*← Previous:.*$/i, '').trim();
+    exercises = exercises.replace(/^Download PDF\s*\d*/gmi, '').trim();
+    return exercises;
   } catch (e) {
     console.error('extractExercisesForChapter failed:', e);
     return null;
