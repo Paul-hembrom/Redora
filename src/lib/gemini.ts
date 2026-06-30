@@ -980,6 +980,10 @@ Each chapter object must have:
 - "subtopics": An array of {"title": "...", "content": "..."}.
 - "exercises": An array of {"title": "...", "content": "...", "sub_entries": [{"heading": "...", "subtype": "..."}]}.
 
+For EVERY chapter, you MUST split the content into subtopics. A subtopic is defined by: numbered/lettered headings (a., b., c., 1., 2., 3., i., ii., iii.), bolded lines, or section breaks. If a chapter has NO detectable subtopics, create a single subtopic titled "Chapter Content" with the full chapter text. NEVER return a chapter with zero subtopics.
+
+For EVERY chapter, you MUST extract ALL exercise content into a separate "exercises" array. Exercise content includes: multiple‑choice questions, true/false, fill‑in‑the‑blanks, match the following, short answer, long answer, project work, "Let's Revise", "Write full forms", "Select the best answer", "Answer the following", "Write technical terms", and similar question sections. The exercises array must have at least one entry with "title": "Chapter Exercises" and "content" containing the full exercise text with #### headings for each exercise type.
+
 CRITICAL RULES:
 1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".

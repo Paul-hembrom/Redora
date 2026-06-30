@@ -1123,6 +1123,88 @@ Output only the JSON array, no other text.
   await Promise.all(jobs);
 
   chapterResults.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+  // --- POST-PROCESSING FALLBACK ---
+  for (const chapter of chapterResults) {
+    const topics = chapter.children?.filter(c => c.type === 'topic') || [];
+    const exercises = chapter.children?.filter(c => c.type === 'exercise') || [];
+
+    // 1. Force-split if 0 subtopics or 1 massive subtopic
+    if (topics.length === 0 || (topics.length === 1 && (topics[0].title === 'Chapter Content' || topics[0].title === 'Full Chapter Content'))) {
+      const textToSplit = topics.length === 1 ? topics[0].content : chapterChunks.find(c => c.title === chapter.title)?.content || '';
+      if (textToSplit) {
+        const regexChunks = splitIntoChaptersEnhanced(textToSplit);
+        if (regexChunks.length > 1) {
+          const newTopics = regexChunks.map((ch, idx) => ({
+            id: uuidv4(),
+            chapterNumber: idx + 1,
+            title: ch.title || `Section ${idx + 1}`,
+            summary: '',
+            content: ch.content,
+            isGenerating: false,
+            parentId: chapter.id,
+            sortOrder: (chapter.sortOrder || 0) + idx + 1,
+            type: 'topic' as const,
+            children: []
+          }));
+          chapter.children = [...newTopics, ...exercises];
+        }
+      }
+    }
+
+    // 2. Scan for missing exercise node
+    const currentExercises = chapter.children?.filter(c => c.type === 'exercise') || [];
+    if (currentExercises.length === 0 && chapter.children && chapter.children.length > 0) {
+      const lastTopic = chapter.children.filter(c => c.type === 'topic').pop();
+      if (lastTopic) {
+        const textLength = lastTopic.content.length;
+        if (textLength > 500) {
+          const last30PercentIndex = Math.floor(textLength * 0.7);
+          const last30Percent = lastTopic.content.substring(last30PercentIndex);
+          
+          const lines = last30Percent.split('\n');
+          let consecutiveCount = 0;
+          let exerciseStartIndex = -1;
+          
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (/^(?:\d+\.|[a-z]\.)\s/.test(line) || /True\/False|fill in the blanks|Match the following/i.test(line)) {
+              consecutiveCount++;
+              if (consecutiveCount === 3) {
+                 exerciseStartIndex = i - 2;
+                 break;
+              }
+            } else if (line.length > 0) {
+               consecutiveCount = 0;
+            }
+          }
+
+          if (exerciseStartIndex !== -1) {
+            const exerciseContent = lines.slice(exerciseStartIndex).join('\n');
+            const beforeExercise = lastTopic.content.substring(0, lastTopic.content.length - exerciseContent.length);
+            
+            if (exerciseContent.trim().length > 0) {
+              lastTopic.content = beforeExercise.trim();
+              
+              chapter.children.push({
+                id: uuidv4(),
+                chapterNumber: chapter.children.length + 1,
+                title: 'Chapter Exercises',
+                summary: '',
+                content: exerciseContent.trim(),
+                isGenerating: false,
+                parentId: chapter.id,
+                sortOrder: (chapter.sortOrder || 0) + 999,
+                type: 'exercise',
+                children: []
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
   finalChapters = chapterResults;
 
   // --------------------------------------------------------------------------
