@@ -592,7 +592,7 @@ function parseHierarchyIntoChapters(
                 isGenerating: false,
                 parentId: chapId,
                 sortOrder: sortCounter.value++,
-                type: 'topic',
+                type: topic.type || 'topic',
                 children: [],
               });
             });
@@ -630,7 +630,7 @@ function parseHierarchyIntoChapters(
             isGenerating: false,
             parentId: chapId,
             sortOrder: sortCounter.value++,
-            type: 'topic',
+            type: topic.type || 'topic',
             children: [],
           });
         });
@@ -650,7 +650,7 @@ function parseHierarchyIntoChapters(
         isGenerating: false,
         parentId: null,
         sortOrder: sortCounter.value++,
-        type: 'topic',
+        type: topic.type || 'topic',
         children: [],
       });
     });
@@ -1158,20 +1158,22 @@ Output only the JSON array, no other text.
       const lastTopic = chapter.children.filter(c => c.type === 'topic').pop();
       if (lastTopic) {
         const textLength = lastTopic.content.length;
-        if (textLength > 500) {
-          const last30PercentIndex = Math.floor(textLength * 0.7);
+        if (textLength > 100) {
+          const last30PercentIndex = textLength > 500 ? Math.floor(textLength * 0.7) : 0;
           const last30Percent = lastTopic.content.substring(last30PercentIndex);
           
           const lines = last30Percent.split('\n');
           let consecutiveCount = 0;
           let exerciseStartIndex = -1;
           
+          const exerciseKeywords = /True\/False|fill in the blanks|Match the following|multiple-choice|short answer|long answer|project work|let's revise|write full forms|select the best answer|answer the following|write technical terms/i;
+          
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
-            if (/^(?:\d+\.|[a-z]\.)\s/.test(line) || /True\/False|fill in the blanks|Match the following/i.test(line)) {
+            if (/^(?:\d+\.|[a-z]\.)\s/.test(line) || exerciseKeywords.test(line)) {
               consecutiveCount++;
-              if (consecutiveCount === 3) {
-                 exerciseStartIndex = i - 2;
+              if (consecutiveCount === 2) { // trigger on 2 consecutive question-like lines to be safer on shorter lists
+                 exerciseStartIndex = i - 1;
                  break;
               }
             } else if (line.length > 0) {
@@ -1200,6 +1202,39 @@ Output only the JSON array, no other text.
               });
             }
           }
+        }
+      }
+    }
+
+    // 3. Table format fallback
+    if (chapter.children) {
+      for (const child of chapter.children) {
+        if (child.type === 'topic' || child.type === 'exercise') {
+          const lines = child.content.split('\n');
+          let inTable = false;
+          let newContent = [];
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const pipeCount = (line.match(/\|/g) || []).length;
+            const tabCount = (line.match(/\t/g) || []).length;
+            
+            // If it looks like a garbled table (multiple pipes or tabs) but not already a proper markdown table
+            if (!inTable && (pipeCount > 1 || tabCount > 1) && !line.trim().startsWith('|')) {
+              inTable = true;
+              newContent.push('```text'); // Wrap in code block to prevent garbling
+              newContent.push(line);
+            } else if (inTable && pipeCount <= 1 && tabCount <= 1 && line.trim().length > 0) {
+              inTable = false;
+              newContent.push('```');
+              newContent.push(line);
+            } else {
+              newContent.push(line);
+            }
+          }
+          if (inTable) {
+            newContent.push('```');
+          }
+          child.content = newContent.join('\n');
         }
       }
     }

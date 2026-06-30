@@ -978,11 +978,17 @@ The value of "chapters" MUST be an array of chapter objects in the exact order t
 Each chapter object must have:
 - "title": The exact chapter heading.
 - "subtopics": An array of {"title": "...", "content": "..."}.
-- "exercises": An array of {"title": "...", "content": "...", "sub_entries": [{"heading": "...", "subtype": "..."}]}.
+- "exercises": An array of {"title": "...", "content": "..."}.
 
 For EVERY chapter, you MUST split the content into subtopics. A subtopic is defined by: numbered/lettered headings (a., b., c., 1., 2., 3., i., ii., iii.), bolded lines, or section breaks. If a chapter has NO detectable subtopics, create a single subtopic titled "Chapter Content" with the full chapter text. NEVER return a chapter with zero subtopics.
 
-For EVERY chapter, you MUST extract ALL exercise content into a separate "exercises" array. Exercise content includes: multiple‑choice questions, true/false, fill‑in‑the‑blanks, match the following, short answer, long answer, project work, "Let's Revise", "Write full forms", "Select the best answer", "Answer the following", "Write technical terms", and similar question sections. The exercises array must have at least one entry with "title": "Chapter Exercises" and "content" containing the full exercise text with #### headings for each exercise type.
+For EVERY chapter, you MUST extract ALL exercise content into a separate "exercises" array. Exercise content includes: multiple‑choice questions, true/false, fill‑in‑the‑blanks, match the following, short answer, long answer, project work, "Let's Revise", "Write full forms", "Select the best answer", "Answer the following", "Write technical terms", and similar question sections.
+
+The exercises array must contain exactly ONE object with "title": "Chapter Exercises" and "content": the FULL exercise text, formatted with #### Markdown headings before each exercise type (e.g., #### Select the best answer, #### Write full forms).
+
+Do NOT split exercises into multiple sub‑entries; keep everything in one block.
+
+If the original text contains tables (comparison tables, feature lists, tree structures, etc.), you MUST convert them to Markdown table format (using pipes | and dashes -). Preserve all rows and columns exactly. Do NOT omit or summarize any table content.
 
 CRITICAL RULES:
 1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
@@ -991,8 +997,7 @@ CRITICAL RULES:
 4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers. DO NOT merge exercises into subtopics.
 5. Extract EVERY exercise section into the "exercises" array. 
    - The exercise MUST have the "title" set to "Chapter Exercises".
-   - In the "content" field, output the full exercise text but add Markdown headings (#### ) for each exercise type heading (e.g., "#### Select the best answer from the given options:", "#### State whether the following statements are 'True' or 'False':", "#### Answer the following questions:").
-   - Create a "sub_entries" array inside the exercise node. For each exercise type heading you detect, add an object with "heading" (the exact text of the heading) and "subtype" (one of: "mcq", "fill_blank", "true_false", "match", "short_answer", "long_answer", "unknown").
+   - In the "content" field, output the full exercise text but add Markdown headings (#### ) for each exercise type heading.
 6. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
 7. **CRITICAL BULLET FIX:** Normalize ANY corrupted 'y' bullet points into standard hyphens '-'. If a line starts with whitespace followed by a 'y' and a space, convert it to a standard list item. 
 Output only the JSON object containing the "chapters" array. No other text.
