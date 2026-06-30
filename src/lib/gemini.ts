@@ -88,7 +88,7 @@ async function callDeepSeek(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000); // 300 seconds timeout
+    const timeoutId = setTimeout(() => controller.abort(), 600000); // 600 seconds timeout
     let res: Response;
     try {
       res = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -1204,5 +1204,32 @@ Example:
   } catch (e) {
     console.error('generateSearchQueries failed:', e);
     return [];
+  }
+}
+
+export async function extractExercisesForChapter(chapterTitle: string, chapterContent: string): Promise<string | null> {
+  const prompt = `
+${chapterContent}
+
+---
+The text above is a chapter titled "${chapterTitle}".
+Your task: Extract ONLY the exercise section from this chapter.
+Exercise content includes: multiple‑choice, true/false, fill‑in‑the‑blanks, match the following, short answer, long answer, project work, "Let's Revise", "Write full forms", "Select the best answer", "Answer the following", "Write technical terms", and similar question sections.
+Return the exercise content as a single Markdown block.
+- Use \`#### \` headings before each exercise type (e.g., \`#### Select the best answer\`, \`#### Write full forms\`).
+- Preserve all original text, numbering, tables, and formatting exactly as it appears.
+- If there is NO exercise content, return the exact string "NO_EXERCISES".
+Output only the exercise Markdown or "NO_EXERCISES", no other text.
+  `;
+
+  try {
+    const raw = await callLLM(prompt, undefined, 'text', 65536); // 64K output for exercises
+    if (raw.trim() === 'NO_EXERCISES' || raw.trim().length < 10) {
+      return null;
+    }
+    return raw.trim();
+  } catch (e) {
+    console.error('extractExercisesForChapter failed:', e);
+    return null;
   }
 }

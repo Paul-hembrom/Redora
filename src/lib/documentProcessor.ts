@@ -13,7 +13,8 @@ import {
   generateChapterMetadata,
   callLLM,
   extractViaAI,
-  extractChapterViaAI
+  extractChapterViaAI,
+  extractExercisesForChapter
 } from './gemini';
 
 // ---------------------------------------------------------------------------
@@ -1152,54 +1153,96 @@ Output only the JSON array, no other text.
       }
     }
 
-    // 2. Scan for missing exercise node
-    const currentExercises = chapter.children?.filter(c => c.type === 'exercise') || [];
-    if (currentExercises.length === 0 && chapter.children && chapter.children.length > 0) {
-      const lastTopic = chapter.children.filter(c => c.type === 'topic').pop();
-      if (lastTopic) {
-        const textLength = lastTopic.content.length;
-        if (textLength > 100) {
-          const last30PercentIndex = textLength > 500 ? Math.floor(textLength * 0.7) : 0;
-          const last30Percent = lastTopic.content.substring(last30PercentIndex);
-          
-          const lines = last30Percent.split('\n');
-          let consecutiveCount = 0;
-          let exerciseStartIndex = -1;
-          
-          const exerciseKeywords = /True\/False|fill in the blanks|Match the following|multiple-choice|short answer|long answer|project work|let's revise|write full forms|select the best answer|answer the following|write technical terms/i;
-          
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (/^(?:\d+\.|[a-z]\.)\s/.test(line) || exerciseKeywords.test(line)) {
-              consecutiveCount++;
-              if (consecutiveCount === 2) { // trigger on 2 consecutive question-like lines to be safer on shorter lists
-                 exerciseStartIndex = i - 1;
-                 break;
-              }
-            } else if (line.length > 0) {
-               consecutiveCount = 0;
-            }
-          }
+    // 2. Second-Pass: AI Exercise Extraction
+    const fullText = (chapter.content || '') + '\n' + (chapter.children || []).map(c => c.content).join('\n');
+    let aiExercises = null;
+    try {
+      aiExercises = await extractExercisesForChapter(chapter.title, fullText);
+    } catch (e) {
+      console.warn('AI exercise extraction failed:', e);
+    }
 
-          if (exerciseStartIndex !== -1) {
-            const exerciseContent = lines.slice(exerciseStartIndex).join('\n');
-            const beforeExercise = lastTopic.content.substring(0, lastTopic.content.length - exerciseContent.length);
+    if (aiExercises) {
+      const lastTopic = chapter.children?.filter(c => c.type === 'topic').pop();
+      if (lastTopic) {
+        // Simple string removal logic: try to find the start of the exercise in the last topic
+        const snippet = aiExercises.substring(0, 50).trim();
+        if (snippet.length > 10) {
+          const splitIndex = lastTopic.content.lastIndexOf(snippet);
+          if (splitIndex !== -1 && splitIndex > lastTopic.content.length * 0.4) {
+            lastTopic.content = lastTopic.content.substring(0, splitIndex).trim();
+          }
+        }
+      }
+      
+      if (chapter.children) {
+        chapter.children = chapter.children.filter(c => c.type !== 'exercise');
+      } else {
+        chapter.children = [];
+      }
+      
+      chapter.children.push({
+        id: uuidv4(),
+        chapterNumber: chapter.children.length + 1,
+        title: 'Chapter Exercises',
+        summary: '',
+        content: aiExercises,
+        isGenerating: false,
+        parentId: chapter.id,
+        sortOrder: (chapter.sortOrder || 0) + 999,
+        type: 'exercise',
+        children: []
+      });
+    } else {
+      // Scan for missing exercise node
+      const currentExercises = chapter.children?.filter(c => c.type === 'exercise') || [];
+      if (currentExercises.length === 0 && chapter.children && chapter.children.length > 0) {
+        const lastTopic = chapter.children.filter(c => c.type === 'topic').pop();
+        if (lastTopic) {
+          const textLength = lastTopic.content.length;
+          if (textLength > 100) {
+            const last30PercentIndex = textLength > 500 ? Math.floor(textLength * 0.7) : 0;
+            const last30Percent = lastTopic.content.substring(last30PercentIndex);
             
-            if (exerciseContent.trim().length > 0) {
-              lastTopic.content = beforeExercise.trim();
+            const lines = last30Percent.split('\n');
+            let consecutiveCount = 0;
+            let exerciseStartIndex = -1;
+            
+            const exerciseKeywords = /True\/False|fill in the blanks|Match the following|multiple-choice|short answer|long answer|project work|let's revise|write full forms|select the best answer|answer the following|write technical terms/i;
+            
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i].trim();
+              if (/^(?:\d+\.|[a-z]\.)\s/.test(line) || exerciseKeywords.test(line)) {
+                consecutiveCount++;
+                if (consecutiveCount === 2) { // trigger on 2 consecutive question-like lines to be safer on shorter lists
+                   exerciseStartIndex = i - 1;
+                   break;
+                }
+              } else if (line.length > 0) {
+                 consecutiveCount = 0;
+              }
+            }
+  
+            if (exerciseStartIndex !== -1) {
+              const exerciseContent = lines.slice(exerciseStartIndex).join('\n');
+              const beforeExercise = lastTopic.content.substring(0, lastTopic.content.length - exerciseContent.length);
               
-              chapter.children.push({
-                id: uuidv4(),
-                chapterNumber: chapter.children.length + 1,
-                title: 'Chapter Exercises',
-                summary: '',
-                content: exerciseContent.trim(),
-                isGenerating: false,
-                parentId: chapter.id,
-                sortOrder: (chapter.sortOrder || 0) + 999,
-                type: 'exercise',
-                children: []
-              });
+              if (exerciseContent.trim().length > 0) {
+                lastTopic.content = beforeExercise.trim();
+                
+                chapter.children.push({
+                  id: uuidv4(),
+                  chapterNumber: chapter.children.length + 1,
+                  title: 'Chapter Exercises',
+                  summary: '',
+                  content: exerciseContent.trim(),
+                  isGenerating: false,
+                  parentId: chapter.id,
+                  sortOrder: (chapter.sortOrder || 0) + 999,
+                  type: 'exercise',
+                  children: []
+                });
+              }
             }
           }
         }
