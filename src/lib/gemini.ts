@@ -1249,3 +1249,53 @@ Output only the exercise Markdown or "NO_EXERCISES", no other text.
     return null;
   }
 }
+
+export async function extractTechnicalTermsForChapter(chapterTitle: string, chapterContent: string): Promise<string | null> {
+  const prompt = `
+${chapterContent}
+
+---
+The text above is a chapter titled "${chapterTitle}".
+Your task: Extract ONLY the "Technical Terms", "Glossary", "Key Terms", "Vocabulary", "Important Terms", "Terminology", or similar section from this chapter.
+Return the content as a Markdown table with two columns: "Term" and "Definition".
+Each row must contain exactly one term and its definition.
+If there is NO such section, return the exact string "NO_TERMS".
+Output only the Markdown table or "NO_TERMS", no other text.
+  `;
+
+  try {
+    const raw = await callLLM(prompt, undefined, 'text', 32768);
+    if (raw.trim() === 'NO_TERMS' || raw.trim().length < 10) {
+      return null;
+    }
+    return raw.trim();
+  } catch (e) {
+    console.error('extractTechnicalTermsForChapter failed:', e);
+    return null;
+  }
+}
+
+export async function extractSummaryForChapter(chapterTitle: string, chapterContent: string): Promise<string | null> {
+  const prompt = `
+${chapterContent}
+
+---
+The text above is a chapter titled "${chapterTitle}".
+Your task: Extract ONLY the "Summary", "Chapter Summary", "Key Takeaways", "Recap", "Points to Remember", "What We Learned", or similar concluding section from this chapter.
+Return the summary content as a few concise paragraphs or bullet points.
+Do NOT include any exercises, technical terms, or body text.
+If there is NO such section, return the exact string "NO_SUMMARY".
+Output only the summary text or "NO_SUMMARY", no other text.
+  `;
+
+  try {
+    const raw = await callLLM(prompt, undefined, 'text', 32768);
+    if (raw.trim() === 'NO_SUMMARY' || raw.trim().length < 10) {
+      return null;
+    }
+    return raw.trim();
+  } catch (e) {
+    console.error('extractSummaryForChapter failed:', e);
+    return null;
+  }
+}

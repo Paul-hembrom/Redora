@@ -1128,7 +1128,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                   borderBottom: '1px solid rgba(255,255,255,0.1)',
                   color: 'rgba(255,255,255,0.9)'
                 }}>
-                  {chapter.type === 'glossary' ? '📖 ' + (chapter.title || 'Technical Terms') : (chapter.title || 'Chapter Content')}
+                  {chapter.type === 'glossary' 
+                    ? '📖 ' + (chapter.title || 'Technical Terms') 
+                    : chapter.type === 'summary' 
+                      ? '📝 ' + (chapter.title || 'Chapter Summary')
+                      : (chapter.title || 'Chapter Content')}
                 </div>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
                   <ReactMarkdown 

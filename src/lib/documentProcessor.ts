@@ -14,7 +14,9 @@ import {
   callLLM,
   extractViaAI,
   extractChapterViaAI,
-  extractExercisesForChapter
+  extractExercisesForChapter,
+  extractTechnicalTermsForChapter,
+  extractSummaryForChapter
 } from './gemini';
 
 // ---------------------------------------------------------------------------
@@ -1178,22 +1180,40 @@ Output only the JSON array, no other text.
   }
 
   // --- POST-PROCESSING FALLBACK ---
-  // Run AI exercise extraction in parallel for speed
+  // Run AI exercise, glossary, and summary extraction in parallel for speed
   const extractionJobs = chapterResults.map(async (chapter) => {
     const fullText = (chapter.content || '') + '\n' + (chapter.children || []).map(c => c.content).join('\n');
     let aiExercises = null;
+    let aiTechnicalTerms = null;
+    let aiSummary = null;
+    
     try {
-      console.log(`Starting second-pass exercise extraction for chapter: ${chapter.title}`);
-      aiExercises = await extractExercisesForChapter(chapter.title, fullText);
+      console.log(`Starting second-pass extractions for chapter: ${chapter.title}`);
+      
+      const [exercisesRes, termsRes, summaryRes] = await Promise.allSettled([
+        extractExercisesForChapter(chapter.title, fullText),
+        extractTechnicalTermsForChapter(chapter.title, fullText),
+        extractSummaryForChapter(chapter.title, fullText)
+      ]);
+
+      if (exercisesRes.status === 'fulfilled') aiExercises = exercisesRes.value;
+      else console.warn(`AI exercise extraction failed for chapter ${chapter.title}:`, exercisesRes.reason);
+      
+      if (termsRes.status === 'fulfilled') aiTechnicalTerms = termsRes.value;
+      else console.warn(`AI technical terms extraction failed for chapter ${chapter.title}:`, termsRes.reason);
+      
+      if (summaryRes.status === 'fulfilled') aiSummary = summaryRes.value;
+      else console.warn(`AI summary extraction failed for chapter ${chapter.title}:`, summaryRes.reason);
+
     } catch (e) {
-      console.warn(`AI exercise extraction failed for chapter ${chapter.title}:`, e);
+      console.warn(`Parallel extraction failed for chapter ${chapter.title}:`, e);
     }
-    return { chapter, aiExercises };
+    return { chapter, aiExercises, aiTechnicalTerms, aiSummary };
   });
 
   const extractionResults = await Promise.all(extractionJobs);
 
-  for (const { chapter, aiExercises } of extractionResults) {
+  for (const { chapter, aiExercises, aiTechnicalTerms, aiSummary } of extractionResults) {
     const topics = chapter.children?.filter(c => c.type === 'topic') || [];
     const exercises = chapter.children?.filter(c => c.type === 'exercise') || [];
 
@@ -1349,20 +1369,20 @@ Output only the JSON array, no other text.
       }
     }
 
-    // 4. Glossary post-processing
+    // 4. Glossary and Summary post-processing
     if (chapter.children) {
-      // First merge all glossary nodes returned by AI
+      // Glossary
       const glossaryNodes = chapter.children.filter(c => c.type === 'glossary');
-      let mergedGlossaryContent = "";
+      let mergedGlossaryContent = aiTechnicalTerms ? aiTechnicalTerms.trim() : "";
+      
       if (glossaryNodes.length > 0) {
-        mergedGlossaryContent = glossaryNodes.map(g => g.content).join('\n\n');
+        const extractedGlossary = glossaryNodes.map(g => g.content).join('\n\n');
+        mergedGlossaryContent = mergedGlossaryContent ? mergedGlossaryContent + '\n\n' + extractedGlossary : extractedGlossary;
         chapter.children = chapter.children.filter(c => c.type !== 'glossary');
       }
 
-      let glossaryNode = undefined;
-      
       if (mergedGlossaryContent) {
-        glossaryNode = {
+        const glossaryNode = {
           id: uuidv4(),
           chapterNumber: chapter.children.length + 1,
           title: 'Technical Terms',
@@ -1370,90 +1390,15 @@ Output only the JSON array, no other text.
           content: mergedGlossaryContent,
           isGenerating: false,
           parentId: chapter.id,
-          sortOrder: (chapter.sortOrder || 0) + 998,
-          type: 'glossary',
+          sortOrder: (chapter.sortOrder || 0) + 997,
+          type: 'glossary' as const,
           children: []
         };
-        chapter.children.push(glossaryNode);
-      } else {
-        // Look for glossary block in topics
-        for (const topic of chapter.children) {
-          if (topic.type !== 'topic') continue;
-          // Look for common glossary headers
-          const glossaryMatch = topic.content.match(/(?:^|\n)(#+\s+(?:Technical Terms|Glossary|Key Terms|Vocabulary|Important Terms)[\s\S]*)$/i);
-          if (glossaryMatch) {
-            const glossaryText = glossaryMatch[1].trim();
-            topic.content = topic.content.replace(glossaryMatch[1], '').trim();
-            glossaryNode = {
-              id: uuidv4(),
-              chapterNumber: chapter.children.length + 1,
-              title: 'Technical Terms',
-              summary: '',
-              content: glossaryText,
-              isGenerating: false,
-              parentId: chapter.id,
-              sortOrder: (chapter.sortOrder || 0) + 998,
-              type: 'glossary',
-              children: []
-            };
-            chapter.children.push(glossaryNode);
-            break;
-          } else {
-            // Implicit glossary detection: scan for consecutive term-definition lines
-            const lines = topic.content.split('\n');
-            let termDefLines = [];
-            let inGlossaryBlock = false;
-            let startIndex = -1;
-            
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i].trim();
-              if (!line) continue;
-              // Check if line matches "**Term** - Definition" or "**Term:** Definition" or "Term: Definition"
-              const match = line.match(/^(?:\*\*)?([^:\*]+)(?:\*\*)?\s*[:-]\s*(.+)$/);
-              if (match) {
-                if (!inGlossaryBlock) {
-                  inGlossaryBlock = true;
-                  startIndex = i;
-                }
-                termDefLines.push(line);
-              } else if (inGlossaryBlock) {
-                // if it's not a term-def line, if we have enough lines, we consider it a block
-                if (termDefLines.length >= 3) break;
-                // else reset
-                inGlossaryBlock = false;
-                termDefLines = [];
-                startIndex = -1;
-              }
-            }
-            
-            if (inGlossaryBlock && termDefLines.length >= 3) {
-              const glossaryText = termDefLines.join('\n');
-              topic.content = topic.content.replace(glossaryText, '').trim();
-              glossaryNode = {
-                id: uuidv4(),
-                chapterNumber: chapter.children.length + 1,
-                title: 'Technical Terms',
-                summary: '',
-                content: glossaryText,
-                isGenerating: false,
-                parentId: chapter.id,
-                sortOrder: (chapter.sortOrder || 0) + 998,
-                type: 'glossary',
-                children: []
-              };
-              chapter.children.push(glossaryNode);
-              break;
-            }
-          }
-        }
-      }
-
-      if (glossaryNode) {
-        // Enforce table format
+        
+        // Enforce table format if not already a table
         const lines = glossaryNode.content.split('\n');
         let hasTable = lines.some(l => l.includes('|'));
         if (!hasTable) {
-          // Convert list to table
           let tableStr = "| Term | Definition |\n|---|---|\n";
           let term = "";
           let def = "";
@@ -1463,7 +1408,6 @@ Output only the JSON array, no other text.
             const cleanLine = line.trim();
             if (!cleanLine || cleanLine.startsWith('#')) continue;
             
-            // Handle bold terms: "**Term:** Definition" or "**Term**: Definition" or "Term: Definition"
             const inlineMatch = cleanLine.match(/^(?:\*\*)?([^:\*]+)(?:\*\*)?\s*:\s*(.+)$/);
             if (inlineMatch) {
               if (term && def) { tableStr += `| **${term}** | ${def} |\n`; }
@@ -1471,7 +1415,6 @@ Output only the JSON array, no other text.
               def = inlineMatch[2].trim();
               inTableConstruction = true;
             } else if (!inTableConstruction) {
-              // Not matched yet, assume alternating lines
               if (!term) {
                 term = cleanLine.replace(/^\*\*(.*?)\*\*$/, '$1').trim();
               } else {
@@ -1479,7 +1422,7 @@ Output only the JSON array, no other text.
                 tableStr += `| **${term}** | ${def} |\n`;
                 term = "";
                 def = "";
-                inTableConstruction = true; // wait, this might break if multiple lines. Let's just do a simple approach.
+                inTableConstruction = true;
               }
             } else if (term && inTableConstruction) {
               def += " " + cleanLine;
@@ -1492,6 +1435,25 @@ Output only the JSON array, no other text.
             glossaryNode.content = tableStr;
           }
         }
+        chapter.children.push(glossaryNode);
+      }
+
+      // Summary
+      let mergedSummaryContent = aiSummary ? aiSummary.trim() : "";
+      
+      if (mergedSummaryContent) {
+        chapter.children.push({
+          id: uuidv4(),
+          chapterNumber: chapter.children.length + 1,
+          title: 'Chapter Summary',
+          summary: '',
+          content: mergedSummaryContent,
+          isGenerating: false,
+          parentId: chapter.id,
+          sortOrder: (chapter.sortOrder || 0) + 998,
+          type: 'summary' as const,
+          children: []
+        });
       }
     }
   }
