@@ -590,7 +590,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
     } catch (err: any) {
       console.error(err);
-      setError('Could not find images. Please try again later.');
+      setError(err.message || 'Could not find images. Please try again later.');
     } finally {
       setIsTyping(false);
     }
