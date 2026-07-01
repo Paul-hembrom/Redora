@@ -94,7 +94,7 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
               ) : (
                 <div className="prose prose-invert prose-sm max-w-none text-white/80 leading-relaxed font-sans">
                   {answer ? (
-                    <Markdown>{answer}</Markdown>
+                    <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
                   ) : (
                     <div className="flex flex-col gap-2">
                        <div className="h-4 bg-white/5 rounded w-3/4 animate-pulse"></div>

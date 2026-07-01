@@ -111,12 +111,12 @@ export default function DocumentReader({ document }: Props) {
 
     const blob = new Blob([textContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = window.document.createElement('a');
     a.href = url;
     a.download = `${document.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_exercises.md`;
-    document.body.appendChild(a);
+    window.document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    window.document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 

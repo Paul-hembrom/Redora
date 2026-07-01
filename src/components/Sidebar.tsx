@@ -126,6 +126,7 @@ const ChapterNode = ({
           )}
           <span className="truncate flex items-center gap-1.5">
             {chapter.type === 'exercise' && <span className="text-base leading-none">📝</span>}
+            {chapter.type === 'glossary' && <span className="text-base leading-none">📖</span>}
             {chapter.isGenerating ? 'Generating...' : (chapter.displayNumber ? `${chapter.displayNumber}. ${chapter.title.replace(/^([a-zA-Z]|\d+(\.\d+)*)\.\s+/, '')}` : chapter.title)}
           </span>
         </div>

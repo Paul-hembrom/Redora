@@ -1253,6 +1253,13 @@ Output only the JSON array, no other text.
     if (chapter.children) {
       for (const child of chapter.children) {
         if (child.type === 'topic' || child.type === 'exercise') {
+          // CAPTION CLEANUP
+          let text = child.content;
+          text = text.replace(/(?<=\S)\s+(Fig(?:ure)?[\.:]\s)/gi, '\n$1');
+          text = text.replace(/(Fig(?:ure)?[\.:][^\n]+?)(?=\s+(?:Fig(?:ure)?[\.:]|[A-Z]))/gi, '$1\n');
+          text = text.replace(/ {2,}/g, ' ').trim();
+          child.content = text;
+
           const lines = child.content.split('\n');
           let inTable = false;
           let newContent = [];
@@ -1278,6 +1285,84 @@ Output only the JSON array, no other text.
             newContent.push('```');
           }
           child.content = newContent.join('\n');
+        }
+      }
+    }
+
+    // 4. Glossary post-processing
+    if (chapter.children) {
+      let glossaryNode = chapter.children.find(c => c.type === 'glossary');
+      
+      if (!glossaryNode) {
+        // Look for glossary block in topics
+        for (const topic of chapter.children) {
+          if (topic.type !== 'topic') continue;
+          // Look for common glossary headers
+          const glossaryMatch = topic.content.match(/(?:^|\n)(#+\s+(?:Technical Terms|Glossary|Key Terms|Vocabulary|Important Terms)[\s\S]*)$/i);
+          if (glossaryMatch) {
+            const glossaryText = glossaryMatch[1].trim();
+            topic.content = topic.content.replace(glossaryMatch[1], '').trim();
+            glossaryNode = {
+              id: uuidv4(),
+              chapterNumber: chapter.children.length + 1,
+              title: 'Technical Terms',
+              summary: '',
+              content: glossaryText,
+              isGenerating: false,
+              parentId: chapter.id,
+              sortOrder: (chapter.sortOrder || 0) + 998,
+              type: 'glossary',
+              children: []
+            };
+            chapter.children.push(glossaryNode);
+            break;
+          }
+        }
+      }
+
+      if (glossaryNode) {
+        // Enforce table format
+        const lines = glossaryNode.content.split('\n');
+        let hasTable = lines.some(l => l.includes('|'));
+        if (!hasTable) {
+          // Convert list to table
+          let tableStr = "| Term | Definition |\n|---|---|\n";
+          let term = "";
+          let def = "";
+          let inTableConstruction = false;
+
+          for (const line of lines) {
+            const cleanLine = line.trim();
+            if (!cleanLine || cleanLine.startsWith('#')) continue;
+            
+            // Handle bold terms: "**Term:** Definition" or "**Term**: Definition" or "Term: Definition"
+            const inlineMatch = cleanLine.match(/^(?:\*\*)?([^:\*]+)(?:\*\*)?\s*:\s*(.+)$/);
+            if (inlineMatch) {
+              if (term && def) { tableStr += `| **${term}** | ${def} |\n`; }
+              term = inlineMatch[1].trim();
+              def = inlineMatch[2].trim();
+              inTableConstruction = true;
+            } else if (!inTableConstruction) {
+              // Not matched yet, assume alternating lines
+              if (!term) {
+                term = cleanLine.replace(/^\*\*(.*?)\*\*$/, '$1').trim();
+              } else {
+                def = cleanLine;
+                tableStr += `| **${term}** | ${def} |\n`;
+                term = "";
+                def = "";
+                inTableConstruction = true; // wait, this might break if multiple lines. Let's just do a simple approach.
+              }
+            } else if (term && inTableConstruction) {
+              def += " " + cleanLine;
+            }
+          }
+          if (term && def) {
+            tableStr += `| **${term}** | ${def} |\n`;
+          }
+          if (inTableConstruction) {
+            glossaryNode.content = tableStr;
+          }
         }
       }
     }

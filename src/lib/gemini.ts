@@ -1001,6 +1001,8 @@ CRITICAL RULES:
 6. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
 7. **CRITICAL BULLET FIX:** Normalize ANY corrupted 'y' bullet points into standard hyphens '-'. If a line starts with whitespace followed by a 'y' and a space, convert it to a standard list item. 
 8. **COMPARISON TABLES:** If the text contains comparisons or differences between two or more items (e.g., "Difference between X and Y", "X vs Y", comparison lists), format that content as a Markdown table with appropriate column headers. Do NOT leave it as plain paragraphs or bullet lists.
+9. **IMAGE CAPTIONS:** Always place image captions (e.g., "Fig: ...", "Figure: ...", "Fig. ...", "Figure. ...") on their own line. Never run them together with other text.
+10. **GLOSSARY/TECHNICAL TERMS:** If a chapter contains a "Technical Terms", "Glossary", "Key Terms", "Vocabulary", or similar section, place ALL of that content in a separate topic titled "Technical Terms" with type "glossary". Format the content as a Markdown table with two columns: "Term" and "Definition". Each row must contain exactly one term and its definition. Do NOT leave this content as plain paragraphs or bullet lists.
 Output only the JSON object containing the "chapters" array. No other text.
   `;
 
@@ -1078,6 +1080,8 @@ STRICT RULES:
 5. **CRITICAL FALLBACK RULE:** If you cannot find any distinct sub-headings in this chapter, DO NOT return null. Instead, return a JSON object with a single subtopic. Set the title to "Chapter Content" and put the ENTIRE chapter text into the content string.
 6. Ensure every character of the input text appears exactly once in the output across all subtopics and exercises.
 7. **COMPARISON TABLES:** If the text contains comparisons or differences between two or more items (e.g., "Difference between X and Y", "X vs Y", comparison lists), format that content as a Markdown table with appropriate column headers. Do NOT leave it as plain paragraphs or bullet lists.
+8. **IMAGE CAPTIONS:** Always place image captions (e.g., "Fig: ...", "Figure: ...", "Fig. ...", "Figure. ...") on their own line. Never run them together with other text.
+9. **GLOSSARY/TECHNICAL TERMS:** If a chapter contains a "Technical Terms", "Glossary", "Key Terms", "Vocabulary", or similar section, extract it as well into the "exercises" array (or as a separate subtopic if appropriate), titled "Technical Terms" with type "glossary", formatting the content as a Markdown table with two columns: "Term" and "Definition". Do NOT leave this content as plain paragraphs or bullet lists.
 
 Input text:
 ${chapterText}
