@@ -88,7 +88,7 @@ async function callDeepSeek(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 600000); // 600 seconds timeout
+    const timeoutId = setTimeout(() => controller.abort(), 900000); // 900 seconds timeout
     let res: Response;
     try {
       res = await fetch('https://api.deepseek.com/v1/chat/completions', {
