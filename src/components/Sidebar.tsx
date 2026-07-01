@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles, BookA } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles, BookA, Target } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
@@ -502,9 +502,14 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 Study Plan
              </button>
           </div>
-          <button onClick={() => setShowSettings(!showSettings)} className="text-white/40 hover:text-cyan-400 transition-colors">
-            <Settings2 className="w-4 h-4" />
-          </button>
+          <div className="flex gap-3">
+            <button onClick={() => window.dispatchEvent(new Event('open-quiz-dashboard'))} className="text-white/40 hover:text-cyan-400 transition-colors" title="Quiz Dashboard">
+              <Target className="w-4 h-4" />
+            </button>
+            <button onClick={() => setShowSettings(!showSettings)} className="text-white/40 hover:text-cyan-400 transition-colors" title="Settings">
+              <Settings2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {showSettings && (

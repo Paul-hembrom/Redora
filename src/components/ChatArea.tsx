@@ -28,35 +28,117 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-const QuizQuestion = ({ q, index }: { q: any, index: number }) => {
-  const [showAnswer, setShowAnswer] = useState(false);
-  
+const InteractiveQuiz = ({ questions, chapterTitle }: { questions: any[], chapterTitle: string }) => {
+  const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [submitted, setSubmitted] = useState(false);
+  const [score, setScore] = useState(0);
+
+  const handleSelect = (qIdx: number, optIdx: number) => {
+    if (submitted) return;
+    setSelectedAnswers(prev => ({ ...prev, [qIdx]: optIdx }));
+  };
+
+  const handleSubmit = () => {
+    if (Object.keys(selectedAnswers).length < questions.length) {
+      alert("Please answer all questions before submitting.");
+      return;
+    }
+    let currentScore = 0;
+    questions.forEach((q, idx) => {
+      if (selectedAnswers[idx] === q.answerIndex) {
+        currentScore++;
+      }
+    });
+    setScore(currentScore);
+    setSubmitted(true);
+    
+    const history = JSON.parse(localStorage.getItem('quizHistory') || '[]');
+    history.push({
+      date: new Date().toISOString(),
+      chapterTitle,
+      score: currentScore,
+      total: questions.length
+    });
+    localStorage.setItem('quizHistory', JSON.stringify(history));
+    window.dispatchEvent(new Event('quiz-history-updated'));
+  };
+
   return (
-    <div className="bg-black/20 p-4 rounded-xl border border-white/5">
-      <p className="font-medium text-white/90 mb-3">{index + 1}. {q.question}</p>
-      <div className="space-y-2">
-        {q.options.map((opt: string, optIdx: number) => {
-          const isCorrect = optIdx === q.answerIndex;
-          const isSelectedCorrect = showAnswer && isCorrect;
-          return (
-            <div key={optIdx} className="flex items-start gap-2">
-              <span className="shrink-0 w-5 h-5 rounded bg-white/10 text-[10px] flex items-center justify-center font-bold">{['A','B','C','D'][optIdx] || optIdx + 1}</span>
-              <span className={isSelectedCorrect ? "text-green-400 font-medium" : "text-white/60"}>
-                {opt} {isSelectedCorrect && '✓'}
-              </span>
+    <div className="space-y-6">
+      {questions.map((q, idx) => (
+        <div key={idx} className="bg-black/20 p-5 rounded-xl border border-white/5">
+          <p className="font-medium text-white/90 mb-4">{idx + 1}. {q.question}</p>
+          <div className="space-y-2">
+            {q.options.map((opt: string, optIdx: number) => {
+              const isSelected = selectedAnswers[idx] === optIdx;
+              const isCorrect = optIdx === q.answerIndex;
+              
+              let btnClass = "w-full text-left p-3 rounded-lg border text-sm transition-all flex items-center gap-3 ";
+              
+              if (submitted) {
+                if (isCorrect) {
+                  btnClass += "bg-emerald-500/20 border-emerald-500/50 text-emerald-300";
+                } else if (isSelected && !isCorrect) {
+                  btnClass += "bg-red-500/20 border-red-500/50 text-red-300";
+                } else {
+                  btnClass += "bg-white/5 border-white/10 text-white/40";
+                }
+              } else {
+                if (isSelected) {
+                  btnClass += "bg-cyan-500/20 border-cyan-500/50 text-cyan-300";
+                } else {
+                  btnClass += "bg-white/5 border-white/10 text-white/70 hover:bg-white/10 hover:border-white/20";
+                }
+              }
+
+              return (
+                <button
+                  key={optIdx}
+                  onClick={() => handleSelect(idx, optIdx)}
+                  disabled={submitted}
+                  className={btnClass}
+                >
+                  <span className={cn(
+                    "shrink-0 w-6 h-6 rounded flex items-center justify-center font-bold text-[11px]",
+                    (submitted && isCorrect) ? "bg-emerald-500/20 text-emerald-400" :
+                    (submitted && isSelected && !isCorrect) ? "bg-red-500/20 text-red-400" :
+                    (isSelected && !submitted) ? "bg-cyan-500/20 text-cyan-400" :
+                    "bg-white/10 text-white/60"
+                  )}>
+                    {['A','B','C','D'][optIdx] || optIdx + 1}
+                  </span>
+                  <span>{opt}</span>
+                  {submitted && isCorrect && <Check className="w-4 h-4 ml-auto" />}
+                  {submitted && isSelected && !isCorrect && <X className="w-4 h-4 ml-auto" />}
+                </button>
+              );
+            })}
+          </div>
+          {submitted && (
+            <div className="mt-4 p-3 bg-white/5 rounded-lg border border-white/10 text-sm">
+              <span className="font-semibold text-white/80">Explanation:</span> <span className="text-white/60">{q.explanation}</span>
             </div>
-          );
-        })}
-      </div>
-      {!showAnswer ? (
-        <button 
-          onClick={() => setShowAnswer(true)}
-          className="mt-4 text-xs font-medium px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-white/80 transition-colors"
+          )}
+        </div>
+      ))}
+      
+      {!submitted ? (
+        <button
+          onClick={handleSubmit}
+          className="w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-semibold rounded-xl transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)] hover:shadow-[0_0_25px_rgba(34,211,238,0.5)]"
         >
-          Show Answer
+          Submit Quiz
         </button>
       ) : (
-        <p className="mt-3 text-xs text-white/50 bg-white/5 p-2 rounded-md"><span className="font-semibold text-white/70">Explanation:</span> {q.explanation}</p>
+        <div className="text-center p-6 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
+          <p className="text-cyan-400 text-sm font-semibold uppercase tracking-wider mb-2">Quiz Complete</p>
+          <div className="text-4xl font-display font-bold text-white mb-2">
+            {score} <span className="text-white/40 text-2xl">/ {questions.length}</span>
+          </div>
+          <p className="text-white/60 text-sm">
+            {score === questions.length ? 'Perfect score!' : 'Good effort, review the explanations above.'}
+          </p>
+        </div>
       )}
     </div>
   );
@@ -752,9 +834,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       return (
         <div className="mt-4 space-y-4">
           <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2"><Target className="w-4 h-4" /> Practice Quiz</h3>
-          {questions.map((q: any, i: number) => (
-            <QuizQuestion key={i} q={q} index={i} />
-          ))}
+          <InteractiveQuiz questions={questions} chapterTitle={chapter.title} />
         </div>
       );
     } else if (msg.type === 'glossary') {

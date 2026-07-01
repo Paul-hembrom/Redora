@@ -8,6 +8,7 @@ import Signup from './components/storyboard/Signup';
 import Pricing from './components/Pricing';
 import GlobalSearchModal from './components/GlobalSearchModal';
 import TerminologyExtractorModal from './components/TerminologyExtractorModal';
+import QuizDashboardModal from './components/QuizDashboardModal';
 import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
 import { generateChatResponse } from './lib/gemini';
@@ -83,6 +84,7 @@ export default function App() {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isTerminologyModalOpen, setIsTerminologyModalOpen] = useState(false);
   const [terminologyDoc, setTerminologyDoc] = useState<Document | null>(null);
+  const [isQuizDashboardOpen, setIsQuizDashboardOpen] = useState(false);
   
   const [librarySelection, setLibrarySelection] = useState<Set<string>>(new Set());
   const [isLibraryChatActive, setIsLibraryChatActive] = useState(false);
@@ -148,7 +150,14 @@ export default function App() {
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    
+    const handleOpenQuizDashboard = () => setIsQuizDashboardOpen(true);
+    window.addEventListener('open-quiz-dashboard', handleOpenQuizDashboard);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('open-quiz-dashboard', handleOpenQuizDashboard);
+    };
   }, []);
 
   useEffect(() => {
@@ -620,6 +629,11 @@ export default function App() {
         isOpen={isTerminologyModalOpen}
         onClose={() => setIsTerminologyModalOpen(false)}
         document={terminologyDoc}
+      />
+      
+      <QuizDashboardModal
+        isOpen={isQuizDashboardOpen}
+        onClose={() => setIsQuizDashboardOpen(false)}
       />
 
       <div className="flex flex-1 overflow-hidden relative">

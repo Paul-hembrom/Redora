@@ -1000,6 +1000,7 @@ CRITICAL RULES:
    - In the "content" field, output the full exercise text but add Markdown headings (#### ) for each exercise type heading.
 6. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
 7. **CRITICAL BULLET FIX:** Normalize ANY corrupted 'y' bullet points into standard hyphens '-'. If a line starts with whitespace followed by a 'y' and a space, convert it to a standard list item. 
+8. **COMPARISON TABLES:** If the text contains comparisons or differences between two or more items (e.g., "Difference between X and Y", "X vs Y", comparison lists), format that content as a Markdown table with appropriate column headers. Do NOT leave it as plain paragraphs or bullet lists.
 Output only the JSON object containing the "chapters" array. No other text.
   `;
 
@@ -1076,6 +1077,7 @@ STRICT RULES:
    - Create a "sub_entries" array inside the exercise node. For each exercise type heading you detect, add an object with "heading" (the exact text of the heading) and "subtype" (one of: "mcq", "fill_blank", "true_false", "match", "short_answer", "long_answer", "unknown").
 5. **CRITICAL FALLBACK RULE:** If you cannot find any distinct sub-headings in this chapter, DO NOT return null. Instead, return a JSON object with a single subtopic. Set the title to "Chapter Content" and put the ENTIRE chapter text into the content string.
 6. Ensure every character of the input text appears exactly once in the output across all subtopics and exercises.
+7. **COMPARISON TABLES:** If the text contains comparisons or differences between two or more items (e.g., "Difference between X and Y", "X vs Y", comparison lists), format that content as a Markdown table with appropriate column headers. Do NOT leave it as plain paragraphs or bullet lists.
 
 Input text:
 ${chapterText}
