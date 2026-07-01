@@ -965,7 +965,9 @@ export async function processDocument(
   let chapterChunks: { title: string; content: string }[] = [];
   try {
     const aiPrompt = `
-You are a document structural analyzer. The text provided is a full textbook.
+You are a document structural analyzer. The text provided is a full textbook. It contains multiple distinct chapters (or units, parts, sections).
+Your first task is to identify ALL chapter boundaries. Common chapter markers include: "Unit", "Chapter", "Section", "Part", followed by a number or title, often on a new line or bolded.
+
 Your task is to output a JSON array of chapter segments. Each segment MUST have:
 - "title": The exact heading of the chapter (e.g., "Unit 1: Introduction To Computer", "Chapter 2: History Of Computer").
 - "content": The EXACT original raw text of that chapter from the start of the heading to the end of the chapter (just before the next heading).
@@ -973,7 +975,9 @@ Your task is to output a JSON array of chapter segments. Each segment MUST have:
 STRICT RULES:
 1. DO NOT summarize or modify ANY text. Copy it verbatim.
 2. Identify the correct starting point of the first chapter. Ignore the Table of Contents, Preface, Abbreviations, Model Questions, and Bibliography.
-3. Each chapter's content must be self-contained. The sum of all chapter contents must equal the original raw text, minus the ignored front/back matter.
+3. Break the text into separate chapters based on the chapter markers. Each chapter must have its own entry in the output JSON array.
+4. Do NOT merge multiple chapters into one. If you see "Unit 1", "Unit 2", "Unit 3", etc., create a separate chapter object for each.
+5. Each chapter's content must be self-contained. The sum of all chapter contents must equal the original raw text, minus the ignored front/back matter.
 
 Text:
 ${processedText}
@@ -1124,6 +1128,54 @@ Output only the JSON array, no other text.
   await Promise.all(jobs);
 
   chapterResults.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+  // --- TOP-LEVEL CHAPTER FALLBACK ---
+  if (chapterResults.length === 1) {
+    const single = chapterResults[0];
+    const topics = single.children?.filter(c => c.type === 'topic') || [];
+    if (topics.length > 20 && topics.some(t => /unit|chapter/i.test(t.title))) {
+      onProgress('Massive single chapter detected. Rerunning full document extraction...');
+      try {
+        const aiExtracted = await extractViaAI(processedText);
+        if (aiExtracted && aiExtracted.length > 1) {
+          chapterResults.length = 0;
+          let baseSort = 0;
+          for (let i = 0; i < aiExtracted.length; i++) {
+            const chunk = aiExtracted[i];
+            const chapId = uuidv4();
+            let localSort = 1;
+            const subtopics = (chunk.topics || []).map((t: any) => ({
+              id: uuidv4(),
+              chapterNumber: i + 1,
+              title: t.title,
+              summary: '',
+              content: t.content,
+              isGenerating: false,
+              parentId: chapId,
+              sortOrder: baseSort + (localSort++),
+              type: t.type || 'topic',
+              children: []
+            }));
+            chapterResults.push({
+              id: chapId,
+              chapterNumber: i + 1,
+              title: chunk.title,
+              summary: '',
+              content: chunk.content || '',
+              isGenerating: false,
+              parentId: null,
+              sortOrder: baseSort,
+              type: 'chapter',
+              children: subtopics
+            });
+            baseSort += 1000;
+          }
+        }
+      } catch (err) {
+        console.warn('Fallback extractViaAI failed', err);
+      }
+    }
+  }
 
   // --- POST-PROCESSING FALLBACK ---
   // Run AI exercise extraction in parallel for speed
@@ -1316,6 +1368,52 @@ Output only the JSON array, no other text.
             };
             chapter.children.push(glossaryNode);
             break;
+          } else {
+            // Implicit glossary detection: scan for consecutive term-definition lines
+            const lines = topic.content.split('\n');
+            let termDefLines = [];
+            let inGlossaryBlock = false;
+            let startIndex = -1;
+            
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i].trim();
+              if (!line) continue;
+              // Check if line matches "**Term** - Definition" or "**Term:** Definition" or "Term: Definition"
+              const match = line.match(/^(?:\*\*)?([^:\*]+)(?:\*\*)?\s*[:-]\s*(.+)$/);
+              if (match) {
+                if (!inGlossaryBlock) {
+                  inGlossaryBlock = true;
+                  startIndex = i;
+                }
+                termDefLines.push(line);
+              } else if (inGlossaryBlock) {
+                // if it's not a term-def line, if we have enough lines, we consider it a block
+                if (termDefLines.length >= 3) break;
+                // else reset
+                inGlossaryBlock = false;
+                termDefLines = [];
+                startIndex = -1;
+              }
+            }
+            
+            if (inGlossaryBlock && termDefLines.length >= 3) {
+              const glossaryText = termDefLines.join('\n');
+              topic.content = topic.content.replace(glossaryText, '').trim();
+              glossaryNode = {
+                id: uuidv4(),
+                chapterNumber: chapter.children.length + 1,
+                title: 'Technical Terms',
+                summary: '',
+                content: glossaryText,
+                isGenerating: false,
+                parentId: chapter.id,
+                sortOrder: (chapter.sortOrder || 0) + 998,
+                type: 'glossary',
+                children: []
+              };
+              chapter.children.push(glossaryNode);
+              break;
+            }
           }
         }
       }

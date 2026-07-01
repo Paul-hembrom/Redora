@@ -971,7 +971,14 @@ export async function extractViaAI(text: string): Promise<any[] | null> {
 ${cleanText}
 
 ---
-Analyze the text above, which is a complete textbook.
+The text is a complete textbook. It contains multiple distinct chapters (or units, parts, sections). Your first task is to identify ALL chapter boundaries.
+
+Common chapter markers include: "Unit", "Chapter", "Section", "Part", followed by a number or title, often on a new line or bolded.
+
+Break the text into separate chapters based on these markers. Each chapter must have its own entry in the output JSON.
+
+Do NOT merge multiple chapters into one. If you see "Unit 1", "Unit 2", "Unit 3", etc., create a separate chapter object for each.
+
 Your task is to output a **single JSON object** with a key called "chapters".
 The value of "chapters" MUST be an array of chapter objects in the exact order they appear in the source text.
 
