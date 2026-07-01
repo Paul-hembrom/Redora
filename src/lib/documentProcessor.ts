@@ -1168,19 +1168,67 @@ Output only the JSON array, no other text.
       }
     }
 
-    if (aiExercises) {
-      const lastTopic = chapter.children?.filter(c => c.type === 'topic').pop();
-      if (lastTopic) {
-        // Simple string removal logic: try to find the start of the exercise in the last topic
-        const snippet = aiExercises.substring(0, 50).trim();
-        if (snippet.length > 10) {
-          const splitIndex = lastTopic.content.lastIndexOf(snippet);
-          if (splitIndex !== -1 && splitIndex > lastTopic.content.length * 0.4) {
-            lastTopic.content = lastTopic.content.substring(0, splitIndex).trim();
+    // CONSOLIDATION STEP: Remove exercise content from ALL subtopics
+    const exerciseKeywords = /(?:True\/False|fill in the blanks|Match the following|multiple-choice|short answer|long answer|project work|let's revise|write full forms|select the best answer|answer the following|write technical terms)/i;
+    
+    let strippedExercises = "";
+
+    if (chapter.children) {
+      for (const topic of chapter.children) {
+        if (topic.type !== 'topic') continue;
+        
+        const lines = topic.content.split('\n');
+        let exerciseStartIndex = -1;
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          // Look for headers that indicate exercises or strong keywords
+          if (exerciseKeywords.test(line)) {
+            if (line.length < 150 || /^#/.test(line) || /^\d+\./.test(line)) {
+               exerciseStartIndex = i;
+               if (i > 0 && /^#+\s/.test(lines[i-1])) {
+                 exerciseStartIndex = i - 1;
+               }
+               break;
+            }
+          }
+        }
+
+        // If not found by keyword, fallback to the previous heuristic (consecutive questions) on the last topic
+        if (exerciseStartIndex === -1 && topic === chapter.children.filter(c => c.type === 'topic').pop()) {
+           let consecutiveCount = 0;
+           // Start scanning from the last 30% of lines
+           const startLine = Math.floor(lines.length * 0.7);
+           for (let i = startLine; i < lines.length; i++) {
+              const line = lines[i].trim();
+              if (/^(?:\d+\.|[a-z]\.)\s/.test(line)) {
+                 consecutiveCount++;
+                 if (consecutiveCount === 2) {
+                    exerciseStartIndex = i - 1;
+                    break;
+                 }
+              } else if (line.length > 0) {
+                 consecutiveCount = 0;
+              }
+           }
+        }
+
+        if (exerciseStartIndex !== -1) {
+          const extractedContent = lines.slice(exerciseStartIndex).join('\n');
+          topic.content = lines.slice(0, exerciseStartIndex).join('\n').trim();
+          if (extractedContent.trim().length > 0) {
+             strippedExercises += '\n\n' + extractedContent.trim();
           }
         }
       }
-      
+    }
+
+    let finalExercisesContent = aiExercises ? aiExercises.trim() : "";
+    if (strippedExercises.trim().length > 0 && !finalExercisesContent) {
+        finalExercisesContent = strippedExercises.trim();
+    }
+
+    if (finalExercisesContent) {
       if (chapter.children) {
         chapter.children = chapter.children.filter(c => c.type !== 'exercise');
       } else {
@@ -1192,67 +1240,13 @@ Output only the JSON array, no other text.
         chapterNumber: chapter.children.length + 1,
         title: 'Chapter Exercises',
         summary: '',
-        content: aiExercises,
+        content: finalExercisesContent,
         isGenerating: false,
         parentId: chapter.id,
         sortOrder: (chapter.sortOrder || 0) + 999,
         type: 'exercise',
         children: []
       });
-    } else {
-      // Scan for missing exercise node
-      const currentExercises = chapter.children?.filter(c => c.type === 'exercise') || [];
-      if (currentExercises.length === 0 && chapter.children && chapter.children.length > 0) {
-        const lastTopic = chapter.children.filter(c => c.type === 'topic').pop();
-        if (lastTopic) {
-          const textLength = lastTopic.content.length;
-          if (textLength > 100) {
-            const last30PercentIndex = textLength > 500 ? Math.floor(textLength * 0.7) : 0;
-            const last30Percent = lastTopic.content.substring(last30PercentIndex);
-            
-            const lines = last30Percent.split('\n');
-            let consecutiveCount = 0;
-            let exerciseStartIndex = -1;
-            
-            const exerciseKeywords = /True\/False|fill in the blanks|Match the following|multiple-choice|short answer|long answer|project work|let's revise|write full forms|select the best answer|answer the following|write technical terms/i;
-            
-            for (let i = 0; i < lines.length; i++) {
-              const line = lines[i].trim();
-              if (/^(?:\d+\.|[a-z]\.)\s/.test(line) || exerciseKeywords.test(line)) {
-                consecutiveCount++;
-                if (consecutiveCount === 2) { // trigger on 2 consecutive question-like lines to be safer on shorter lists
-                   exerciseStartIndex = i - 1;
-                   break;
-                }
-              } else if (line.length > 0) {
-                 consecutiveCount = 0;
-              }
-            }
-  
-            if (exerciseStartIndex !== -1) {
-              const exerciseContent = lines.slice(exerciseStartIndex).join('\n');
-              const beforeExercise = lastTopic.content.substring(0, lastTopic.content.length - exerciseContent.length);
-              
-              if (exerciseContent.trim().length > 0) {
-                lastTopic.content = beforeExercise.trim();
-                
-                chapter.children.push({
-                  id: uuidv4(),
-                  chapterNumber: chapter.children.length + 1,
-                  title: 'Chapter Exercises',
-                  summary: '',
-                  content: exerciseContent.trim(),
-                  isGenerating: false,
-                  parentId: chapter.id,
-                  sortOrder: (chapter.sortOrder || 0) + 999,
-                  type: 'exercise',
-                  children: []
-                });
-              }
-            }
-          }
-        }
-      }
     }
 
     // 3. Table format fallback
