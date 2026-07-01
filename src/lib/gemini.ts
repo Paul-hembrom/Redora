@@ -1002,14 +1002,12 @@ CRITICAL RULES:
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
 3. PRESERVE ORDER: The chapters in the array MUST be in the exact sequence they appear in the source text. Do NOT sort alphabetically.
 4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers. DO NOT merge exercises into subtopics.
-5. Extract EVERY exercise section into the "exercises" array. 
-   - The exercise MUST have the "title" set to "Chapter Exercises".
-   - In the "content" field, output the full exercise text but add Markdown headings (#### ) for each exercise type heading.
+5. EXERCISES: If a chapter contains exercises, practice questions, multiple-choice, true/false, fill-in-the-blanks, match the following, short answer, long answer, project work, or similar question sections, place ALL of that content into a SINGLE topic titled "Chapter Exercises" in the "exercises" array. Do NOT create separate topics for each exercise type. Keep everything together in one block, using #### headings to separate the different types inside the content.
 6. If you cannot detect any subtopics, return a single subtopic titled "Chapter Content" containing the full chapter text. NEVER return null.
 7. **CRITICAL BULLET FIX:** Normalize ANY corrupted 'y' bullet points into standard hyphens '-'. If a line starts with whitespace followed by a 'y' and a space, convert it to a standard list item. 
 8. **COMPARISON TABLES:** If the text contains comparisons or differences between two or more items (e.g., "Difference between X and Y", "X vs Y", comparison lists), format that content as a Markdown table with appropriate column headers. Do NOT leave it as plain paragraphs or bullet lists.
-9. **IMAGE CAPTIONS:** Always place image captions (e.g., "Fig: ...", "Figure: ...", "Fig. ...", "Figure. ...") on their own line. Never run them together with other text.
-10. **GLOSSARY/TECHNICAL TERMS:** If a chapter contains a "Technical Terms", "Glossary", "Key Terms", "Vocabulary", or similar section, place ALL of that content in a separate topic titled "Technical Terms" with type "glossary". Format the content as a Markdown table with two columns: "Term" and "Definition". Each row must contain exactly one term and its definition. Do NOT leave this content as plain paragraphs or bullet lists.
+9. IMAGE CAPTIONS: Always place image captions (e.g., "Fig: ...", "Figure: ...") on their own separate line. Never run them together with other text or with other captions.
+10. TECHNICAL TERMS: If a chapter contains a "Technical Terms", "Glossary", "Key Terms", "Vocabulary", "Important Terms", or similar section, place ALL of that content into a SINGLE topic titled "Technical Terms" in the "subtopics" array (or as a separate entry). Format the content as a Markdown table with two columns: "Term" and "Definition". Do NOT create separate topics for individual terms.
 Output only the JSON object containing the "chapters" array. No other text.
   `;
 

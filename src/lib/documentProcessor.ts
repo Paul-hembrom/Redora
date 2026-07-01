@@ -1276,23 +1276,31 @@ Output only the JSON array, no other text.
     }
 
     let finalExercisesContent = aiExercises ? aiExercises.trim() : "";
-    if (strippedExercises.trim().length > 0 && !finalExercisesContent) {
-        finalExercisesContent = strippedExercises.trim();
+    
+    // Merge exercises generated directly from extraction
+    const extractedExercises = chapter.children?.filter(c => c.type === 'exercise') || [];
+    if (extractedExercises.length > 0) {
+      const combinedExtracted = extractedExercises.map(e => (e.title.toLowerCase().includes('exercise') ? e.content : `#### ${e.title}\n\n${e.content}`)).join('\n\n');
+      finalExercisesContent = finalExercisesContent ? finalExercisesContent + '\n\n' + combinedExtracted : combinedExtracted;
+    }
+
+    if (strippedExercises.trim().length > 0) {
+        finalExercisesContent = finalExercisesContent ? finalExercisesContent + '\n\n' + strippedExercises.trim() : strippedExercises.trim();
+    }
+
+    if (chapter.children) {
+      chapter.children = chapter.children.filter(c => c.type !== 'exercise');
+    } else {
+      chapter.children = [];
     }
 
     if (finalExercisesContent) {
-      if (chapter.children) {
-        chapter.children = chapter.children.filter(c => c.type !== 'exercise');
-      } else {
-        chapter.children = [];
-      }
-      
       chapter.children.push({
         id: uuidv4(),
         chapterNumber: chapter.children.length + 1,
         title: 'Chapter Exercises',
         summary: '',
-        content: finalExercisesContent,
+        content: finalExercisesContent.trim(),
         isGenerating: false,
         parentId: chapter.id,
         sortOrder: (chapter.sortOrder || 0) + 999,
@@ -1343,9 +1351,31 @@ Output only the JSON array, no other text.
 
     // 4. Glossary post-processing
     if (chapter.children) {
-      let glossaryNode = chapter.children.find(c => c.type === 'glossary');
+      // First merge all glossary nodes returned by AI
+      const glossaryNodes = chapter.children.filter(c => c.type === 'glossary');
+      let mergedGlossaryContent = "";
+      if (glossaryNodes.length > 0) {
+        mergedGlossaryContent = glossaryNodes.map(g => g.content).join('\n\n');
+        chapter.children = chapter.children.filter(c => c.type !== 'glossary');
+      }
+
+      let glossaryNode = undefined;
       
-      if (!glossaryNode) {
+      if (mergedGlossaryContent) {
+        glossaryNode = {
+          id: uuidv4(),
+          chapterNumber: chapter.children.length + 1,
+          title: 'Technical Terms',
+          summary: '',
+          content: mergedGlossaryContent,
+          isGenerating: false,
+          parentId: chapter.id,
+          sortOrder: (chapter.sortOrder || 0) + 998,
+          type: 'glossary',
+          children: []
+        };
+        chapter.children.push(glossaryNode);
+      } else {
         // Look for glossary block in topics
         for (const topic of chapter.children) {
           if (topic.type !== 'topic') continue;

@@ -1476,44 +1476,40 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
     });
     
     const conceptsStr = Array.isArray(key_concepts) ? key_concepts.join(', ') : '';
-    const prompt = `Educational illustration or diagram about: ${title}. Key concepts: ${conceptsStr}. Summary: ${summary}. Style: clean, accurate, flat design.`;
+    const prompt = `Search Google Images for high-quality educational diagrams or illustrations about: ${title} (${conceptsStr}). Return exactly 3 direct image URLs in a JSON array of strings. Do not include any other text.`;
 
     const images: any[] = [];
 
     try {
       const imageResponse = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-image',
-        contents: {
-          parts: [{ text: prompt }]
-        },
+        model: 'gemini-3.1-pro-preview',
+        contents: prompt,
         config: {
-          imageConfig: {
-            aspectRatio: "16:9",
-            imageSize: "1K"
-          },
-          tools: [
-            {
-              googleSearch: {
-                searchTypes: {
-                  webSearch: {},
-                  imageSearch: {}
-                }
-              }
-            }
-          ]
+          tools: [{ googleSearch: {} }]
         }
       });
       
-      for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          const base64Data = part.inlineData.data;
-          const mimeType = part.inlineData.mimeType || "image/png";
-          const imageUrl = `data:${mimeType};base64,${base64Data}`;
+      const responseText = imageResponse.text || '';
+      
+      // Try to parse JSON array of URLs
+      let extractedUrls: string[] = [];
+      try {
+        const cleaned = responseText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+        extractedUrls = JSON.parse(cleaned);
+      } catch (e) {
+        // Fallback: extract markdown images or http links
+        const urlRegex = /(?:https?:\/\/)[^\s"']+\.(?:png|jpg|jpeg|gif|webp)/gi;
+        const matches = responseText.match(urlRegex) || [];
+        extractedUrls = [...new Set(matches)];
+      }
+
+      for (const url of extractedUrls) {
+        if (typeof url === 'string' && url.startsWith('http')) {
           images.push({
-            url: imageUrl,
-            thumbnail: imageUrl,
-            alt: `Diagram for ${title}`,
-            source: "gemini-search"
+            url: url,
+            thumbnail: url,
+            alt: `Image for ${title}`,
+            source: "google-search"
           });
         }
       }
