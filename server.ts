@@ -1476,71 +1476,49 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
     });
     
     const conceptsStr = Array.isArray(key_concepts) ? key_concepts.join(', ') : '';
-    
-    const prompt = `Generate a concise image search query for an educational diagram about: ${org_context || ''} - ${title}. Key concepts: ${conceptsStr}. Summary: ${summary}. The image should be suitable for the grade level. Return only the query string.`;
-    
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt
-    });
-    
-    const search_query = response.text?.trim() || title;
+    const prompt = `Educational illustration or diagram about: ${title}. Key concepts: ${conceptsStr}. Summary: ${summary}. Style: clean, accurate, flat design.`;
 
     const images: any[] = [];
-    const pexelsKey = process.env.IMAGE_SEARCH_API_KEY;
 
-    if (pexelsKey) {
-      try {
-        const pexelsRes = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(search_query)}&per_page=6`, {
-          headers: { Authorization: pexelsKey }
-        });
-        if (pexelsRes.ok) {
-          const data = await pexelsRes.json();
-          if (data.photos && data.photos.length > 0) {
-            data.photos.forEach((photo: any) => {
-              images.push({
-                url: photo.src.original,
-                thumbnail: photo.src.medium,
-                alt: photo.alt || "Educational diagram",
-                source: "real"
-              });
-            });
-          }
-        }
-      } catch (err) {
-         console.error("Pexels fetch error", err);
-      }
-    } else {
-      // Fallback to generating an educational image using Gemini
-      try {
-        const imageResponse = await ai.models.generateContent({
-          model: 'gemini-2.5-flash-image',
-          contents: {
-            parts: [{ text: `Create a clean, minimalist educational illustration or diagram about: ${search_query}. Style: flat design, highly educational, clear.` }]
+    try {
+      const imageResponse = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image',
+        contents: {
+          parts: [{ text: prompt }]
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "16:9",
+            imageSize: "1K"
           },
-          config: {
-            imageConfig: {
-              aspectRatio: "16:9"
+          tools: [
+            {
+              googleSearch: {
+                searchTypes: {
+                  webSearch: {},
+                  imageSearch: {}
+                }
+              }
             }
-          }
-        });
-        
-        for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
-          if (part.inlineData) {
-            const base64Data = part.inlineData.data;
-            const mimeType = part.inlineData.mimeType || "image/png";
-            const imageUrl = `data:${mimeType};base64,${base64Data}`;
-            images.push({
-              url: imageUrl,
-              thumbnail: imageUrl,
-              alt: `Generated educational diagram for ${search_query}`,
-              source: "generated"
-            });
-          }
+          ]
         }
-      } catch (err) {
-        console.error("Gemini image generation error", err);
+      });
+      
+      for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          const base64Data = part.inlineData.data;
+          const mimeType = part.inlineData.mimeType || "image/png";
+          const imageUrl = `data:${mimeType};base64,${base64Data}`;
+          images.push({
+            url: imageUrl,
+            thumbnail: imageUrl,
+            alt: `Diagram for ${title}`,
+            source: "gemini-search"
+          });
+        }
       }
+    } catch (err) {
+      console.error("Gemini image generation/search error", err);
     }
 
     res.json({ images });
