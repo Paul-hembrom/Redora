@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
-import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles, BookA, Target } from 'lucide-react';
+import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles, BookA, Target, Lock } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import ReactMarkdown from 'react-markdown';
@@ -504,7 +504,13 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 Study Plan
              </button>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center">
+            {isStudent && (
+              <span className="hidden md:flex items-center gap-1 text-[9px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/20 font-medium uppercase tracking-wider">
+                <Lock className="w-3 h-3" />
+                Read-Only
+              </span>
+            )}
             <button onClick={() => window.dispatchEvent(new Event('open-quiz-dashboard'))} className="text-white/40 hover:text-cyan-400 transition-colors" title="Quiz Dashboard">
               <Target className="w-4 h-4" />
             </button>

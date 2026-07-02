@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import rateLimit from 'express-rate-limit';
 import sql, { dbReady } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
@@ -23,6 +24,43 @@ app.use(cookieParser());
 
 // --- Trust Proxy for Secure Cookies Behind Vercel ---
 app.set('trust proxy', 1);
+
+// --- Security Headers Middleware ---
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://api.deepseek.com https://api.elevenlabs.io https://integrate.api.nvidia.com"
+  );
+  next();
+});
+
+// --- Rate Limiters ---
+const createLimiter = (maxRequests: number) => {
+  return rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: maxRequests,
+    keyGenerator: (req: any) => {
+      // Use userId if available from authenticate middleware, else fallback to IP
+      return req.userId || req.ip;
+    },
+    message: { error: 'Too many requests. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+};
+
+const retrieveVideosLimiter = createLimiter(10);
+const imagesLimiter = createLimiter(10);
+const generateLessonLimiter = createLimiter(5);
+const startLessonLimiter = createLimiter(5);
+const secureLlmLimiter = createLimiter(20);
+
+app.use('/api/secure-llm', secureLlmLimiter);
 
 // DO NOT REMOVE – Gateway token exchange for teachers/students
 app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) => {
@@ -1155,7 +1193,7 @@ app.post('/api/chapters/:id/summarize', authenticate, async (req: any, res) => {
 });
 
 // --- NEW VIDEO LESSON PIPELINE ROUTES ---
-app.post('/api/chapters/:id/generate-lesson', authenticate, async (req: any, res) => {
+app.post('/api/chapters/:id/generate-lesson', authenticate, generateLessonLimiter, async (req: any, res) => {
   try {
     const orgId = req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id'];
     const userRole = await getUserRoleInOrg(req.userId, orgId);
@@ -1289,7 +1327,7 @@ app.get('/api/youtube/:videoId/captions', authenticate, async (req: any, res) =>
   }
 });
 
-app.post('/api/retrieve-videos', authenticate, async (req: any, res) => {
+app.post('/api/retrieve-videos', authenticate, retrieveVideosLimiter, async (req: any, res) => {
   try {
     try {
       await verifyAndIncrementUsage(req.userId, 'youtube', req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id']);
@@ -1454,8 +1492,7 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
   }
 });
 
-app.post('/api/topics/:id/images', async (req: any, res) => {
-  req.userId = '75531dc9-9cbf-4c18-8983-2833bb37b826';
+app.post('/api/topics/:id/images', authenticate, imagesLimiter, async (req: any, res) => {
   try {
     try {
       await verifyAndIncrementUsage(req.userId, 'image', req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id']);
@@ -1668,7 +1705,7 @@ app.post('/api/topics/:id/memory', authenticate, async (req: any, res) => {
 });
 
 // --- Interactive Lesson Route ---
-app.post('/api/topics/:id/start-lesson', authenticate, async (req: any, res) => {
+app.post('/api/topics/:id/start-lesson', authenticate, startLessonLimiter, async (req: any, res) => {
   try {
     const { id } = req.params;
     const { orgId } = req.body;

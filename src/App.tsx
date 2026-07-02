@@ -13,7 +13,7 @@ import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
 import { generateChatResponse } from './lib/gemini';
 import { v4 as uuidv4 } from 'uuid';
-import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -569,7 +569,15 @@ export default function App() {
           <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hidden sm:flex">
             <BookOpen className="w-4 h-4 text-cyan-400" />
           </div>
-          <h1 className="font-display font-bold text-lg tracking-wide">READORA</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display font-bold text-lg tracking-wide">READORA</h1>
+            {isStudent && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-medium tracking-wide shadow-lg shadow-cyan-900/20">
+                <Lock className="w-3 h-3" />
+                <span className="hidden sm:inline uppercase">Read-Only Mode</span>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4 md:gap-6">
           <button
