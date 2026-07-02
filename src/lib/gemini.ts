@@ -1013,7 +1013,7 @@ Output only the JSON object containing the "chapters" array. No other text.
 
   let raw: string;
   try {
-    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 262144), 3, 5000);
+    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000), 3, 5000);
   } catch (e) {
     console.error('extractViaAI callLLM failed:', e);
     return null;
