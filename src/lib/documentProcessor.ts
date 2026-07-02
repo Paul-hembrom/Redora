@@ -1308,6 +1308,13 @@ Output only the JSON array, no other text.
         finalExercisesContent = finalExercisesContent ? finalExercisesContent + '\n\n' + strippedExercises.trim() : strippedExercises.trim();
     }
 
+    // Deduplicate exercise content blocks
+    if (finalExercisesContent) {
+      let lines = finalExercisesContent.split('\n\n').map(l => l.trim()).filter(Boolean);
+      lines = [...new Set(lines)];
+      finalExercisesContent = lines.join('\n\n');
+    }
+
     if (chapter.children) {
       chapter.children = chapter.children.filter(c => c.type !== 'exercise');
     } else {

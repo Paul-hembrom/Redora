@@ -156,10 +156,8 @@ const preventStudentModification = (req: any, res: any, next: any) => {
       ];
       
       const isAllowedPrefix = allowedStudentPrefixes.some(prefix => req.path.startsWith(prefix));
-      const isStartLesson = req.path.match(/^\/api\/topics\/[^/]+\/start-lesson$/);
-      const isMemory = req.path.match(/^\/api\/topics\/[^/]+\/memory$/);
       
-      if (!isAllowedPrefix && !isStartLesson && !isMemory) {
+      if (!isAllowedPrefix) {
         return res.status(403).json({ error: 'Students have view-only access.' });
       }
     }

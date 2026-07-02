@@ -1007,47 +1007,49 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             </div>
           )}
           <div className={cn("flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 pr-2", isOffline && "opacity-50 pointer-events-none")}>
-            <button 
-              onClick={() => setShowInteractiveLesson(true)}
-              className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
-              title="Start Interactive Lesson"
-            >
-              <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson <BetaBadge />
-            </button>
-            <button 
-              onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
-              className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
-              title="Toggle Video Lesson Pipeline"
-            >
-              <Film className="w-3.5 h-3.5" /> Pipeline
-            </button>
-            {!isStudent && canGenerateVideo && (
-              <button 
-                onClick={handleGenerateVideoLesson} 
-                className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
-                title="Generate AI video lesson"
-              >
-                <Wand2 className="w-3.5 h-3.5" /> Generate Video <BetaBadge />
-              </button>
-            )}
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
             </button>
             {!isStudent && (
-              <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
+              <>
+                <button 
+                  onClick={() => setShowInteractiveLesson(true)}
+                  className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-cyan-500 hover:bg-cyan-400 text-black shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+                  title="Start Interactive Lesson"
+                >
+                  <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson <BetaBadge />
+                </button>
+                <button 
+                  onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
+                  className={cn("text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0", activeTab === 'video' ? 'bg-cyan-500/20 text-white' : 'text-white/60 hover:text-white hover:bg-white/5')}
+                  title="Toggle Video Lesson Pipeline"
+                >
+                  <Film className="w-3.5 h-3.5" /> Pipeline
+                </button>
+                {canGenerateVideo && (
+                  <button 
+                    onClick={handleGenerateVideoLesson} 
+                    className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-indigo-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
+                    title="Generate AI video lesson"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" /> Generate Video <BetaBadge />
+                  </button>
+                )}
+                <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
+                <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
+                  <Target className="w-3.5 h-3.5" /> Quiz
+                </button>
+                <button onClick={() => handleGenerateAction('glossary')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-emerald-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Extract key terms">
+                  <BookA className="w-3.5 h-3.5" /> Glossary
+                </button>
+                <button onClick={() => handleGenerateAction('brief')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-amber-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get an executive briefing">
+                  <Zap className="w-3.5 h-3.5" /> Briefing
+                </button>
+                <button onClick={handleGenerateFollowUps} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-purple-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get Follow-up Questions">
+                  <MessageCircleQuestion className="w-3.5 h-3.5" /> Follow-ups
+                </button>
+              </>
             )}
-            <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
-              <Target className="w-3.5 h-3.5" /> Quiz
-            </button>
-            <button onClick={() => handleGenerateAction('glossary')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-emerald-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Extract key terms">
-              <BookA className="w-3.5 h-3.5" /> Glossary
-            </button>
-            <button onClick={() => handleGenerateAction('brief')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-amber-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get an executive briefing">
-              <Zap className="w-3.5 h-3.5" /> Briefing
-            </button>
-            <button onClick={handleGenerateFollowUps} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-purple-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Get Follow-up Questions">
-              <MessageCircleQuestion className="w-3.5 h-3.5" /> Follow-ups
-            </button>
             <button 
               onClick={async () => {
                 const lib = await import('../lib/offline');

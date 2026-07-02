@@ -115,7 +115,7 @@ export default function PricingModal({ currentPlan, onClose, onUpgradeComplete }
               <p className="text-white/60 text-sm">Unlimited access for dedicated learners.</p>
             </div>
             <div className="text-4xl font-bold text-white mb-8">
-              $19<span className="text-lg text-white/40 font-normal"> /mo</span>
+              $29.99<span className="text-lg text-white/40 font-normal"> /mo</span>
             </div>
             
             <ul className="space-y-4 mb-8">

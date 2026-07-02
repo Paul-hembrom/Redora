@@ -556,7 +556,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 <span className="group-hover:text-amber-400 transition-colors text-amber-500 font-medium">Deep Process: Generate Full Course</span>
               </label>
             </div>
-            {userUsage && userUsage.usage && (
+            {!isStudent && userUsage && userUsage.usage && (
               <div className="space-y-3 pt-3 border-t border-white/5">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-white/40 block uppercase tracking-wider text-[10px]">Subscription</label>

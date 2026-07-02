@@ -85,7 +85,7 @@ export default function Pricing() {
             <div className="mb-6 mt-2">
               <h3 className="text-xl font-display font-semibold text-cyan-400 mb-2">Pro Monthly</h3>
               <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-4xl font-bold text-white">$19.99</span>
+                <span className="text-4xl font-bold text-white">$29.99</span>
                 <span className="text-white/50 font-medium">/month</span>
               </div>
               <p className="text-sm text-white/50">Everything you need without limits.</p>
@@ -123,7 +123,7 @@ export default function Pricing() {
             <div className="mb-6">
               <h3 className="text-xl font-display font-semibold mb-2">Lifetime</h3>
               <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-4xl font-bold">$299.99</span>
+                <span className="text-4xl font-bold">$499.99</span>
                 <span className="text-white/50 font-medium">one-time</span>
               </div>
               <p className="text-sm text-white/50">Pay once, enjoy forever.</p>

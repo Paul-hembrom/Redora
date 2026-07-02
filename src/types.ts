@@ -16,7 +16,7 @@ export interface Chapter {
   isGenerating?: boolean;
   parentId?: string | null;
   sortOrder?: number;
-  type?: 'part' | 'chapter' | 'topic' | 'exercise' | 'glossary';
+  type?: 'part' | 'chapter' | 'topic' | 'exercise' | 'glossary' | 'summary';
   children?: Chapter[];
   displayNumber?: string;
 }
