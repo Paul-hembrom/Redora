@@ -13,7 +13,7 @@ import { useAuth } from './contexts/AuthContext';
 import { processDocument } from './lib/documentProcessor';
 import { generateChatResponse } from './lib/gemini';
 import { v4 as uuidv4 } from 'uuid';
-import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -100,6 +100,26 @@ export default function App() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    if (isSyncing || isOffline) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/documents');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setDocuments(data);
+          import('./lib/offline').then(m => m.cacheDocuments(data));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
   
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
@@ -580,6 +600,30 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-4 md:gap-6">
+          <button
+            onClick={handleSync}
+            disabled={isSyncing || isOffline}
+            title="Sync offline changes"
+            className={cn(
+              "flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all duration-300",
+              isSyncing 
+                ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30" 
+                : "bg-white/5 text-white/70 border-white/10 hover:bg-white/10 hover:text-white",
+              isOffline && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            {isSyncing ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span className="hidden sm:inline">Syncing...</span>
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sync Now</span>
+              </>
+            )}
+          </button>
           <button
             onClick={toggleTheme}
             className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"

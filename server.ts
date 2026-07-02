@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sql, { dbReady } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
@@ -44,9 +44,9 @@ const createLimiter = (maxRequests: number) => {
   return rateLimit({
     windowMs: 60 * 1000, // 1 minute
     max: maxRequests,
-    keyGenerator: (req: any) => {
+    keyGenerator: (req: any, res: any) => {
       // Use userId if available from authenticate middleware, else fallback to IP
-      return req.userId || req.ip;
+      return req.userId || ipKeyGenerator(req, res);
     },
     message: { error: 'Too many requests. Please try again later.' },
     standardHeaders: true,
