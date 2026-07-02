@@ -71,6 +71,7 @@ async function callDeepSeek(
   responseFormat?: 'json_object' | 'text',
   maxTokens?: number,
   maxRetries = 3,
+  temperature = 0.2,
 ): Promise<string> {
   const messages: any[] = [];
   if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
@@ -79,7 +80,7 @@ async function callDeepSeek(
   const body: any = {
     model: 'deepseek-v4-flash',
     messages,
-    temperature: 0.2,
+    temperature: temperature,
     max_tokens: maxTokens ?? 4096,
   };
   if (responseFormat === 'json_object') {
@@ -374,9 +375,10 @@ export async function callLLM(
   systemInstruction?: string,
   responseFormat?: 'json_object' | 'text',
   maxTokens?: number,
+  temperature?: number,
 ): Promise<string> {
   if (hasKey(DEEPSEEK_KEY)) {
-    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens); } catch (e) { console.warn('DeepSeek failed, falling back to Gemini', e); }
+    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens, 3, temperature ?? 0.2); } catch (e) { console.warn('DeepSeek failed, falling back to Gemini', e); }
   }
   if (hasKey(GEMINI_KEY)) {
     try { return await callGeminiFlashLite(prompt, systemInstruction); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
@@ -963,7 +965,7 @@ function writeString(view: DataView, offset: number, string: string) {
 // ──────────────────────────────────────────────
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
-export async function extractViaAI(text: string): Promise<any[] | null> {
+export async function extractViaAI(text: string, estimatedChapterCount?: number): Promise<any[] | null> {
   // Fix PDF extraction artifacts where bullet points appear as 'y'
   const preProcessedText = text.replace(/^[ \t\xA0]*[yY][ \t\xA0]+/gm, '- ');
   const cleanText = preProcessedText; // Do not truncate. 1M context handles full books.
@@ -971,7 +973,7 @@ export async function extractViaAI(text: string): Promise<any[] | null> {
 ${cleanText}
 
 ---
-The text is a complete textbook. It contains multiple distinct chapters (or units, parts, sections). Your first task is to identify ALL chapter boundaries.
+The text is a complete textbook. It contains multiple distinct chapters (or units, parts, sections). Your first task is to identify ALL chapter boundaries.\n${estimatedChapterCount ? `CRITICAL: The text contains exactly ${estimatedChapterCount} chapters (based on the number of chapter/unit headings found). You MUST return EXACTLY that many chapter objects. Do NOT merge chapters. Do NOT skip chapters. If the text has 12 units, you must return 12 chapter objects.\n` : ""}
 
 Common chapter markers include: "Unit", "Chapter", "Section", "Part", followed by a number or title, often on a new line or bolded.
 
@@ -1013,7 +1015,7 @@ Output only the JSON object containing the "chapters" array. No other text.
 
   let raw: string;
   try {
-    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000), 3, 5000);
+    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
   } catch (e) {
     console.error('extractViaAI callLLM failed:', e);
     return null;
@@ -1038,16 +1040,42 @@ Output only the JSON object containing the "chapters" array. No other text.
     });
   };
 
+
+  const processExtracted = async (extracted: any[]) => {
+    const mapped = mapToTopics(extracted);
+    if (estimatedChapterCount && mapped.length < estimatedChapterCount * 0.8) {
+      console.warn(`Completeness check failed: Got ${mapped.length} chapters, expected ${estimatedChapterCount}. Triggering split-retry...`);
+      
+      const mid = Math.floor(cleanText.length / 2);
+      const firstHalfText = cleanText.substring(0, mid);
+      const secondHalfText = cleanText.substring(mid);
+      
+      const [firstHalf, secondHalf] = await Promise.all([
+        extractViaAI(firstHalfText),
+        extractViaAI(secondHalfText)
+      ]);
+      
+      const combined = [];
+      if (firstHalf) combined.push(...firstHalf);
+      if (secondHalf) combined.push(...secondHalf);
+      
+      if (combined.length > 0) return combined;
+      return null;
+    }
+    return mapped;
+  };
+
   try {
-    return mapToTopics(JSON.parse(cleanedRaw));
+    const parsed = JSON.parse(cleanedRaw);
+    return await processExtracted(parsed);
   } catch {
     try {
       const repaired = jsonrepair(cleanedRaw);
       const parsed = JSON.parse(repaired);
-      if (Array.isArray(parsed)) return mapToTopics(parsed);
+      if (Array.isArray(parsed)) return await processExtracted(parsed);
       if (parsed && typeof parsed === 'object') {
         const possibleArray = Object.values(parsed).find(val => Array.isArray(val));
-        if (Array.isArray(possibleArray)) return mapToTopics(possibleArray);
+        if (Array.isArray(possibleArray)) return await processExtracted(possibleArray);
       }
       return null;
     } catch {
@@ -1055,13 +1083,14 @@ Output only the JSON object containing the "chapters" array. No other text.
       if (arrayMatch) {
         try {
           const extracted = JSON.parse(arrayMatch[0]);
-          if (Array.isArray(extracted)) return mapToTopics(extracted);
+          if (Array.isArray(extracted)) return await processExtracted(extracted);
         } catch {}
       }
       return null;
     }
   }
 }
+
 
 export async function extractChapterViaAI(chapterText: string, chapterTitle: string): Promise<{ subtopics: { title: string, content: string }[], exercises: { title: string, content: string, sub_entries?: {heading: string, subtype: string}[] }[] } | null> {
   const prompt = `
@@ -1095,7 +1124,7 @@ Output only the JSON object, no other text.
   `;
 
   try {
-    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072), 3, 5000);
+    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072, 0), 3, 5000);
     // Clean and parse the raw JSON
     let cleaned = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
     let parsed: any;
@@ -1235,7 +1264,7 @@ Output only the exercise Markdown or "NO_EXERCISES", no other text.
   `;
 
   try {
-    const raw = await callLLM(prompt, undefined, 'text', 65536); // 64K output for exercises
+    const raw = await callLLM(prompt, undefined, 'text', 65536, 0); // 64K output for exercises
     if (raw.trim() === 'NO_EXERCISES' || raw.trim().length < 10) {
       return null;
     }
@@ -1264,7 +1293,7 @@ Output only the Markdown table or "NO_TERMS", no other text.
   `;
 
   try {
-    const raw = await callLLM(prompt, undefined, 'text', 32768);
+    const raw = await callLLM(prompt, undefined, 'text', 32768, 0);
     if (raw.trim() === 'NO_TERMS' || raw.trim().length < 10) {
       return null;
     }
@@ -1289,7 +1318,7 @@ Output only the summary text or "NO_SUMMARY", no other text.
   `;
 
   try {
-    const raw = await callLLM(prompt, undefined, 'text', 32768);
+    const raw = await callLLM(prompt, undefined, 'text', 32768, 0);
     if (raw.trim() === 'NO_SUMMARY' || raw.trim().length < 10) {
       return null;
     }

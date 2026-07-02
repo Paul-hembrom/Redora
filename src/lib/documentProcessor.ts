@@ -1138,7 +1138,9 @@ Output only the JSON array, no other text.
     if (topics.length > 20 && topics.some(t => /unit|chapter/i.test(t.title))) {
       onProgress('Massive single chapter detected. Rerunning full document extraction...');
       try {
-        const aiExtracted = await extractViaAI(processedText);
+        const regexChunks = splitIntoChaptersEnhanced(processedText);
+        const estimatedChapterCount = regexChunks.length;
+        const aiExtracted = await extractViaAI(processedText, estimatedChapterCount);
         if (aiExtracted && aiExtracted.length > 1) {
           chapterResults.length = 0;
           let baseSort = 0;
@@ -1308,12 +1310,28 @@ Output only the JSON array, no other text.
         finalExercisesContent = finalExercisesContent ? finalExercisesContent + '\n\n' + strippedExercises.trim() : strippedExercises.trim();
     }
 
+    
     // Deduplicate exercise content blocks
     if (finalExercisesContent) {
       let lines = finalExercisesContent.split('\n\n').map(l => l.trim()).filter(Boolean);
       lines = [...new Set(lines)];
+      
+      const fullChapterText = (chapter.content || '') + '\n' + (chapter.children || []).map(c => c.content).join('\n');
+      lines = lines.filter(line => {
+        const lowerLine = line.toLowerCase();
+        const suspiciousPhrases = ['prepare a chart', 'conduct an interview', 'project work', 'visit a', 'group discussion'];
+        for (const phrase of suspiciousPhrases) {
+           if (lowerLine.includes(phrase) && !fullChapterText.toLowerCase().includes(phrase)) {
+               console.warn(`Removed hallucinated exercise line: ${line.substring(0, 50)}...`);
+               return false;
+           }
+        }
+        return true;
+      });
+
       finalExercisesContent = lines.join('\n\n');
     }
+
 
     if (chapter.children) {
       chapter.children = chapter.children.filter(c => c.type !== 'exercise');
@@ -1461,6 +1479,26 @@ Output only the JSON array, no other text.
           type: 'summary' as const,
           children: []
         });
+      }
+    }
+  }
+
+  
+  // 4. Remove empty subtopics
+  for (const chapter of chapterResults) {
+    if (chapter.children) {
+      const originalCount = chapter.children.length;
+      chapter.children = chapter.children.filter(child => {
+        if (child.type === 'topic') {
+          const content = child.content || '';
+          if (content.trim().length === 0 || content.length < 20) return false;
+          const title = child.title || '';
+          if (!title.trim() || title.match(/^Topic 1A$/i)) return false;
+        }
+        return true;
+      });
+      if (chapter.children.length < originalCount) {
+        console.warn(`Removed ${originalCount - chapter.children.length} empty subtopics from ${chapter.title}`);
       }
     }
   }
