@@ -86,7 +86,7 @@ async function callDeepSeek(
   messages.push({ role: 'user', content });
 
   const body: any = {
-    model: 'deepseek-v4-flash',
+    model: 'deepseek-chat',
     messages,
     temperature: temperature,
     max_tokens: maxTokens ?? 4096,
@@ -97,7 +97,7 @@ async function callDeepSeek(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1200000); // 1200 seconds timeout
+    const timeoutId = setTimeout(() => controller.abort(), imageUrl ? 120000 : 60000); // 120s for vision, 60s for text
     let res: Response;
     try {
       res = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -1360,6 +1360,8 @@ export async function extractTextViaDeepSeekVision(
   const numPages = pdf.numPages;
   const pageTexts: string[] = new Array(numPages).fill('');
   
+  let totalExtracted = 0;
+
   const batchSize = 5;
   for (let i = 1; i <= numPages; i += batchSize) {
     const end = Math.min(i + batchSize - 1, numPages);
@@ -1385,9 +1387,13 @@ export async function extractTextViaDeepSeekVision(
             
             try {
               const text = await withRetry(() => callLLM(prompt, undefined, 'text', 16384, 0, dataUrl), 3, 5000);
-              pageTexts[pageIndex] = text;
-            } catch (err) {
-              console.error(`DeepSeek Vision failed on page ${j}:`, err);
+              pageTexts[pageIndex] = text || '';
+              const charCount = text ? text.length : 0;
+              totalExtracted += charCount;
+              console.log(`Page ${j}: extracted ${charCount} characters`);
+            } catch (err: any) {
+              console.error(`Page ${j}: FAILED - ${err.message || String(err)}`);
+              pageTexts[pageIndex] = ''; // empty placeholder
             }
           }
           page.cleanup();
@@ -1396,5 +1402,11 @@ export async function extractTextViaDeepSeekVision(
     }
     await Promise.all(batchPromises);
   }
-  return pageTexts.join('\n\n');
+  
+  console.log(`Total pages processed: ${numPages}, total characters extracted: ${totalExtracted}`);
+  const finalText = pageTexts.join('\n\n');
+  if (finalText.trim().length === 0) {
+    throw new Error('DeepSeek Vision returned no text — falling back to OCR');
+  }
+  return finalText;
 }
