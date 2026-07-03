@@ -1,3 +1,4 @@
+import * as pdfjsLib from 'pdfjs-dist';
 import { ChatMessage, ReadingPersona } from '../types';
 import { jsonrepair } from 'jsonrepair';
 
@@ -72,10 +73,18 @@ async function callDeepSeek(
   maxTokens?: number,
   maxRetries = 3,
   temperature = 0.2,
+  imageUrl?: string,
 ): Promise<string> {
   const messages: any[] = [];
   if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
-  messages.push({ role: 'user', content: prompt });
+    let content: any = prompt;
+  if (imageUrl) {
+    content = [
+      { type: 'text', text: prompt },
+      { type: 'image_url', image_url: { url: imageUrl } }
+    ];
+  }
+  messages.push({ role: 'user', content });
 
   const body: any = {
     model: 'deepseek-v4-flash',
@@ -162,9 +171,20 @@ async function getGenAI() {
 export async function callGeminiFlashLite(
   prompt: string,
   systemInstruction?: string,
+  imageUrl?: string,
 ): Promise<string> {
   const ai = await getGenAI();
-  const parts: any[] = [{ text: prompt }];
+    const parts: any[] = [{ text: prompt }];
+  if (imageUrl) {
+    const base64 = imageUrl.split(',')[1];
+    const mimeType = imageUrl.substring(imageUrl.indexOf(':') + 1, imageUrl.indexOf(';')) || 'image/jpeg';
+    parts.push({
+      inlineData: {
+        data: base64,
+        mimeType: mimeType
+      }
+    });
+  }
   const config: any = { temperature: 0.2, maxOutputTokens: 4096 };
   if (systemInstruction) config.systemInstruction = systemInstruction;
 
@@ -376,14 +396,15 @@ export async function callLLM(
   responseFormat?: 'json_object' | 'text',
   maxTokens?: number,
   temperature?: number,
+  imageUrl?: string,
 ): Promise<string> {
   if (hasKey(DEEPSEEK_KEY)) {
-    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens, 3, temperature ?? 0.2); } catch (e) { console.warn('DeepSeek failed, falling back to Gemini', e); }
+    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens, 3, temperature ?? 0.2, imageUrl); } catch (e) { console.warn('DeepSeek failed, falling back to Gemini', e); }
   }
   if (hasKey(GEMINI_KEY)) {
-    try { return await callGeminiFlashLite(prompt, systemInstruction); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
+    try { return await callGeminiFlashLite(prompt, systemInstruction, imageUrl); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
   }
-  return callNvidiaFallback(prompt, systemInstruction);
+  return callNvidiaFallback(prompt, systemInstruction, imageUrl);
 }
 
 // ──────────────────────────────────────────────
@@ -1327,4 +1348,53 @@ Output only the summary text or "NO_SUMMARY", no other text.
     console.error('extractSummaryForChapter failed:', e);
     return null;
   }
+}
+
+
+export async function extractTextViaDeepSeekVision(
+  file: File,
+  onProgress?: (msg: string) => void
+): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const numPages = pdf.numPages;
+  const pageTexts: string[] = new Array(numPages).fill('');
+  
+  const batchSize = 5;
+  for (let i = 1; i <= numPages; i += batchSize) {
+    const end = Math.min(i + batchSize - 1, numPages);
+    if (onProgress) {
+      onProgress(`Extracting text from images using DeepSeek Vision… (page ${i} of ${numPages})`);
+    }
+    const batchPromises: Promise<void>[] = [];
+    for (let j = i; j <= end; j++) {
+      const pageIndex = j - 1;
+      batchPromises.push(
+        pdf.getPage(j).then(async page => {
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          if (context) {
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport, canvas: canvas }).promise;
+            
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            
+            const prompt = "Extract all text and mathematical expressions from this textbook page.\nPreserve equations in LaTeX format. Preserve the reading order.\nDo NOT summarize or omit any content. Return only the extracted text.";
+            
+            try {
+              const text = await withRetry(() => callLLM(prompt, undefined, 'text', 16384, 0, dataUrl), 3, 5000);
+              pageTexts[pageIndex] = text;
+            } catch (err) {
+              console.error(`DeepSeek Vision failed on page ${j}:`, err);
+            }
+          }
+          page.cleanup();
+        })
+      );
+    }
+    await Promise.all(batchPromises);
+  }
+  return pageTexts.join('\n\n');
 }

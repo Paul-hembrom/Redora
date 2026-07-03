@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   generateBatchChapterMetadata,
   extractTextFromImage,
+  extractTextViaDeepSeekVision,
   ApiRateLimitError,
   generateDocumentHierarchy,
   generateOutline,
@@ -265,9 +266,23 @@ export async function extractTextFromFile(
       return pageTexts;
     };
 
+
     try {
       let { texts, numPages } = await extractPdf();
-      
+      let joinedText = texts.join('\n');
+
+      if (joinedText.trim().length < 200 || joinedText.trim().length < numPages * 50) {
+        try {
+          if (onProgress) onProgress('Extracting text from images using DeepSeek Vision… (starting)');
+          const visionText = await extractTextViaDeepSeekVision(file, onProgress);
+          if (visionText && visionText.trim().length > 200) {
+            return visionText;
+          }
+        } catch (visionErr) {
+          console.error("DeepSeek Vision extraction failed, falling back to basic OCR", visionErr);
+        }
+      }
+
       const emptyPageIndices: number[] = [];
       for (let i = 0; i < texts.length; i++) {
         if (!texts[i] || texts[i].trim().length < 20) {
