@@ -1,4 +1,3 @@
-import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore
 import mammoth from 'mammoth';
 import ePub from 'epubjs';
@@ -24,7 +23,9 @@ import {
 // PDF.js worker setup
 // ---------------------------------------------------------------------------
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  import('pdfjs-dist').then(pdfjsLib => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  }).catch(err => console.error("Failed to load pdfjs-dist", err));
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +183,7 @@ export async function extractTextFromFile(
   if (extension === 'pdf') {
     const extractPdf = async (): Promise<{ texts: string[], numPages: number }> => {
       const buf = await file.arrayBuffer();
+      const pdfjsLib = await import('pdfjs-dist');
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
       const pageTexts: string[] = new Array(pdf.numPages);
@@ -228,6 +230,7 @@ export async function extractTextFromFile(
 
     const extractPdfOcrForPages = async (pageIndicesToOcr: number[]): Promise<string[]> => {
       const buf = await file.arrayBuffer();
+      const pdfjsLib = await import('pdfjs-dist');
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       const pageTexts: string[] = new Array(pdf.numPages).fill('');
       const batchSize = 3;

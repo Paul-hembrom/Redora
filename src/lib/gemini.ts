@@ -1,4 +1,3 @@
-import * as pdfjsLib from 'pdfjs-dist';
 import { ChatMessage, ReadingPersona } from '../types';
 import { jsonrepair } from 'jsonrepair';
 
@@ -1356,6 +1355,7 @@ export async function extractTextViaDeepSeekVision(
   onProgress?: (msg: string) => void
 ): Promise<string> {
   const buf = await file.arrayBuffer();
+  const pdfjsLib = await import('pdfjs-dist');
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const numPages = pdf.numPages;
   const pageTexts: string[] = new Array(numPages).fill('');
