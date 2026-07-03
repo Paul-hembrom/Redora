@@ -398,7 +398,12 @@ export async function callLLM(
   imageUrl?: string,
 ): Promise<string> {
   if (hasKey(DEEPSEEK_KEY)) {
-    try { return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens, 3, temperature ?? 0.2, imageUrl); } catch (e) { console.warn('DeepSeek failed, falling back to Gemini', e); }
+    try { 
+      return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens, imageUrl ? 0 : 3, temperature ?? 0.2, imageUrl); 
+    } catch (e) { 
+      console.warn('DeepSeek failed, falling back to Gemini', e); 
+      if (imageUrl) throw e; 
+    }
   }
   if (hasKey(GEMINI_KEY)) {
     try { return await callGeminiFlashLite(prompt, systemInstruction, imageUrl); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
@@ -1361,19 +1366,30 @@ export async function extractTextViaDeepSeekVision(
   const pageTexts: string[] = new Array(numPages).fill('');
   
   let totalExtracted = 0;
+  let failedPages = 0;
+  
+  const startTime = Date.now();
 
-  const batchSize = 5;
-  for (let i = 1; i <= numPages; i += batchSize) {
-    const end = Math.min(i + batchSize - 1, numPages);
+  const VISION_CONCURRENCY = 10;
+  for (let i = 1; i <= numPages; i += VISION_CONCURRENCY) {
+    const end = Math.min(i + VISION_CONCURRENCY - 1, numPages);
     if (onProgress) {
-      onProgress(`Extracting text from images using DeepSeek Vision… (page ${i} of ${numPages})`);
+      let progressMsg = `Extracting text from images using DeepSeek Vision… (page ${i} of ${numPages})`;
+      if (i > 1) {
+        const pagesProcessed = i - 1;
+        const elapsed = Date.now() - startTime;
+        const avgTimePerPage = elapsed / pagesProcessed;
+        const remaining = avgTimePerPage * (numPages - pagesProcessed);
+        progressMsg += ` (~${Math.ceil(remaining / 60000)} min remaining)`;
+      }
+      onProgress(progressMsg);
     }
     const batchPromises: Promise<void>[] = [];
     for (let j = i; j <= end; j++) {
       const pageIndex = j - 1;
       batchPromises.push(
         pdf.getPage(j).then(async page => {
-          const viewport = page.getViewport({ scale: 1.5 });
+          const viewport = page.getViewport({ scale: 1.0 });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
           if (context) {
@@ -1386,7 +1402,7 @@ export async function extractTextViaDeepSeekVision(
             const prompt = "Extract all text and mathematical expressions from this textbook page.\nPreserve equations in LaTeX format. Preserve the reading order.\nDo NOT summarize or omit any content. Return only the extracted text.";
             
             try {
-              const text = await withRetry(() => callLLM(prompt, undefined, 'text', 16384, 0, dataUrl), 3, 5000);
+              const text = await callLLM(prompt, undefined, 'text', 16384, 0, dataUrl);
               pageTexts[pageIndex] = text || '';
               const charCount = text ? text.length : 0;
               totalExtracted += charCount;
@@ -1394,6 +1410,7 @@ export async function extractTextViaDeepSeekVision(
             } catch (err: any) {
               console.error(`Page ${j}: FAILED - ${err.message || String(err)}`);
               pageTexts[pageIndex] = ''; // empty placeholder
+              failedPages++;
             }
           }
           page.cleanup();
@@ -1403,7 +1420,14 @@ export async function extractTextViaDeepSeekVision(
     await Promise.all(batchPromises);
   }
   
+  const totalTime = Date.now() - startTime;
   console.log(`Total pages processed: ${numPages}, total characters extracted: ${totalExtracted}`);
+  console.log(`Total time: ${Math.round(totalTime / 1000)}s, avg per page: ${Math.round(totalTime / numPages / 1000)}s`);
+  
+  if (failedPages / numPages > 0.2) {
+    console.warn(`WARNING: ${failedPages} of ${numPages} pages failed during vision extraction. The book may need manual review.`);
+  }
+
   const finalText = pageTexts.join('\n\n');
   if (finalText.trim().length === 0) {
     throw new Error('DeepSeek Vision returned no text — falling back to OCR');
