@@ -658,10 +658,14 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 />
               )}
               <input {...getInputProps()} />
-              <UploadCloud className={cn(
-                "w-10 h-10 mx-auto mb-3 transition-all duration-300 transform group-hover:-translate-y-1 group-hover:scale-110",
-                isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/50 group-hover:text-cyan-400"
-              )} />
+              {isUploading ? (
+                <Loader2 className="w-10 h-10 mx-auto mb-3 text-cyan-400 animate-spin" />
+              ) : (
+                <UploadCloud className={cn(
+                  "w-10 h-10 mx-auto mb-3 transition-all duration-300 transform group-hover:-translate-y-1 group-hover:scale-110",
+                  isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/50 group-hover:text-cyan-400"
+                )} />
+              )}
               <p className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">
                 {isUploading ? uploadProgress : 'Drag & Drop or Click to Browse'}
               </p>

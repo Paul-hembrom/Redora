@@ -428,6 +428,18 @@ export default function App() {
             if (Array.isArray(data)) {
               setDocuments(data);
               import('./lib/offline').then(m => m.cacheDocuments(data));
+              
+              // Find the newly uploaded document (by tempDocId which was preserved, or just use the response if available)
+              const newDocInList = data.find((d: any) => d.id === finalDoc.id);
+              if (newDocInList) {
+                setSelectedDocId(newDocInList.id);
+                // Clear selectedChapter or currentChapterId state so the reader shows the new book's first chapter
+                if (newDocInList.chapters && newDocInList.chapters.length > 0) {
+                  setSelectedChapterId(newDocInList.chapters[0].id);
+                } else {
+                  setSelectedChapterId(null);
+                }
+              }
             }
           }
         } catch (e) {
@@ -570,6 +582,18 @@ export default function App() {
       setIsDarkMode(true);
     }
   };
+
+  useEffect(() => {
+    if (selectedDocId) {
+      const doc = Array.isArray(documents) ? documents.find(d => d.id === selectedDocId) : undefined;
+      if (doc && doc.chapters && doc.chapters.length > 0) {
+        const flat = flattenChapters(doc.chapters);
+        if (selectedChapterId !== 'read_all' && !flat.some(c => c.id === selectedChapterId)) {
+          setSelectedChapterId(flat[0].id);
+        }
+      }
+    }
+  }, [selectedDocId, documents, selectedChapterId]);
 
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const selectedDoc = safeDocuments.find(d => d.id === selectedDocId);
