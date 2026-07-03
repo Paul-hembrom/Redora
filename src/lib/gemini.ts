@@ -462,7 +462,7 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object', 8192);
+      const raw = await callLLM(prompt, undefined, 'json_object', 8192, 0);
       const parsed = JSON.parse(raw);
       
       const result: { [chapterNumber: number]: { title: string, summary: string } } = {};
@@ -539,7 +539,7 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object', 8192);
+      const raw = await callLLM(prompt, undefined, 'json_object', 8192, 0);
       const parsed = JSON.parse(raw);
       let summaryObj = parsed.summary;
       if (Array.isArray(summaryObj)) {
@@ -656,7 +656,7 @@ IMPORTANT: You must return ONLY a valid JSON object with 'response', 'followUpQu
   `.trim();
 
   try {
-    const raw = await callLLM(prompt, systemInstruction, 'json_object');
+    const raw = await callLLM(prompt, systemInstruction, 'json_object', undefined, 0);
     return JSON.parse(raw) as {
       response: string;
       followUpQuestions: string[];
@@ -685,7 +685,7 @@ Text:
 ${text.substring(0, 100000)}`;
 
   try {
-    const raw = await withRetry(() => callLLM(prompt, "You are a document structure analyst.", "json_object"), 3, 5000);
+    const raw = await withRetry(() => callLLM(prompt, "You are a document structure analyst.", "json_object", undefined, 0), 3, 5000);
     const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
     let result: any;
     try {
@@ -749,7 +749,7 @@ ${content.substring(0, 35000)}
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object', 16384);
+      const raw = await callLLM(prompt, undefined, 'json_object', 16384, 0);
       let parsed;
       
       try {
@@ -863,7 +863,7 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
   `.trim();
 
   try {
-    const raw = await callLLM(prompt, undefined, 'json_object');
+    const raw = await callLLM(prompt, undefined, 'json_object', undefined, 0);
     return JSON.parse(raw);
   } catch (error: any) {
     if (error instanceof ApiRateLimitError) throw error;
@@ -888,7 +888,7 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
   `.trim();
 
   try {
-    const raw = await callLLM(prompt, undefined, 'json_object');
+    const raw = await callLLM(prompt, undefined, 'json_object', undefined, 0);
     const parsed = JSON.parse(raw);
     return parsed.terms || null;
   } catch (error: any) {
@@ -1229,7 +1229,7 @@ Example:
   `;
 
   try {
-    const raw = await callLLM(prompt, undefined, 'json_object', 1024);
+    const raw = await callLLM(prompt, undefined, 'json_object', 1024, 0);
     if (!raw) return [];
     let cleaned = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '').trim();
     const parsed = JSON.parse(cleaned);
