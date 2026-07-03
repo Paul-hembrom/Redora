@@ -408,7 +408,7 @@ export async function callLLM(
   if (hasKey(GEMINI_KEY)) {
     try { return await callGeminiFlashLite(prompt, systemInstruction, imageUrl); } catch (e) { console.warn('Gemini failed, falling back to NVIDIA', e); }
   }
-  return callNvidiaFallback(prompt, systemInstruction, imageUrl);
+  return callNvidiaFallback(prompt, systemInstruction);
 }
 
 // ──────────────────────────────────────────────

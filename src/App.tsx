@@ -276,6 +276,18 @@ export default function App() {
     }
   }, [user, logout]);
 
+  useEffect(() => {
+    if (selectedDocId) {
+      const doc = Array.isArray(documents) ? documents.find(d => d.id === selectedDocId) : undefined;
+      if (doc && doc.chapters && doc.chapters.length > 0) {
+        const flat = flattenChapters(doc.chapters);
+        if (selectedChapterId !== 'read_all' && !flat.some(c => c.id === selectedChapterId)) {
+          setSelectedChapterId(flat[0].id);
+        }
+      }
+    }
+  }, [selectedDocId, documents, selectedChapterId]);
+
   const isPricingPage = window.location.pathname === '/pricing';
   if (isPricingPage) {
     return <Pricing />;
@@ -583,18 +595,6 @@ export default function App() {
       setIsDarkMode(true);
     }
   };
-
-  useEffect(() => {
-    if (selectedDocId) {
-      const doc = Array.isArray(documents) ? documents.find(d => d.id === selectedDocId) : undefined;
-      if (doc && doc.chapters && doc.chapters.length > 0) {
-        const flat = flattenChapters(doc.chapters);
-        if (selectedChapterId !== 'read_all' && !flat.some(c => c.id === selectedChapterId)) {
-          setSelectedChapterId(flat[0].id);
-        }
-      }
-    }
-  }, [selectedDocId, documents, selectedChapterId]);
 
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const selectedDoc = safeDocuments.find(d => d.id === selectedDocId);
