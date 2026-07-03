@@ -1,10 +1,21 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/lib/gemini.ts', 'utf8');
 
-const oldPromptRule1 = `1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim. EVERY paragraph, every bullet point, every detail must be included in the content strings. THIS IS CRITICAL.`;
-const newPromptRule1 = `1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim. EVERY paragraph, every bullet point, every detail must be included in the content strings. THIS IS CRITICAL.
-You are an expert document processor. You must process the provided text and output the full contents verbatim. DO NOT summarize, paraphrase, omit, or change any text. Ensure all subsections and details are included. Output in valid JSON format.`;
+const oldPromptRule1 = "1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim. EVERY paragraph, every bullet point, every detail must be included in the content strings. THIS IS CRITICAL.";
+const newPromptRule1 = "1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim. EVERY paragraph, every bullet point, every detail must be included in the content strings. THIS IS CRITICAL.\nYou are an expert document processor. You must process the provided text and output the full contents verbatim. DO NOT summarize, paraphrase, omit, or change any text. Ensure all subsections and details are included. Output in valid JSON format.";
 code = code.replace(oldPromptRule1, newPromptRule1);
+
+const oldSignature = "export async function extractViaAI(text: string, estimatedChapterCount?: number): Promise<any[] | null> {";
+const newSignature = "export async function extractViaAI(text: string, estimatedChapterCount?: number, docType?: string): Promise<any[] | null> {";
+code = code.replace(oldSignature, newSignature);
+
+const oldLog = "console.log(`[extractViaAI] Starting text extraction. Text length: ${cleanText.length}, expected chapters: ${estimatedChapterCount || 'unknown'}`);";
+const newLog = "console.log(`[extractViaAI] [EXTENSIVE LOGGING] Starting text extraction. Document Type: ${docType || 'unknown'}, Text length: ${cleanText.length}, Expected chapters: ${estimatedChapterCount || 'unknown'}`);";
+code = code.replace(oldLog, newLog);
+
+const oldRepairLog = "console.log('[extractViaAI] jsonrepair succeeded!');";
+const newRepairLog = "console.log('[extractViaAI] [EXTENSIVE LOGGING] [FLAG_JSON_REPAIR_TRIGGERED] jsonrepair succeeded!');";
+code = code.replace(oldRepairLog, newRepairLog);
 
 const oldProcessExtracted = `  const processExtracted = async (extracted: any[]) => {
     let arr = extracted;
@@ -97,17 +108,5 @@ const newProcessExtracted = `  const processExtracted = async (extracted: any[])
   };`;
 
 code = code.replace(oldProcessExtracted, newProcessExtracted);
-
-// Also need to add docType argument
-code = code.replace(/export async function extractViaAI\(text: string, estimatedChapterCount\?: number\): Promise<any\[\] \| null> \{/, 
-  \`export async function extractViaAI(text: string, estimatedChapterCount?: number, docType?: string): Promise<any[] | null> {\`
-);
-code = code.replace(/console\.log\(\\\`\\[extractViaAI\\] Starting text extraction\. Text length: \\\${cleanText\.length}, expected chapters: \\\${estimatedChapterCount \|\| 'unknown'}\\\`\);/,
-  \`console.log(\\\`[extractViaAI] [EXTENSIVE LOGGING] Starting text extraction. Document Type: \\\${docType || 'unknown'}, Text length: \\\${cleanText.length}, Expected chapters: \\\${estimatedChapterCount || 'unknown'}\\\`);\`
-);
-
-code = code.replace(/console\.log\('\\[extractViaAI\\] jsonrepair succeeded!'\);/,
-  \`console.log('[extractViaAI] [EXTENSIVE LOGGING] [FLAG_JSON_REPAIR_TRIGGERED] jsonrepair succeeded!');\`
-);
 
 fs.writeFileSync('src/lib/gemini.ts', code);

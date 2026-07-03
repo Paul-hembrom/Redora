@@ -990,7 +990,7 @@ function writeString(view: DataView, offset: number, string: string) {
 // ──────────────────────────────────────────────
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
-export async function extractViaAI(text: string, estimatedChapterCount?: number): Promise<any[] | null> {
+export async function extractViaAI(text: string, estimatedChapterCount?: number, docType?: string): Promise<any[] | null> {
   // Fix PDF extraction artifacts where bullet points appear as 'y'
   const preProcessedText = text.replace(/^[ \t\xA0]*[yY][ \t\xA0]+/gm, '- ');
   const cleanText = preProcessedText; // Do not truncate. 1M context handles full books.
@@ -1021,6 +1021,7 @@ If the original text contains tables (comparison tables, feature lists, tree str
 
 CRITICAL RULES:
 1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim. EVERY paragraph, every bullet point, every detail must be included in the content strings. THIS IS CRITICAL.
+You are an expert document processor. You must process the provided text and output the full contents verbatim. DO NOT summarize, paraphrase, omit, or change any text. Ensure all subsections and details are included. Output in valid JSON format.
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
 3. PRESERVE ORDER: The chapters in the array MUST be in the exact sequence they appear in the source text. Do NOT sort alphabetically.
 4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers. DO NOT merge exercises into subtopics.
@@ -1035,7 +1036,7 @@ Output only the JSON object containing the "chapters" array. No other text.
 
   let raw: string;
   try {
-    console.log(`[extractViaAI] Starting text extraction. Text length: ${cleanText.length}, expected chapters: ${estimatedChapterCount || 'unknown'}`);
+    console.log(`[extractViaAI] [EXTENSIVE LOGGING] Starting text extraction. Document Type: ${docType || 'unknown'}, Text length: ${cleanText.length}, Expected chapters: ${estimatedChapterCount || 'unknown'}`);
     raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
   } catch (e) {
     console.error('[extractViaAI] callLLM failed:', e);
@@ -1069,7 +1070,6 @@ Output only the JSON object containing the "chapters" array. No other text.
         arr = possibleArray;
       } else {
         console.error('[extractViaAI] Could not find chapters array in object:', Object.keys(extracted));
-        // Fallback: maybe the object itself is the chapter array but malformed? Just return null.
         return null;
       }
     }
@@ -1077,30 +1077,33 @@ Output only the JSON object containing the "chapters" array. No other text.
     if (!Array.isArray(arr)) return null;
     const mapped = mapToTopics(arr);
     
-    console.log(`[extractViaAI] processExtracted: Got ${mapped.length} chapters. Expected: ${estimatedChapterCount || 'unknown'}`);
+    console.log(`[extractViaAI] [EXTENSIVE LOGGING] Processed chapter mapping. Expected chapter count: ${estimatedChapterCount || 'unknown'}, Actual returned chapters: ${mapped.length}`);
 
-    // Temporarily disable split-retry logic to see if a single pass can process the whole book correctly
-    /*
-    if (estimatedChapterCount && mapped.length < estimatedChapterCount * 0.8) {
-      console.warn(`Completeness check failed: Got ${mapped.length} chapters, expected ${estimatedChapterCount}. Triggering split-retry...`);
-      
-      const mid = Math.floor(cleanText.length / 2);
-      const firstHalfText = cleanText.substring(0, mid);
-      const secondHalfText = cleanText.substring(mid);
-      
-      const [firstHalf, secondHalf] = await Promise.all([
-        extractViaAI(firstHalfText),
-        extractViaAI(secondHalfText)
-      ]);
-      
-      const combined = [];
-      if (firstHalf) combined.push(...firstHalf);
-      if (secondHalf) combined.push(...secondHalf);
-      
-      if (combined.length > 0) return combined;
-      return null;
+    const ENABLE_SPLIT_RETRY = false;
+    
+    if (ENABLE_SPLIT_RETRY) {
+      if (estimatedChapterCount && mapped.length < estimatedChapterCount * 0.8) {
+        console.warn(`[extractViaAI] Completeness check failed: Got ${mapped.length} chapters, expected ${estimatedChapterCount}. Triggering split-retry...`);
+        
+        const mid = Math.floor(cleanText.length / 2);
+        const firstHalfText = cleanText.substring(0, mid);
+        const secondHalfText = cleanText.substring(mid);
+        
+        const [firstHalf, secondHalf] = await Promise.all([
+          extractViaAI(firstHalfText, Math.floor(estimatedChapterCount / 2), docType),
+          extractViaAI(secondHalfText, Math.ceil(estimatedChapterCount / 2), docType)
+        ]);
+        
+        const combined = [];
+        if (firstHalf) combined.push(...firstHalf);
+        if (secondHalf) combined.push(...secondHalf);
+        
+        if (combined.length > 0) return combined;
+        return null;
+      }
+    } else {
+      console.log(`[extractViaAI] [EXTENSIVE LOGGING] ENABLE_SPLIT_RETRY is false. Skipping split-retry despite potential chapter count mismatch.`);
     }
-    */
 
     return mapped;
   };
@@ -1114,7 +1117,7 @@ Output only the JSON object containing the "chapters" array. No other text.
       console.log('[extractViaAI] Attempting jsonrepair...');
       const repaired = jsonrepair(cleanedRaw);
       const parsed = JSON.parse(repaired);
-      console.log('[extractViaAI] jsonrepair succeeded!');
+      console.log('[extractViaAI] [EXTENSIVE LOGGING] [FLAG_JSON_REPAIR_TRIGGERED] jsonrepair succeeded!');
       return await processExtracted(parsed);
     } catch (repairError: any) {
       console.error('[extractViaAI] jsonrepair also failed:', repairError.message);

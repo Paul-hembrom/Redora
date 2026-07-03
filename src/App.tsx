@@ -17,6 +17,7 @@ import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, 
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { motion, AnimatePresence } from 'motion/react';
 
 import { CreditsPanel } from './components/CreditsPanel';
 
@@ -601,6 +602,21 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#050505] text-white font-sans overflow-hidden">
+      {/* Global Sync Indicator */}
+      <AnimatePresence>
+        {isSyncing && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#1a1a1a] border border-white/10 shadow-lg shadow-black/50 rounded-full px-4 py-2 flex items-center gap-3"
+          >
+            <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+            <span className="text-sm font-medium text-white/90">Syncing library...</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Top Navigation Header */}
       <header className="h-16 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 shrink-0 z-30 relative">
         <div className="flex items-center gap-3">

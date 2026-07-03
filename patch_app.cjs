@@ -1,32 +1,26 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/App.tsx', 'utf8');
 
-const fetchBlockRegex = /try \{\n\s*const docsRes = await fetch\('\/api\/documents'\);\n\s*if \(docsRes\.ok\) \{\n\s*const data = await docsRes\.json\(\);\n\s*if \(Array\.isArray\(data\)\) \{\n\s*setDocuments\(data\);\n\s*import\('\.\/lib\/offline'\)\.then\(m => m\.cacheDocuments\(data\)\);\n\s*\}\n\s*\}\n\s*\} catch \(e\) \{\n\s*console\.error\('Failed to refetch documents after upload', e\);\n\s*\}/;
+const syncToast = `
+      {/* Global Sync Indicator */}
+      <AnimatePresence>
+        {isSyncing && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#1a1a1a] border border-white/10 shadow-lg shadow-black/50 rounded-full px-4 py-2 flex items-center gap-3"
+          >
+            <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+            <span className="text-sm font-medium text-white/90">Syncing library...</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+`;
 
-const newFetchBlock = `try {
-          const docsRes = await fetch('/api/documents');
-          if (docsRes.ok) {
-            const data = await docsRes.json();
-            if (Array.isArray(data)) {
-              setDocuments(data);
-              import('./lib/offline').then(m => m.cacheDocuments(data));
-              
-              // Find the newly uploaded document (by tempDocId which was preserved, or just use the response if available)
-              const newDocInList = data.find((d: any) => d.id === finalDoc.id);
-              if (newDocInList) {
-                setSelectedDocId(newDocInList.id);
-                // Clear selectedChapter or currentChapterId state so the reader shows the new book's first chapter
-                if (newDocInList.chapters && newDocInList.chapters.length > 0) {
-                  setSelectedChapterId(newDocInList.chapters[0].id);
-                } else {
-                  setSelectedChapterId(null);
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Failed to refetch documents after upload', e);
-        }`;
+code = code.replace(
+  '<div className="flex flex-col h-[100dvh] bg-[#050505] text-white font-sans overflow-hidden">',
+  '<div className="flex flex-col h-[100dvh] bg-[#050505] text-white font-sans overflow-hidden">' + syncToast
+);
 
-code = code.replace(fetchBlockRegex, newFetchBlock);
 fs.writeFileSync('src/App.tsx', code);

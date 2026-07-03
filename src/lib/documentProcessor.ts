@@ -1158,7 +1158,8 @@ Output only the JSON array, no other text.
       try {
         const regexChunks = splitIntoChaptersEnhanced(processedText);
         const estimatedChapterCount = regexChunks.length;
-        const aiExtracted = await extractViaAI(processedText, estimatedChapterCount);
+        const fileExtension = file.name.split('.').pop()?.toLowerCase();
+        const aiExtracted = await extractViaAI(processedText, estimatedChapterCount, fileExtension);
         if (aiExtracted && aiExtracted.length > 1) {
           chapterResults.length = 0;
           let baseSort = 0;
