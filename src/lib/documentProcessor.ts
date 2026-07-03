@@ -23,9 +23,8 @@ import {
 // PDF.js worker setup
 // ---------------------------------------------------------------------------
 if (typeof window !== 'undefined') {
-  import('pdfjs-dist').then(pdfjsLib => {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-  }).catch(err => console.error("Failed to load pdfjs-dist", err));
+  const pdfjsLib = await import('pdfjs-dist');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 }
 
 // ---------------------------------------------------------------------------
