@@ -994,16 +994,12 @@ export async function extractViaAI(text: string, estimatedChapterCount?: number)
   // Fix PDF extraction artifacts where bullet points appear as 'y'
   const preProcessedText = text.replace(/^[ \t\xA0]*[yY][ \t\xA0]+/gm, '- ');
   const cleanText = preProcessedText; // Do not truncate. 1M context handles full books.
-  const prompt = `
-${cleanText}
-
+  const prompt = `${cleanText}
 ---
 The text is a complete textbook. It contains multiple distinct chapters (or units, parts, sections). Your first task is to identify ALL chapter boundaries.\n${estimatedChapterCount ? `CRITICAL: The text contains exactly ${estimatedChapterCount} chapters (based on the number of chapter/unit headings found). You MUST return EXACTLY that many chapter objects. Do NOT merge chapters. Do NOT skip chapters. If the text has 12 units, you must return 12 chapter objects.\n` : ""}
-
 Common chapter markers include: "Unit", "Chapter", "Section", "Part", followed by a number or title, often on a new line or bolded.
 
 Break the text into separate chapters based on these markers. Each chapter must have its own entry in the output JSON.
-
 Do NOT merge multiple chapters into one. If you see "Unit 1", "Unit 2", "Unit 3", etc., create a separate chapter object for each.
 
 Your task is to output a **single JSON object** with a key called "chapters".
@@ -1019,13 +1015,12 @@ For EVERY chapter, you MUST split the content into subtopics. A subtopic is defi
 For EVERY chapter, you MUST extract ALL exercise content into a separate "exercises" array. Exercise content includes: multiple‑choice questions, true/false, fill‑in‑the‑blanks, match the following, short answer, long answer, project work, "Let's Revise", "Write full forms", "Select the best answer", "Answer the following", "Write technical terms", and similar question sections.
 
 The exercises array must contain exactly ONE object with "title": "Chapter Exercises" and "content": the FULL exercise text, formatted with #### Markdown headings before each exercise type (e.g., #### Select the best answer, #### Write full forms).
-
 Do NOT split exercises into multiple sub‑entries; keep everything in one block.
 
 If the original text contains tables (comparison tables, feature lists, tree structures, etc.), you MUST convert them to Markdown table format (using pipes | and dashes -). Preserve all rows and columns exactly. Do NOT omit or summarize any table content.
 
 CRITICAL RULES:
-1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
+1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim. EVERY paragraph, every bullet point, every detail must be included in the content strings. THIS IS CRITICAL.
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
 3. PRESERVE ORDER: The chapters in the array MUST be in the exact sequence they appear in the source text. Do NOT sort alphabetically.
 4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers. DO NOT merge exercises into subtopics.
@@ -1036,18 +1031,19 @@ CRITICAL RULES:
 9. IMAGE CAPTIONS: Always place image captions (e.g., "Fig: ...", "Figure: ...") on their own separate line. Never run them together with other text or with other captions.
 10. TECHNICAL TERMS: If a chapter contains a "Technical Terms", "Glossary", "Key Terms", "Vocabulary", "Important Terms", or similar section, place ALL of that content into a SINGLE topic titled "Technical Terms" with type "glossary". Format the content as a Markdown table with two columns: "Term" and "Definition". Do NOT create separate topics for individual terms.
 Output only the JSON object containing the "chapters" array. No other text.
-  `;
+`;
 
   let raw: string;
   try {
+    console.log(`[extractViaAI] Starting text extraction. Text length: ${cleanText.length}, expected chapters: ${estimatedChapterCount || 'unknown'}`);
     raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
   } catch (e) {
-    console.error('extractViaAI callLLM failed:', e);
+    console.error('[extractViaAI] callLLM failed:', e);
     return null;
   }
 
   // --- Aggressive cleaning ---
-  let cleanedRaw = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '');
+  let cleanedRaw = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '');
   cleanedRaw = cleanedRaw.replace(/,\s*([}\]])/g, '$1');
   cleanedRaw = cleanedRaw.trim();
 
@@ -1058,16 +1054,33 @@ Output only the JSON object containing the "chapters" array. No other text.
       if (Array.isArray(chap.exercises)) topics.push(...chap.exercises.map((e: any) => ({ ...e, type: 'exercise' })));
       if (Array.isArray(chap.topics)) topics.push(...chap.topics);
       return {
-        title: chap.title,
-        content: chap.content,
+        title: chap.title || 'Untitled Chapter',
+        content: chap.content || '',
         topics
       };
     });
   };
 
-
   const processExtracted = async (extracted: any[]) => {
-    const mapped = mapToTopics(extracted);
+    let arr = extracted;
+    if (!Array.isArray(extracted) && extracted && typeof extracted === 'object') {
+      const possibleArray = Object.values(extracted).find(val => Array.isArray(val));
+      if (Array.isArray(possibleArray)) {
+        arr = possibleArray;
+      } else {
+        console.error('[extractViaAI] Could not find chapters array in object:', Object.keys(extracted));
+        // Fallback: maybe the object itself is the chapter array but malformed? Just return null.
+        return null;
+      }
+    }
+    
+    if (!Array.isArray(arr)) return null;
+    const mapped = mapToTopics(arr);
+    
+    console.log(`[extractViaAI] processExtracted: Got ${mapped.length} chapters. Expected: ${estimatedChapterCount || 'unknown'}`);
+
+    // Temporarily disable split-retry logic to see if a single pass can process the whole book correctly
+    /*
     if (estimatedChapterCount && mapped.length < estimatedChapterCount * 0.8) {
       console.warn(`Completeness check failed: Got ${mapped.length} chapters, expected ${estimatedChapterCount}. Triggering split-retry...`);
       
@@ -1087,35 +1100,35 @@ Output only the JSON object containing the "chapters" array. No other text.
       if (combined.length > 0) return combined;
       return null;
     }
+    */
+
     return mapped;
   };
 
   try {
     const parsed = JSON.parse(cleanedRaw);
     return await processExtracted(parsed);
-  } catch {
+  } catch (parseError: any) {
+    console.log('[extractViaAI] Initial JSON parse failed. Response likely truncated. Error:', parseError.message);
     try {
+      console.log('[extractViaAI] Attempting jsonrepair...');
       const repaired = jsonrepair(cleanedRaw);
       const parsed = JSON.parse(repaired);
-      if (Array.isArray(parsed)) return await processExtracted(parsed);
-      if (parsed && typeof parsed === 'object') {
-        const possibleArray = Object.values(parsed).find(val => Array.isArray(val));
-        if (Array.isArray(possibleArray)) return await processExtracted(possibleArray);
-      }
-      return null;
-    } catch {
+      console.log('[extractViaAI] jsonrepair succeeded!');
+      return await processExtracted(parsed);
+    } catch (repairError: any) {
+      console.error('[extractViaAI] jsonrepair also failed:', repairError.message);
       const arrayMatch = cleanedRaw.match(/\[\s*\{[\s\S]*\}\s*\]/);
       if (arrayMatch) {
         try {
           const extracted = JSON.parse(arrayMatch[0]);
-          if (Array.isArray(extracted)) return await processExtracted(extracted);
+          return await processExtracted(extracted);
         } catch {}
       }
       return null;
     }
   }
 }
-
 
 export async function extractChapterViaAI(chapterText: string, chapterTitle: string): Promise<{ subtopics: { title: string, content: string }[], exercises: { title: string, content: string, sub_entries?: {heading: string, subtype: string}[] }[] } | null> {
   const prompt = `
