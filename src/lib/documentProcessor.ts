@@ -1614,6 +1614,7 @@ export async function extractTextViaGeminiVision(
     for (let j = i; j <= end; j++) {
       batchPromises.push((async () => {
         const pageIndex = j - 1;
+        console.log(`[Vision] Starting page ${j} of ${numPages}`);
         try {
           const page = await pdf.getPage(j);
           const viewport = page.getViewport({ scale: 1.0 });
@@ -1625,6 +1626,8 @@ export async function extractTextViaGeminiVision(
             await page.render({ canvasContext: ctx, viewport }).promise;
 
             const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+            console.log(`[Vision] Page ${j}: image rendered, size = ${base64Image.length} chars`);
+            console.log(`[Vision] Page ${j}: calling Gemini 2.5 Flash…`);
 
             const response = await withRetry(() => ai.models.generateContent({
               model: 'gemini-2.5-flash',
@@ -1638,10 +1641,19 @@ export async function extractTextViaGeminiVision(
               config: { temperature: 0, maxOutputTokens: 8192 }
             }), 3, 5000);
 
+            console.log(`[Vision] Page ${j}: API response received`);
+            console.log(`[Vision] Page ${j}: response candidates =`, response.candidates?.length);
+            console.log(`[Vision] Page ${j}: parts =`, response.candidates?.[0]?.content?.parts?.length);
+
             const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+            console.log(`[Vision] Page ${j}: extracted ${text.length} chars`);
+
+            if (text.length === 0) {
+              console.error(`[Vision] Page ${j}: EMPTY RESPONSE. Full response:`, JSON.stringify(response).substring(0, 500));
+            }
+
             pageTexts[pageIndex] = text;
             totalExtracted += text.length;
-            console.log(`Page ${j}: extracted ${text.length} characters`);
           }
           page.cleanup();
         } catch (err: any) {
@@ -1662,10 +1674,10 @@ export async function extractTextViaGeminiVision(
     console.warn(`WARNING: ${failedPages} of ${numPages} pages failed during vision extraction. The book may need manual review.`);
   }
 
-  const finalText = pageTexts.join('\n\n');
-  if (finalText.trim().length === 0) {
-    throw new Error('Gemini Vision returned no text — falling back to OCR');
+  const finalText = pageTexts.filter(Boolean).join('\n');
+  console.log(`[Vision] Final text length: ${finalText.length} chars`);
+  if (finalText.length === 0) {
+    console.error('[Vision] ALL pages returned empty text');
   }
-
   return finalText;
 }
