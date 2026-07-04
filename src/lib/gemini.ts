@@ -4,7 +4,7 @@ import { jsonrepair } from 'jsonrepair';
 // ---------------------------------------------------------------------------
 // Retry wrapper with exponential backoff for ApiRateLimitError
 // ---------------------------------------------------------------------------
-async function withRetry<T>(
+export async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries = 3,
   baseDelayMs = 2000,

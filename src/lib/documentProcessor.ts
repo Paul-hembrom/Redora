@@ -112,7 +112,7 @@ async function withRetry<T>(
     try {
       return await fn();
     } catch (err) {
-      const isRateLimit = err instanceof ApiRateLimitError;
+      const isRateLimit = err instanceof ApiRateLimitError || (err && err.message && err.message.includes('429'));
       if (!isRateLimit || attempt === maxRetries) throw err;
 
       const delay =
@@ -186,7 +186,7 @@ export async function extractTextFromFile(
       const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
       const pageTexts: string[] = new Array(pdf.numPages);
-      const batchSize = 10;
+      const batchSize = 3;
 
       for (let i = 1; i <= pdf.numPages; i += batchSize) {
         const end = Math.min(i + batchSize - 1, pdf.numPages);
@@ -273,7 +273,14 @@ export async function extractTextFromFile(
       let { texts, numPages } = await extractPdf();
       let joinedText = texts.join('\n');
 
-      if (joinedText.trim().length < 200 || joinedText.trim().length < numPages * 50) {
+      const emptyPageIndices: number[] = [];
+      for (let i = 0; i < texts.length; i++) {
+        if (!texts[i] || texts[i].trim().length < 20) {
+          emptyPageIndices.push(i);
+        }
+      }
+
+      if (joinedText.trim().length < 200 || joinedText.trim().length < numPages * 50 || (emptyPageIndices.length / Math.max(1, numPages)) > 0.4) {
         try {
           if (onProgress) onProgress('Extracting text from images using Gemini Vision… (starting)');
           const visionText = await extractTextViaGeminiVision(file, onProgress);
@@ -282,13 +289,6 @@ export async function extractTextFromFile(
           }
         } catch (visionErr) {
           console.error("Gemini Vision extraction failed, falling back to basic OCR", visionErr);
-        }
-      }
-
-      const emptyPageIndices: number[] = [];
-      for (let i = 0; i < texts.length; i++) {
-        if (!texts[i] || texts[i].trim().length < 20) {
-          emptyPageIndices.push(i);
         }
       }
 
@@ -1589,7 +1589,7 @@ export async function extractTextViaGeminiVision(
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const numPages = pdf.numPages;
   const pageTexts: string[] = new Array(numPages).fill('');
-  const batchSize = 10;
+  const batchSize = 3;
   const ai = await getGenAI();
 
   let totalExtracted = 0;
@@ -1626,7 +1626,7 @@ export async function extractTextViaGeminiVision(
 
             const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
-            const response = await ai.models.generateContent({
+            const response = await withRetry(() => ai.models.generateContent({
               model: 'gemini-2.5-flash',
               contents: {
                 role: 'user',
@@ -1636,7 +1636,7 @@ export async function extractTextViaGeminiVision(
                 ]
               },
               config: { temperature: 0, maxOutputTokens: 8192 }
-            });
+            }), 3, 5000);
 
             const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
             pageTexts[pageIndex] = text;
