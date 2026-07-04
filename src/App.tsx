@@ -392,10 +392,12 @@ export default function App() {
               chapters: initialChapters
             };
             setDocuments(prev => [newDoc, ...prev]);
-            if (!selectedDocId) {
+            if (true) {
               setSelectedDocId(newDoc.id);
               if (initialChapters.length > 0) {
                 setSelectedChapterId(initialChapters[0].id);
+              } else {
+                setSelectedChapterId(null);
               }
             }
           },

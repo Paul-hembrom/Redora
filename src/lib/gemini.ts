@@ -1020,8 +1020,7 @@ Do NOT split exercises into multiple sub‑entries; keep everything in one block
 If the original text contains tables (comparison tables, feature lists, tree structures, etc.), you MUST convert them to Markdown table format (using pipes | and dashes -). Preserve all rows and columns exactly. Do NOT omit or summarize any table content.
 
 CRITICAL RULES:
-1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim. EVERY paragraph, every bullet point, every detail must be included in the content strings. THIS IS CRITICAL.
-You are an expert document processor. You must process the provided text and output the full contents verbatim. DO NOT summarize, paraphrase, omit, or change any text. Ensure all subsections and details are included. Output in valid JSON format.
+1. CRITICAL: DO NOT summarize, omit, or change ANY text. Every paragraph, sentence, and word from the original must appear EXACTLY ONCE in the output. Copy the text verbatim into the appropriate topic's "content" field.
 2. Split the text into chapter boundaries based on "Unit", "Chapter", "Section", "Part".
 3. PRESERVE ORDER: The chapters in the array MUST be in the exact sequence they appear in the source text. Do NOT sort alphabetically.
 4. Split subtopics based on EXACT delimiters: a., b., c., 1.1, i., ii., (a), (b), (i), (ii), and bolded headers. DO NOT merge exercises into subtopics.
@@ -1079,28 +1078,13 @@ Output only the JSON object containing the "chapters" array. No other text.
     
     console.log(`[extractViaAI] [EXTENSIVE LOGGING] Processed chapter mapping. Expected chapter count: ${estimatedChapterCount || 'unknown'}, Actual returned chapters: ${mapped.length}`);
 
-    const ENABLE_SPLIT_RETRY = false;
-    
-    if (ENABLE_SPLIT_RETRY) {
-      if (estimatedChapterCount && mapped.length < estimatedChapterCount * 0.8) {
-        console.warn(`[extractViaAI] Completeness check failed: Got ${mapped.length} chapters, expected ${estimatedChapterCount}. Triggering split-retry...`);
-        
-        const mid = Math.floor(cleanText.length / 2);
-        const firstHalfText = cleanText.substring(0, mid);
-        const secondHalfText = cleanText.substring(mid);
-        
-        const [firstHalf, secondHalf] = await Promise.all([
-          extractViaAI(firstHalfText, Math.floor(estimatedChapterCount / 2), docType),
-          extractViaAI(secondHalfText, Math.ceil(estimatedChapterCount / 2), docType)
-        ]);
-        
-        const combined = [];
-        if (firstHalf) combined.push(...firstHalf);
-        if (secondHalf) combined.push(...secondHalf);
-        
-        if (combined.length > 0) return combined;
-        return null;
-      }
+    const actualChapters = mapped.length;
+    const expectedChapters = estimatedChapterCount || 0;
+    if (expectedChapters > 0 && actualChapters < expectedChapters * 0.8) {
+      console.warn(`Chapter count low: expected ${expectedChapters}, got ${actualChapters}. Split-retry is disabled.`);
+    }
+    if (false) {
+      // Disabled split retry
     } else {
       console.log(`[extractViaAI] [EXTENSIVE LOGGING] ENABLE_SPLIT_RETRY is false. Skipping split-retry despite potential chapter count mismatch.`);
     }
@@ -1139,7 +1123,7 @@ You are a strict textbook parser. The text provided is a single chapter of a boo
 Your task is to parse this chapter and output a JSON object with two keys: "subtopics" and "exercises".
 
 STRICT RULES:
-1. DO NOT summarize, change, or omit ANY text. Copy the text verbatim.
+1. CRITICAL: DO NOT summarize, omit, or change ANY text. Every paragraph, sentence, and word from the original must appear EXACTLY ONCE in the output. Copy the text verbatim into the appropriate topic's "content" field.
 2. Identify ALL sub-headings within this chapter. A sub-heading is any line that introduces a new section. You MUST detect these exact patterns:
    - A lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process").
    - A lowercase letter enclosed in parentheses followed by a space (e.g., "(a) Introduction", "(b) Conclusion").
@@ -1165,7 +1149,7 @@ Output only the JSON object, no other text.
   `;
 
   try {
-    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 131072, 0), 3, 5000);
+    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
     // Clean and parse the raw JSON
     let cleaned = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
     let parsed: any;
