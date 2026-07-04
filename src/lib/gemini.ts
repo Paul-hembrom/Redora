@@ -151,7 +151,7 @@ async function callDeepSeek(
 // 4. Gemini (Flash‑Lite, TTS, Veo) via @google/genai
 // ──────────────────────────────────────────────
 let _genai: any = null;
-async function getGenAI() {
+export async function getGenAI() {
   if (!_genai) {
     const { GoogleGenAI } = await import('@google/genai');
     _genai = new GoogleGenAI({

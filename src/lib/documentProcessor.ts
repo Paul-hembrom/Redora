@@ -15,7 +15,8 @@ import {
   extractChapterViaAI,
   extractExercisesForChapter,
   extractTechnicalTermsForChapter,
-  extractSummaryForChapter
+  extractSummaryForChapter,
+  getGenAI
 } from './gemini';
 
 let pdfjsLib: any = null;
@@ -274,13 +275,13 @@ export async function extractTextFromFile(
 
       if (joinedText.trim().length < 200 || joinedText.trim().length < numPages * 50) {
         try {
-          if (onProgress) onProgress('Extracting text from images using DeepSeek Vision… (starting)');
-          const visionText = await extractTextViaDeepSeekVision(file, onProgress);
+          if (onProgress) onProgress('Extracting text from images using Gemini Vision… (starting)');
+          const visionText = await extractTextViaGeminiVision(file, onProgress);
           if (visionText && visionText.trim().length > 200) {
             return visionText;
           }
         } catch (visionErr) {
-          console.error("DeepSeek Vision extraction failed, falling back to basic OCR", visionErr);
+          console.error("Gemini Vision extraction failed, falling back to basic OCR", visionErr);
         }
       }
 
@@ -1579,7 +1580,7 @@ Output only the JSON array, no other text.
   onProgress('Done.');
   return finalChapters;
 }
-export async function extractTextViaDeepSeekVision(
+export async function extractTextViaGeminiVision(
   file: File,
   onProgress?: (msg: string) => void
 ): Promise<string> {
@@ -1588,17 +1589,17 @@ export async function extractTextViaDeepSeekVision(
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const numPages = pdf.numPages;
   const pageTexts: string[] = new Array(numPages).fill('');
-  
+  const batchSize = 10;
+  const ai = await getGenAI();
+
   let totalExtracted = 0;
   let failedPages = 0;
-  
   const startTime = Date.now();
 
-  const VISION_CONCURRENCY = 10;
-  for (let i = 1; i <= numPages; i += VISION_CONCURRENCY) {
-    const end = Math.min(i + VISION_CONCURRENCY - 1, numPages);
+  for (let i = 1; i <= numPages; i += batchSize) {
+    const end = Math.min(i + batchSize - 1, numPages);
     if (onProgress) {
-      let progressMsg = `Extracting text from images using DeepSeek Vision… (page ${i} of ${numPages})`;
+      let progressMsg = `Extracting text from images using Gemini Vision… (page ${i} of ${numPages})`;
       if (i > 1) {
         const pagesProcessed = i - 1;
         const elapsed = Date.now() - startTime;
@@ -1608,42 +1609,51 @@ export async function extractTextViaDeepSeekVision(
       }
       onProgress(progressMsg);
     }
-    const batchPromises: Promise<void>[] = [];
+
+    const batchPromises = [];
     for (let j = i; j <= end; j++) {
-      const pageIndex = j - 1;
-      batchPromises.push(
-        pdf.getPage(j).then(async page => {
+      batchPromises.push((async () => {
+        const pageIndex = j - 1;
+        try {
+          const page = await pdf.getPage(j);
           const viewport = page.getViewport({ scale: 1.0 });
           const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          if (context) {
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            await page.render({ canvasContext: context, viewport, canvas: canvas }).promise;
-            
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            
-            const prompt = "Extract all text and mathematical expressions from this textbook page.\nPreserve equations in LaTeX format. Preserve the reading order.\nDo NOT summarize or omit any content. Return only the extracted text.";
-            
-            try {
-              const text = await callLLM(prompt, undefined, 'text', 16384, 0, dataUrl);
-              pageTexts[pageIndex] = text || '';
-              const charCount = text ? text.length : 0;
-              totalExtracted += charCount;
-              console.log(`Page ${j}: extracted ${charCount} characters`);
-            } catch (err: any) {
-              console.error(`Page ${j}: FAILED - ${err.message || String(err)}`);
-              pageTexts[pageIndex] = ''; // empty placeholder
-              failedPages++;
-            }
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            await page.render({ canvasContext: ctx, viewport }).promise;
+
+            const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash',
+              contents: {
+                role: 'user',
+                parts: [
+                  { inlineData: { mimeType: 'image/jpeg', data: base64Image } },
+                  { text: 'Extract all text and mathematical expressions from this textbook page. Preserve equations in LaTeX format. Preserve the reading order. Do NOT summarize or omit any content. Return only the extracted text.' }
+                ]
+              },
+              config: { temperature: 0, maxOutputTokens: 8192 }
+            });
+
+            const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+            pageTexts[pageIndex] = text;
+            totalExtracted += text.length;
+            console.log(`Page ${j}: extracted ${text.length} characters`);
           }
           page.cleanup();
-        })
-      );
+        } catch (err: any) {
+          console.error(`Page ${j}: FAILED - ${err.message || String(err)}`);
+          pageTexts[pageIndex] = '';
+          failedPages++;
+        }
+      })());
     }
     await Promise.all(batchPromises);
   }
-  
+
   const totalTime = Date.now() - startTime;
   console.log(`Total pages processed: ${numPages}, total characters extracted: ${totalExtracted}`);
   console.log(`Total time: ${Math.round(totalTime / 1000)}s, avg per page: ${Math.round(totalTime / numPages / 1000)}s`);
@@ -1654,7 +1664,8 @@ export async function extractTextViaDeepSeekVision(
 
   const finalText = pageTexts.join('\n\n');
   if (finalText.trim().length === 0) {
-    throw new Error('DeepSeek Vision returned no text — falling back to OCR');
+    throw new Error('Gemini Vision returned no text — falling back to OCR');
   }
+
   return finalText;
 }
