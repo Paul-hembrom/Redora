@@ -23,7 +23,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    console.error('Workspace crash:', error, errorInfo);
   }
 
   public render() {
@@ -36,7 +36,8 @@ export default class ErrorBoundary extends Component<Props, State> {
             </div>
             <h2 className="text-xl font-semibold mb-3">{this.props.fallbackText || 'Something went wrong while loading your workspace.'}</h2>
             <div className="text-white/50 text-xs mb-8 break-words text-left max-h-32 overflow-y-auto w-full p-4 bg-black/50 border border-white/5 rounded-lg font-mono">
-              {this.state.error?.message || 'Unknown error'}
+              <p style={{ color: 'red', marginTop: '1rem', whiteSpace: 'pre-wrap', textAlign: 'left' }}>{this.state.error?.message}</p>
+              <p style={{ color: '#ffaaaa', marginTop: '0.5rem', fontSize: '10px', whiteSpace: 'pre-wrap', textAlign: 'left' }}>{this.state.error?.stack}</p>
             </div>
             <div className="flex gap-3 w-full">
                <button 

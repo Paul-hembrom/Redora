@@ -10,8 +10,6 @@ import GlobalSearchModal from './components/GlobalSearchModal';
 import TerminologyExtractorModal from './components/TerminologyExtractorModal';
 import QuizDashboardModal from './components/QuizDashboardModal';
 import { useAuth } from './contexts/AuthContext';
-import { processDocument } from './lib/documentProcessor';
-import { generateChatResponse } from './lib/gemini';
 import { v4 as uuidv4 } from 'uuid';
 import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
@@ -384,6 +382,7 @@ export default function App() {
       for (const file of files) {
         const tempDocId = uuidv4();
         
+        const { processDocument } = await import('./lib/documentProcessor');
         const chapters = await processDocument(file, options, setUploadProgress, {
           onDiscovered: (initialChapters) => {
             const newDoc: Document = {
