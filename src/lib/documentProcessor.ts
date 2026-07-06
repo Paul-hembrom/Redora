@@ -1238,15 +1238,15 @@ Output only the JSON array, no other text.
     const exercises = chapter.children?.filter(c => c.type === 'exercise') || [];
 
     // 1. Force-split if 0 subtopics or 1 massive subtopic
-    if (topics.length === 0 || (topics.length === 1 && (topics[0].title === 'Chapter Content' || topics[0].title === 'Full Chapter Content'))) {
+    if (topics.length <= 1) {
       const textToSplit = topics.length === 1 ? topics[0].content : chapterChunks.find(c => c.title === chapter.title)?.content || '';
       if (textToSplit) {
-        const regexChunks = splitIntoChaptersEnhanced(textToSplit);
+        const regexChunks = splitIntoChaptersEnhanced(textToSplit).filter(ch => ch.content.trim().length > 0);
         if (regexChunks.length > 1) {
           const newTopics = regexChunks.map((ch, idx) => ({
             id: uuidv4(),
             chapterNumber: idx + 1,
-            title: ch.title || `Section ${idx + 1}`,
+            title: ch.title.startsWith('Section ') ? `Section ${idx + 1}` : ch.title,
             summary: '',
             content: ch.content,
             isGenerating: false,
@@ -1289,14 +1289,19 @@ Output only the JSON array, no other text.
         // If not found by keyword, fallback to the previous heuristic (consecutive questions) on the last topic
         if (exerciseStartIndex === -1 && topic === chapter.children.filter(c => c.type === 'topic').pop()) {
            let consecutiveCount = 0;
-           // Start scanning from the last 30% of lines
-           const startLine = Math.floor(lines.length * 0.7);
+           // Start scanning from the last 50% of lines
+           const startLine = Math.floor(lines.length * 0.5);
            for (let i = startLine; i < lines.length; i++) {
               const line = lines[i].trim();
-              if (/^(?:\d+\.|[a-z]\.)\s/.test(line)) {
+              const hasBlanks = /\.\.\.\.\./.test(line);
+              if (/^(?:\d+\.|[a-z]\.)\s/.test(line) || hasBlanks) {
                  consecutiveCount++;
-                 if (consecutiveCount === 2) {
-                    exerciseStartIndex = i - 1;
+                 if (consecutiveCount === 2 || hasBlanks) {
+                    exerciseStartIndex = i - (consecutiveCount > 0 ? consecutiveCount - 1 : 0);
+                    // backtrack if the previous line is a heading
+                    if (exerciseStartIndex > 0 && /^#/.test(lines[exerciseStartIndex - 1])) {
+                        exerciseStartIndex--;
+                    }
                     break;
                  }
               } else if (line.length > 0) {
@@ -1335,6 +1340,15 @@ Output only the JSON array, no other text.
       lines = [...new Set(lines)];
       
       const fullChapterText = (chapter.content || '') + '\n' + (chapter.children || []).map(c => c.content).join('\n');
+      
+      const summarySentences = new Set<string>();
+      if (aiSummary) {
+          aiSummary.split(/[.\n]+/).forEach(s => {
+              const cleaned = s.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (cleaned.length > 15) summarySentences.add(cleaned);
+          });
+      }
+
       lines = lines.filter(line => {
         const lowerLine = line.toLowerCase();
         const suspiciousPhrases = ['prepare a chart', 'conduct an interview', 'project work', 'visit a', 'group discussion'];
@@ -1344,6 +1358,20 @@ Output only the JSON array, no other text.
                return false;
            }
         }
+        
+        // Remove lines that are actually part of the chapter summary
+        if (summarySentences.size > 0) {
+            const cleanedLine = lowerLine.replace(/[^a-z0-9]/g, '');
+            if (cleanedLine.length > 15) {
+                for (const s of summarySentences) {
+                    if (cleanedLine.includes(s) || s.includes(cleanedLine)) {
+                        console.warn(`Removed summary line from exercise: ${line.substring(0, 50)}...`);
+                        return false;
+                    }
+                }
+            }
+        }
+        
         return true;
       });
 

@@ -1116,7 +1116,9 @@ Each chapter object must have:
 - "subtopics": An array of {"title": "...", "content": "..."}.
 - "exercises": An array of {"title": "...", "content": "..."}.
 
-For EVERY chapter, you MUST split the content into subtopics. A subtopic is defined by: numbered/lettered headings (a., b., c., 1., 2., 3., i., ii., iii.), bolded lines, or section breaks. If a chapter has NO detectable subtopics, create a single subtopic titled "Chapter Content" with the full chapter text. NEVER return a chapter with zero subtopics.
+For EVERY chapter, split the content into individual subtopics. A subtopic is any heading or sub-heading within the chapter (e.g., "a. Input", "b. Process", "CPU (Central Processing Unit)", "Working Principle of a Computer").
+Each subtopic must become a separate topic object with its own "title" and "content". Do NOT merge multiple subtopics into one. Do NOT put all content under a single "Chapter Content" topic.
+If a chapter has no detectable subtopics, only then fall back to a single topic containing the full chapter text.
 
 For EVERY chapter, you MUST extract ALL exercise content into a separate "exercises" array. Exercise content includes: multiple‑choice questions, true/false, fill‑in‑the‑blanks, match the following, short answer, long answer, project work, "Let's Revise", "Write full forms", "Select the best answer", "Answer the following", "Write technical terms", and similar question sections.
 
@@ -1252,7 +1254,7 @@ Your task is to parse this chapter and output a JSON object with two keys: "subt
 
 STRICT RULES:
 1. CRITICAL: DO NOT summarize, omit, or change ANY text. Every paragraph, sentence, and word from the original must appear EXACTLY ONCE in the output. Copy the text verbatim into the appropriate topic's "content" field.
-2. Identify ALL sub-headings within this chapter. A sub-heading is any line that introduces a new section. You MUST detect these exact patterns:
+2. Identify ALL sub-headings within this chapter. A sub-heading is any line that introduces a new section (e.g., "a. Input", "b. Process", "CPU (Central Processing Unit)", "Working Principle of a Computer"). You MUST split the content into individual subtopics based on these headings. Each subtopic must become a separate topic object with its own "title" and "content". Do NOT merge multiple subtopics into one. Do NOT put all content under a single "Chapter Content" topic. You MUST detect these patterns:
    - A lowercase letter followed by a dot and a space (e.g., "a. Input", "b. Process").
    - A lowercase letter enclosed in parentheses followed by a space (e.g., "(a) Introduction", "(b) Conclusion").
    - A number sequence like "1.1 Introduction", "1.2 Methodology", "2.3 Storage".
