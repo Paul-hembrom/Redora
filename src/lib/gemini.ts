@@ -4,7 +4,7 @@ import { jsonrepair } from 'jsonrepair';
 // ---------------------------------------------------------------------------
 // Retry wrapper with exponential backoff for ApiRateLimitError
 // ---------------------------------------------------------------------------
-export async function withRetry<T>(
+async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries = 3,
   baseDelayMs = 2000,
@@ -988,121 +988,15 @@ function writeString(view: DataView, offset: number, string: string) {
 }
 
 // ──────────────────────────────────────────────
-// 12. Gemini Vision text extraction for image-heavy PDF pages
-// ──────────────────────────────────────────────
-/**
- * Extracts verbatim text (with LaTeX for equations) from a set of rendered
- * PDF page images using Gemini 2.5 Flash. Used as the primary path for
- * image-heavy pages; callers should fall back to OCR if this throws or
- * returns an empty string.
- *
- * @param pages - rendered page images, in page order. `imageDataUrl` may be
- *   a full data URL ("data:image/jpeg;base64,...") or a raw base64 string —
- *   the prefix is stripped before sending to Gemini either way.
- */
-export async function extractTextViaGeminiVision(
-  pages: { pageNumber: number; imageDataUrl: string }[],
-): Promise<string> {
-  const ai = await getGenAI();
-  const perPageTexts: string[] = [];
-
-  const prompt = `Extract ALL text from this textbook page image, EXACTLY as it appears (verbatim).
-Do not summarize, paraphrase, or omit anything — reproduce every word, number, and punctuation mark exactly as printed.
-If the page contains mathematical or scientific equations, transcribe them using LaTeX notation (wrap inline math in $...$ and block/display equations in $$...$$).
-Preserve paragraph breaks, headings, and list structure using plain text / Markdown.
-If the page is blank or contains no legible text, return an empty string.
-Output ONLY the extracted text — no commentary, no preamble, no explanation.`;
-
-  console.log(`[extractTextViaGeminiVision] [EXTENSIVE LOGGING] Starting vision extraction for ${pages.length} page(s).`);
-
-  for (const page of pages) {
-    const { pageNumber, imageDataUrl } = page;
-
-    // Strip the "data:image/jpeg;base64," prefix if present — Gemini's inlineData
-    // wants the raw base64 payload only.
-    const commaIdx = imageDataUrl.indexOf(',');
-    const base64 = commaIdx >= 0 && imageDataUrl.startsWith('data:')
-      ? imageDataUrl.substring(commaIdx + 1)
-      : imageDataUrl;
-    const mimeType = 'image/jpeg';
-
-    const approxBytes = Math.floor((base64.length * 3) / 4);
-    console.log(`[extractTextViaGeminiVision] Page ${pageNumber}: rendered image size ≈ ${approxBytes} bytes (base64 length ${base64.length} chars)`);
-
-    const startTime = Date.now();
-    let response: any;
-    try {
-      response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [{
-          role: 'user',
-          parts: [
-            { text: prompt },
-            { inlineData: { data: base64, mimeType } },
-          ],
-        }],
-        config: {
-          temperature: 0,
-          maxOutputTokens: 8192,
-        },
-      });
-    } catch (err: any) {
-      const duration = Date.now() - startTime;
-      console.error(`[extractTextViaGeminiVision] Page ${pageNumber}: API call FAILED after ${duration}ms — ${cleanErrorMessage(err)}`);
-      continue; // one bad page shouldn't take down the whole document
-    }
-    const duration = Date.now() - startTime;
-
-    let pageText = response?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    pageText = pageText.replace(/^```(?:latex|markdown|text)?\n?/i, '').replace(/\n?```$/, '').trim();
-
-    if (pageText.length > 0) {
-      console.log(`[extractTextViaGeminiVision] Page ${pageNumber}: API call SUCCEEDED in ${duration}ms — extracted ${pageText.length} chars`);
-      perPageTexts.push(pageText);
-    } else {
-      console.error(
-        `[extractTextViaGeminiVision] Page ${pageNumber}: API call returned EMPTY text after ${duration}ms. ` +
-        `Full response (truncated to 2000 chars): ${JSON.stringify(response).substring(0, 2000)}`
-      );
-    }
-  }
-
-  const finalText = perPageTexts.join('\n\n').trim();
-  console.log(`[extractTextViaGeminiVision] [EXTENSIVE LOGGING] Finished ${pages.length} page(s). Final combined text length: ${finalText.length} chars`);
-
-  if (finalText.length === 0) {
-    console.error('[extractTextViaGeminiVision] Final extracted text is EMPTY across all pages — throwing to trigger OCR fallback.');
-    throw new Error('Gemini vision extraction returned no text for any page');
-  }
-
-  return finalText;
-}
-
-// ──────────────────────────────────────────────
 // 13. DeepSeek JSON document restructuring
 // ──────────────────────────────────────────────
 export async function extractViaAI(text: string, estimatedChapterCount?: number, docType?: string): Promise<any[] | null> {
   // Fix PDF extraction artifacts where bullet points appear as 'y'
   const preProcessedText = text.replace(/^[ \t\xA0]*[yY][ \t\xA0]+/gm, '- ');
   const cleanText = preProcessedText; // Do not truncate. 1M context handles full books.
-
-  // Determine the expected chapter count: prefer an explicit caller estimate,
-  // otherwise fall back to a simple regex scan of the source text for
-  // "Unit/Chapter/Section/Part <number>" style headings.
-  const regexMatches = text.match(/(?:Unit|Chapter|Section|Part)\s+\d+/gi) || [];
-  const regexChapterCount = new Set(regexMatches.map(m => m.trim().toLowerCase())).size;
-  const expectedChapters = estimatedChapterCount && estimatedChapterCount > 0 ? estimatedChapterCount : regexChapterCount;
-
-  console.log(`[extractViaAI] [EXTENSIVE LOGGING] Document Type: ${docType || 'unknown'}, Text length: ${cleanText.length}. Expected chapters — passed in: ${estimatedChapterCount || 'none'}, regex-detected: ${regexChapterCount}, using: ${expectedChapters || 'unknown'}`);
-
-  const buildPrompt = (strengthen: boolean) => {
-    const strengthenedPrefix = strengthen && expectedChapters > 0
-      ? `CRITICAL: The text contains exactly ${expectedChapters} chapters. You MUST return ALL of them. The previous attempt missed several. Return the complete structure.\n\n`
-      : '';
-
-    return `${strengthenedPrefix}${cleanText}
+  const prompt = `${cleanText}
 ---
-The text is a complete textbook. It contains multiple distinct chapters (or units, parts, sections). Your first task is to identify ALL chapter boundaries.\n${expectedChapters ? `CRITICAL: The text contains exactly ${expectedChapters} chapters (based on the number of chapter/unit headings found). You MUST return EXACTLY that many chapter objects. Do NOT merge chapters. Do NOT skip chapters. If the text has 12 units, you must return 12 chapter objects.\n` : ""}
+The text is a complete textbook. It contains multiple distinct chapters (or units, parts, sections). Your first task is to identify ALL chapter boundaries.\n${estimatedChapterCount ? `CRITICAL: The text contains exactly ${estimatedChapterCount} chapters (based on the number of chapter/unit headings found). You MUST return EXACTLY that many chapter objects. Do NOT merge chapters. Do NOT skip chapters. If the text has 12 units, you must return 12 chapter objects.\n` : ""}
 Common chapter markers include: "Unit", "Chapter", "Section", "Part", followed by a number or title, often on a new line or bolded.
 
 Break the text into separate chapters based on these markers. Each chapter must have its own entry in the output JSON.
@@ -1138,7 +1032,20 @@ CRITICAL RULES:
 10. TECHNICAL TERMS: If a chapter contains a "Technical Terms", "Glossary", "Key Terms", "Vocabulary", "Important Terms", or similar section, place ALL of that content into a SINGLE topic titled "Technical Terms" with type "glossary". Format the content as a Markdown table with two columns: "Term" and "Definition". Do NOT create separate topics for individual terms.
 Output only the JSON object containing the "chapters" array. No other text.
 `;
-  };
+
+  let raw: string;
+  try {
+    console.log(`[extractViaAI] [EXTENSIVE LOGGING] Starting text extraction. Document Type: ${docType || 'unknown'}, Text length: ${cleanText.length}, Expected chapters: ${estimatedChapterCount || 'unknown'}`);
+    raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
+  } catch (e) {
+    console.error('[extractViaAI] callLLM failed:', e);
+    return null;
+  }
+
+  // --- Aggressive cleaning ---
+  let cleanedRaw = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '');
+  cleanedRaw = cleanedRaw.replace(/,\s*([}\]])/g, '$1');
+  cleanedRaw = cleanedRaw.trim();
 
   const mapToTopics = (arr: any[]) => {
     return arr.map((chap: any) => {
@@ -1154,7 +1061,7 @@ Output only the JSON object containing the "chapters" array. No other text.
     });
   };
 
-  const processExtracted = (extracted: any): any[] | null => {
+  const processExtracted = async (extracted: any[]) => {
     let arr = extracted;
     if (!Array.isArray(extracted) && extracted && typeof extracted === 'object') {
       const possibleArray = Object.values(extracted).find(val => Array.isArray(val));
@@ -1165,84 +1072,49 @@ Output only the JSON object containing the "chapters" array. No other text.
         return null;
       }
     }
-
+    
     if (!Array.isArray(arr)) return null;
-    return mapToTopics(arr);
-  };
-
-  const parseRawResponse = (raw: string): any[] | null => {
-    let cleanedRaw = raw.replace(/```json\s*/gi, '').replace(/```\s*/gi, '');
-    cleanedRaw = cleanedRaw.replace(/,\s*([}\]])/g, '$1');
-    cleanedRaw = cleanedRaw.trim();
-
-    try {
-      return processExtracted(JSON.parse(cleanedRaw));
-    } catch (parseError: any) {
-      console.log('[extractViaAI] Initial JSON parse failed. Response likely truncated. Error:', parseError.message);
-      try {
-        console.log('[extractViaAI] Attempting jsonrepair...');
-        const repaired = jsonrepair(cleanedRaw);
-        const parsed = JSON.parse(repaired);
-        console.log('[extractViaAI] [EXTENSIVE LOGGING] [FLAG_JSON_REPAIR_TRIGGERED] jsonrepair succeeded!');
-        return processExtracted(parsed);
-      } catch (repairError: any) {
-        console.error('[extractViaAI] jsonrepair also failed:', repairError.message);
-        const arrayMatch = cleanedRaw.match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (arrayMatch) {
-          try {
-            return processExtracted(JSON.parse(arrayMatch[0]));
-          } catch {}
-        }
-        return null;
-      }
-    }
-  };
-
-  const maxAttempts = 3;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const prompt = buildPrompt(attempt > 1);
-
-    let raw: string;
-    try {
-      console.log(`[extractViaAI] [EXTENSIVE LOGGING] Attempt ${attempt}/${maxAttempts} — calling model. Expected chapters: ${expectedChapters || 'unknown'}`);
-      raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
-    } catch (e) {
-      console.error(`[extractViaAI] Attempt ${attempt}/${maxAttempts}: callLLM failed:`, e);
-      if (attempt === maxAttempts) return null;
-      continue;
-    }
-
-    const mapped = parseRawResponse(raw);
-
-    if (!mapped) {
-      console.error(`[extractViaAI] Attempt ${attempt}/${maxAttempts}: could not parse a usable chapters array from the response.`);
-      if (attempt === maxAttempts) return null;
-      continue;
-    }
+    const mapped = mapToTopics(arr);
+    
+    console.log(`[extractViaAI] [EXTENSIVE LOGGING] Processed chapter mapping. Expected chapter count: ${estimatedChapterCount || 'unknown'}, Actual returned chapters: ${mapped.length}`);
 
     const actualChapters = mapped.length;
-    console.log(`[extractViaAI] [EXTENSIVE LOGGING] Attempt ${attempt}/${maxAttempts} result: expected ${expectedChapters || 'unknown'} chapters, got ${actualChapters}.`);
-
-    const isIncomplete = expectedChapters > 0 && (
-      actualChapters < expectedChapters * 0.8 ||
-      (expectedChapters > 5 && actualChapters < 3)
-    );
-
-    if (!isIncomplete) {
-      return mapped;
+    const expectedChapters = estimatedChapterCount || 0;
+    if (expectedChapters > 0 && actualChapters < expectedChapters * 0.8) {
+      console.warn(`Chapter count low: expected ${expectedChapters}, got ${actualChapters}. Split-retry is disabled.`);
+    }
+    if (false) {
+      // Disabled split retry
+    } else {
+      console.log(`[extractViaAI] [EXTENSIVE LOGGING] ENABLE_SPLIT_RETRY is false. Skipping split-retry despite potential chapter count mismatch.`);
     }
 
-    console.warn(`[extractViaAI] Attempt ${attempt}/${maxAttempts}: chapter count incomplete (expected ${expectedChapters}, got ${actualChapters}).`);
+    return mapped;
+  };
 
-    if (attempt === maxAttempts) {
-      console.error(`[extractViaAI] All ${maxAttempts} attempts exhausted with incomplete chapter extraction (expected ${expectedChapters}, last attempt had ${actualChapters}). Returning null so the caller can fall back to split-retry/regex.`);
+  try {
+    const parsed = JSON.parse(cleanedRaw);
+    return await processExtracted(parsed);
+  } catch (parseError: any) {
+    console.log('[extractViaAI] Initial JSON parse failed. Response likely truncated. Error:', parseError.message);
+    try {
+      console.log('[extractViaAI] Attempting jsonrepair...');
+      const repaired = jsonrepair(cleanedRaw);
+      const parsed = JSON.parse(repaired);
+      console.log('[extractViaAI] [EXTENSIVE LOGGING] [FLAG_JSON_REPAIR_TRIGGERED] jsonrepair succeeded!');
+      return await processExtracted(parsed);
+    } catch (repairError: any) {
+      console.error('[extractViaAI] jsonrepair also failed:', repairError.message);
+      const arrayMatch = cleanedRaw.match(/\[\s*\{[\s\S]*\}\s*\]/);
+      if (arrayMatch) {
+        try {
+          const extracted = JSON.parse(arrayMatch[0]);
+          return await processExtracted(extracted);
+        } catch {}
+      }
       return null;
     }
-    // Otherwise fall through to the next attempt with a strengthened prompt.
   }
-
-  return null;
 }
 
 export async function extractChapterViaAI(chapterText: string, chapterTitle: string): Promise<{ subtopics: { title: string, content: string }[], exercises: { title: string, content: string, sub_entries?: {heading: string, subtype: string}[] }[] } | null> {
@@ -1481,3 +1353,5 @@ Output only the summary text or "NO_SUMMARY", no other text.
     return null;
   }
 }
+
+
