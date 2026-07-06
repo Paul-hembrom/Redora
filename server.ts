@@ -1,30 +1,18 @@
 // force rebuild Vercel cache bust 2
 import express from "express";
-import stubRoutes from "./server/stub-routes.js";
-
-import cookieParser from "cookie-parser";
-import authRoutes from "./server/auth-routes.js";
-import meRoutes from "./server/me-routes.js";
-
 import path from "path";
-
+import { createServer as createViteServer } from "vite";
 
 export const app = express();
 
 async function startServer() {
   const PORT = 3000;
 
-  app.use(express.json());
-  app.use(cookieParser());
-  app.use('/api/auth', authRoutes);
-  app.use('/api/me', meRoutes);
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
-  app.use('/api', stubRoutes);
 
   if (process.env.NODE_ENV !== "production") {
-    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
