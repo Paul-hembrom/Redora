@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward, Lock } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward, Lock, Mic, MicOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { markdownComponents } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
@@ -246,6 +246,73 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   const ttsAudioRef = useRef<HTMLAudioElement>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [canGenerateVideo, setCanGenerateVideo] = useState(true);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Speech Recognition State
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const inputRef = useRef(input);
+  const prefixRef = useRef('');
+
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+
+        recognition.onresult = (event: any) => {
+          let transcript = '';
+          for (let i = 0; i < event.results.length; ++i) {
+            transcript += event.results[i][0].transcript;
+          }
+          setInput((prefixRef.current ? prefixRef.current + ' ' : '') + transcript);
+        };
+
+        recognition.onerror = (event: any) => {
+          console.error('Speech recognition error', event.error);
+          setIsListening(false);
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+          // Auto-send if there's transcribed input and we were actively listening
+          setTimeout(() => {
+            if (formRef.current) {
+               const textarea = formRef.current.querySelector('textarea');
+               if (textarea && textarea.value.trim()) {
+                 const submitBtn = formRef.current.querySelector('button[type="submit"]') as HTMLButtonElement;
+                 if (submitBtn && !submitBtn.disabled) {
+                   submitBtn.click();
+                 }
+               }
+            }
+          }, 100);
+        };
+
+        recognitionRef.current = recognition;
+      }
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+    } else {
+      try {
+        prefixRef.current = inputRef.current;
+        recognitionRef.current?.start();
+        setIsListening(true);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
 
   useEffect(() => {
     fetch('/api/me/context')
@@ -1470,7 +1537,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
       <div className="p-4 md:p-6 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent shrink-0 relative z-10">
         <div className="max-w-4xl mx-auto">
-          <form onSubmit={handleSubmit} className="relative flex items-end gap-2 md:gap-3 bg-white/5 border border-white/10 rounded-2xl p-1.5 md:p-2 focus-within:border-cyan-500/50 focus-within:bg-white/[0.07] transition-all duration-300 shadow-lg backdrop-blur-sm">
+          <form ref={formRef} onSubmit={handleSubmit} className="relative flex items-end gap-2 md:gap-3 bg-white/5 border border-white/10 rounded-2xl p-1.5 md:p-2 focus-within:border-cyan-500/50 focus-within:bg-white/[0.07] transition-all duration-300 shadow-lg backdrop-blur-sm">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -1485,6 +1552,16 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
               className="w-full max-h-32 md:max-h-40 min-h-[44px] md:min-h-[52px] bg-transparent text-[16px] p-2.5 md:p-3 resize-none focus:outline-none placeholder:text-white/30 text-white font-light custom-scrollbar disabled:opacity-50"
               rows={1}
             />
+            <button
+              type="button"
+              onClick={toggleListening}
+              disabled={isTyping || isOffline || (typeof window !== 'undefined' && !('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window))}
+              className={cn("p-2.5 md:p-3.5 rounded-xl transition-all duration-300 shrink-0", 
+                isListening ? "bg-red-500 text-white animate-pulse" : "bg-white/10 text-white/70 hover:bg-white/20 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed")}
+              title={isListening ? "Stop listening" : "Start speaking"}
+            >
+              {isListening ? <MicOff className="w-4 h-4 md:w-5 md:h-5" /> : <Mic className="w-4 h-4 md:w-5 md:h-5" />}
+            </button>
             <button
               type="submit"
               disabled={!input.trim() || isTyping || isOffline}
