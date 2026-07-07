@@ -199,3 +199,34 @@ export async function getCachedTopicImages(chapterId: string) {
     const entry = await db.get('topic_images', chapterId);
     return entry ? entry.images : null;
 }
+
+export async function generateTextHash(text: string): Promise<string> {
+  const msgUint8 = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function cacheTtsAudio(text: string, audioUrl: string) {
+  if (!dbPromise) return;
+  try {
+    const id = await generateTextHash(text);
+    const db = await dbPromise;
+    await db.put('tts_cache', { id, audioUrl, timestamp: Date.now() });
+  } catch (e) {
+    console.error('Failed to cache TTS audio:', e);
+  }
+}
+
+export async function getCachedTtsAudio(text: string) {
+  if (!dbPromise) return null;
+  try {
+    const id = await generateTextHash(text);
+    const db = await dbPromise;
+    const entry = await db.get('tts_cache', id);
+    return entry ? entry.audioUrl : null;
+  } catch (e) {
+    console.error('Failed to get cached TTS audio:', e);
+    return null;
+  }
+}

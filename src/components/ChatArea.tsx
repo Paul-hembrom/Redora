@@ -20,7 +20,7 @@ import { ExerciseCard } from './ExerciseCard';
 import { smartNormalizeText } from '../lib/utils';
 
 import { useAuth } from '../contexts/AuthContext';
-import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
+import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages, getCachedTtsAudio, cacheTtsAudio } from '../lib/offline';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -355,17 +355,24 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       setPlayingMessageId(msg.id);
       setIsTtsLoading(true);
       
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: msg.text })
-      });
+      let audioUrl = await getCachedTtsAudio(msg.text);
+      if (!audioUrl) {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: msg.text })
+        });
+        
+        if (!res.ok) throw new Error('TTS failed');
+        const data = await res.json();
+        audioUrl = data.audioUrl;
+        if (audioUrl) {
+          await cacheTtsAudio(msg.text, audioUrl);
+        }
+      }
       
-      if (!res.ok) throw new Error('TTS failed');
-      const data = await res.json();
-      
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.src = data.audioUrl;
+      if (ttsAudioRef.current && audioUrl) {
+        ttsAudioRef.current.src = audioUrl;
         ttsAudioRef.current.playbackRate = playbackRate;
         ttsAudioRef.current.onended = () => {
           setPlayingMessageId(null);
@@ -435,17 +442,24 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     setIsChapterTtsLoading(true);
 
     try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: textToRead })
-      });
+      let audioUrl = await getCachedTtsAudio(textToRead);
+      if (!audioUrl) {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: textToRead })
+        });
+        
+        if (!res.ok) throw new Error('TTS failed');
+        const data = await res.json();
+        audioUrl = data.audioUrl;
+        if (audioUrl) {
+          await cacheTtsAudio(textToRead, audioUrl);
+        }
+      }
       
-      if (!res.ok) throw new Error('TTS failed');
-      const data = await res.json();
-      
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.src = data.audioUrl;
+      if (ttsAudioRef.current && audioUrl) {
+        ttsAudioRef.current.src = audioUrl;
         ttsAudioRef.current.playbackRate = playbackRate;
         ttsAudioRef.current.onended = () => {
           setIsSpeakingChapter(false);

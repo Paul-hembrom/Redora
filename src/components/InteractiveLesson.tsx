@@ -5,6 +5,7 @@ import { X, Play, Pause, MessageCircleQuestion, Send, Loader2, Volume2, Mic, Arr
 import { cn } from '../lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { useChatAutosave } from '../hooks/useChatAutosave';
+import { getCachedTtsAudio, cacheTtsAudio } from '../lib/offline';
 import { TeacherAvatar } from './TeacherAvatar';
 import { BetaBadge } from './BetaBadge';
 
@@ -89,18 +90,26 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
       const timer = setTimeout(async () => {
          // Speak "Take your time"
          try {
-           const ttsRes = await fetch(`/api/tts`, {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ text: '[smiling] Take your time, there is no rush.' })
-           });
-           if (ttsRes.ok) {
-             const { audioUrl } = await ttsRes.json();
-             if (chatAudioRef.current) {
-               chatAudioRef.current.src = audioUrl;
-               chatAudioRef.current.play().catch(e => console.error(e));
-               setChatAudioPlaying(true);
+           const text = '[smiling] Take your time, there is no rush.';
+           let audioUrl = await getCachedTtsAudio(text);
+           if (!audioUrl) {
+             const ttsRes = await fetch(`/api/tts`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ text })
+             });
+             if (ttsRes.ok) {
+               const data = await ttsRes.json();
+               audioUrl = data.audioUrl;
+               if (audioUrl) {
+                 await cacheTtsAudio(text, audioUrl);
+               }
              }
+           }
+           if (audioUrl && chatAudioRef.current) {
+             chatAudioRef.current.src = audioUrl;
+             chatAudioRef.current.play().catch(e => console.error(e));
+             setChatAudioPlaying(true);
            }
          } catch(e) { console.error(e) }
       }, 10000);
@@ -263,20 +272,28 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
        // Trigger TTS for AI response
        try {
-         const ttsRes = await fetch(`/api/tts`, {
-           method: 'POST',
-           credentials: 'include',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ text: aiResponseText })
-         });
-         
-         if (ttsRes.ok) {
-           const { audioUrl } = await ttsRes.json();
-           if (chatAudioRef.current) {
-             chatAudioRef.current.src = audioUrl;
-             chatAudioRef.current.play().catch(console.error);
-             setChatAudioPlaying(true);
+         let audioUrl = await getCachedTtsAudio(aiResponseText);
+         if (!audioUrl) {
+           const ttsRes = await fetch(`/api/tts`, {
+             method: 'POST',
+             credentials: 'include',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ text: aiResponseText })
+           });
+           
+           if (ttsRes.ok) {
+             const data = await ttsRes.json();
+             audioUrl = data.audioUrl;
+             if (audioUrl) {
+               await cacheTtsAudio(aiResponseText, audioUrl);
+             }
            }
+         }
+         
+         if (audioUrl && chatAudioRef.current) {
+           chatAudioRef.current.src = audioUrl;
+           chatAudioRef.current.play().catch(console.error);
+           setChatAudioPlaying(true);
          }
        } catch (err) {
          console.error("TTS play error", err);
