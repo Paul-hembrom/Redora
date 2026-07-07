@@ -43,7 +43,14 @@ app.use((req, res, next) => {
 const createLimiter = (maxRequests: number) => {
   return rateLimit({
     windowMs: 60 * 1000, // 1 minute
-    max: maxRequests,
+    max: (req: any, res: any) => {
+      const role = req.cookies?.['sb-role'];
+      let hasToken = false;
+      if (req.cookies?.token || req.headers?.authorization) {
+        hasToken = true;
+      }
+      return (role === 'student' || !hasToken) ? maxRequests : 30;
+    },
     keyGenerator: (req: any, res: any) => {
       // Use userId if available from authenticate middleware, else fallback to IP
       return req.userId || ipKeyGenerator(req, res);
@@ -61,6 +68,56 @@ const startLessonLimiter = createLimiter(5);
 const secureLlmLimiter = createLimiter(20);
 
 app.use('/api/secure-llm', secureLlmLimiter);
+
+const globalApiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: (req: any, res: any) => {
+    const role = req.cookies?.['sb-role'];
+    let hasToken = false;
+    if (req.cookies?.token || req.headers?.authorization) {
+      hasToken = true;
+    }
+    return (role === 'student' || !hasToken) ? 10 : 30;
+  },
+  keyGenerator: (req: any, res: any) => {
+    try {
+      const token = req.cookies?.token || req.headers?.authorization?.split(' ')[1];
+      if (token) {
+        const decoded = jwt.decode(token) as any;
+        if (decoded && (decoded.userId || decoded.sub)) {
+           return decoded.userId || decoded.sub;
+        }
+      }
+    } catch(e) {}
+    return ipKeyGenerator(req, res);
+  },
+  skip: (req: any) => {
+    const path = req.path;
+    
+    // Exempt token-exchange
+    if (path === '/auth/token-exchange' || path === '/api/auth/token-exchange') return true;
+    
+    // Exempt vercel health checks
+    if (path.startsWith('/_vercel/')) return true;
+
+    // Exempt workspace-loading endpoints
+    if (req.method === 'GET') {
+      if (path === '/api/auth/me') return true;
+      if (path === '/api/me/context') return true;
+      if (path === '/api/me/role') return true;
+      if (path === '/api/documents') return true;
+      if (path === '/api/organizations') return true;
+      if (path.match(/^\/api\/chapters\/[^\/]+$/)) return true;
+    }
+    
+    return false;
+  },
+  message: { error: 'Too many requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', globalApiLimiter);
 
 // DO NOT REMOVE – Gateway token exchange for teachers/students
 app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) => {
