@@ -338,68 +338,144 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       return;
     }
 
+    // Stop chapter TTS if playing
+    if (isSpeakingChapter) {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      if (ttsAudioRef.current) ttsAudioRef.current.pause();
+      setIsSpeakingChapter(false);
+    }
+
     try {
       if (ttsAudioRef.current) {
         ttsAudioRef.current.pause();
+        // Unlock audio context for mobile browsers by playing a silent buffer synchronously
+        ttsAudioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        ttsAudioRef.current.play().catch(() => {});
       }
       setPlayingMessageId(msg.id);
       setIsTtsLoading(true);
+      
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: msg.text })
       });
+      
       if (!res.ok) throw new Error('TTS failed');
       const data = await res.json();
       
       if (ttsAudioRef.current) {
         ttsAudioRef.current.src = data.audioUrl;
         ttsAudioRef.current.playbackRate = playbackRate;
+        ttsAudioRef.current.onended = () => {
+          setPlayingMessageId(null);
+        };
         await ttsAudioRef.current.play();
       }
     } catch(err) {
-      console.error(err);
-      setPlayingMessageId(null);
+      console.error('Server TTS failed, falling back to browser TTS', err);
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(msg.text);
+        utterance.rate = playbackRate;
+        
+        utterance.onend = () => setPlayingMessageId(null);
+        utterance.onerror = (e) => {
+          console.error('Speech synthesis error', e);
+          setPlayingMessageId(null);
+          setError("Could not read aloud right now.");
+        };
+        
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setPlayingMessageId(null);
+        setError("Could not read aloud right now.");
+      }
     } finally {
       setIsTtsLoading(false);
     }
   };
 
-  const handleListenChapter = () => {
-    if (!('speechSynthesis' in window)) {
-      alert("Your browser does not support text-to-speech.");
-      return;
-    }
+  const [isChapterTtsLoading, setIsChapterTtsLoading] = useState(false);
 
+  const handleListenChapter = async () => {
     if (isSpeakingChapter) {
-      window.speechSynthesis.cancel();
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current.currentTime = 0;
+      }
       setIsSpeakingChapter(false);
       return;
     }
 
-    // Stop any other audio
-    if (ttsAudioRef.current) {
-      ttsAudioRef.current.pause();
+    // Stop message TTS if playing
+    if (playingMessageId) {
+      if (ttsAudioRef.current) ttsAudioRef.current.pause();
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
       setPlayingMessageId(null);
     }
     
     // Clear any previous speech
-    window.speechSynthesis.cancel();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(chapter.content || chapter.summary || '');
-    utterance.rate = playbackRate;
-    
-    utterance.onend = () => {
-      setIsSpeakingChapter(false);
-    };
-    
-    utterance.onerror = (e) => {
-      console.error('Speech synthesis error', e);
-      setIsSpeakingChapter(false);
-    };
+    let textToRead = typeof chapter.content === 'string' ? chapter.content : (chapter.summary || '');
+
+    // Remove markdown formatting
+    textToRead = textToRead.replace(/[*#_]/g, '');
+
+    if (!textToRead.trim()) return;
+
+    if (ttsAudioRef.current) {
+      // Unlock audio context for mobile browsers by playing a silent buffer synchronously
+      ttsAudioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      ttsAudioRef.current.play().catch(() => {});
+    }
 
     setIsSpeakingChapter(true);
-    window.speechSynthesis.speak(utterance);
+    setIsChapterTtsLoading(true);
+
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textToRead })
+      });
+      
+      if (!res.ok) throw new Error('TTS failed');
+      const data = await res.json();
+      
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.src = data.audioUrl;
+        ttsAudioRef.current.playbackRate = playbackRate;
+        ttsAudioRef.current.onended = () => {
+          setIsSpeakingChapter(false);
+        };
+        await ttsAudioRef.current.play();
+      }
+    } catch(err) {
+      console.error('Server TTS failed, falling back to browser TTS', err);
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        utterance.rate = playbackRate;
+        
+        utterance.onend = () => {
+          setIsSpeakingChapter(false);
+        };
+        
+        utterance.onerror = (e) => {
+          console.error('Speech synthesis error', e);
+          setIsSpeakingChapter(false);
+          setError("Could not read aloud right now.");
+        };
+        
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setIsSpeakingChapter(false);
+        setError("Could not read aloud right now.");
+      }
+    } finally {
+      setIsChapterTtsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -1045,8 +1121,8 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             )}
             title={isSpeakingChapter ? "Stop Listening" : "Listen to Chapter"}
           >
-            {isSpeakingChapter ? <Square className="w-4 h-4 mr-1.5 fill-current" /> : <Volume2 className="w-4 h-4 mr-1.5" />}
-            {isSpeakingChapter ? "Stop" : "Listen"}
+            {isChapterTtsLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : isSpeakingChapter ? <Square className="w-4 h-4 mr-1.5 fill-current" /> : <Volume2 className="w-4 h-4 mr-1.5" />}
+            {isChapterTtsLoading ? "Loading..." : isSpeakingChapter ? "Stop" : "Listen"}
           </button>
           <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
              <Volume2 className="w-3.5 h-3.5 text-white/40 ml-1" />

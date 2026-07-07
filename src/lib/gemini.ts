@@ -927,7 +927,40 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
 // ──────────────────────────────────────────────
 export async function synthesizeSpeech(text: string, voiceName?: string): Promise<string> {
   if (!hasKey(GEMINI_KEY)) throw new Error('Gemini API key required for TTS');
-  return callGeminiTTS(text, voiceName);
+  
+  const maxRetries = 2;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        const backoffMs = Math.pow(2, attempt - 1) * 1000;
+        await new Promise(r => setTimeout(r, backoffMs));
+      }
+      
+      console.log(`[TTS] Requesting speech for text length: ${text.length} (Attempt ${attempt + 1})`);
+      const dataUrl = await callGeminiTTS(text, voiceName);
+      
+      if (!dataUrl || !dataUrl.startsWith('data:audio/wav;base64,')) {
+        throw new Error('TTS returned invalid data URL');
+      }
+      
+      const base64Data = dataUrl.split(',')[1];
+      const approxBytes = (base64Data.length * 3) / 4;
+      
+      if (text.length > 20 && approxBytes < 24000) {
+         throw new Error(`TTS audio too short for text length (bytes: ${approxBytes})`);
+      }
+      
+      console.log(`[TTS] Success! Generated ${approxBytes} bytes of audio.`);
+      return dataUrl;
+    } catch (e: any) {
+      console.error(`[TTS] Attempt ${attempt + 1} failed:`, e.message);
+      lastError = e;
+    }
+  }
+  
+  throw lastError || new Error('TTS failed after retries');
 }
 
 export async function transcribeSpeech(audioBlob: Blob): Promise<string> {
