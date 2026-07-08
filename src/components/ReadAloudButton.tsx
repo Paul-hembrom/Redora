@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, Square, Loader2, AudioLines, Settings2, Sparkles, Check } from 'lucide-react';
+import { Volume2, Square, Loader2, AudioLines, Settings2, Sparkles, Check, Info } from 'lucide-react';
 import { synthesizeSpeech } from '../lib/gemini';
 import { cn } from '../lib/utils';
 
@@ -15,13 +15,57 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
   const [errorMsg, setErrorMsg] = useState('');
   const [usePremium, setUsePremium] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [voicesAvailable, setVoicesAvailable] = useState(true);
+  const [showPermissionWarning, setShowPermissionWarning] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     return () => stopPlaying();
+  }, []);
+
+  useEffect(() => {
+    // Check for voices on mount
+    const checkVoices = () => {
+      if ('speechSynthesis' in window) {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+          // If empty, wait for voiceschanged to fire
+          const handleVoicesChanged = () => {
+            const updatedVoices = window.speechSynthesis.getVoices();
+            if (updatedVoices.length === 0) {
+              setVoicesAvailable(false);
+            } else {
+              setVoicesAvailable(true);
+            }
+          };
+          window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+          return () => window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
+        } else {
+          setVoicesAvailable(true);
+        }
+      } else {
+        setVoicesAvailable(false);
+      }
+    };
+    
+    const cleanupVoices = checkVoices();
+    
+    // Tab-throttling recovery: cancel speech when tab gains focus
+    const handleFocus = () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      if (cleanupVoices) cleanupVoices();
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   useEffect(() => {
@@ -47,7 +91,7 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
         window.speechSynthesis.resume();
       }
     };
-    window.addEventListener('touchstart', handleInteraction, { once: true });
+    window.addEventListener('touchstart', handleInteraction, { once: true, passive: true });
     window.addEventListener('click', handleInteraction, { once: true });
     return () => {
       window.removeEventListener('touchstart', handleInteraction);
@@ -74,11 +118,15 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
     
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(v => v.name.includes('Google UK English Female')) || 
-                           voices.find(v => v.lang === 'en-GB') ||
-                           voices.find(v => v.lang.startsWith('en'));
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
+    
+    if (voices.length === 0) {
+      setVoicesAvailable(false);
+      return false;
+    }
+
+    const englishVoice = voices.find(v => v.lang.includes('en') && v.localService) || voices[0];
+    if (englishVoice) {
+      utterance.voice = englishVoice;
     }
     
     utterance.onstart = () => setIsPlaying(true);
@@ -122,12 +170,17 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
     }
   };
 
-  const handleAction = async (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
+  const triggerSpeech = async () => {
     if (isPlaying || isLoading) {
       stopPlaying();
+      return;
+    }
+
+    if (!voicesAvailable && !usePremium) {
+      setShowPermissionWarning(true);
+      setTimeout(() => setShowPermissionWarning(false), 5000);
+      // fallback to Gemini if possible
+      await tryGeminiTTS();
       return;
     }
 
@@ -142,6 +195,29 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
     }
   };
 
+  useEffect(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      e.preventDefault(); // Prevent double firing with click
+      triggerSpeech();
+    };
+
+    const handleClick = (e: MouseEvent) => {
+      e.preventDefault();
+      triggerSpeech();
+    };
+
+    btn.addEventListener('click', handleClick);
+    btn.addEventListener('touchstart', handleTouchStart, { passive: false });
+
+    return () => {
+      btn.removeEventListener('click', handleClick);
+      btn.removeEventListener('touchstart', handleTouchStart);
+    };
+  }, [text, isPlaying, isLoading, usePremium, voicesAvailable]); // Re-bind when state changes that affects triggerSpeech
+
   const showError = (msg: string) => {
     setErrorMsg(msg);
     setTimeout(() => {
@@ -152,7 +228,7 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
   return (
     <div className="relative inline-flex items-center gap-0.5">
       <button 
-        onClick={handleAction}
+        ref={buttonRef}
         className={cn(
           "relative p-1.5 bg-black/20 hover:bg-black/40 rounded text-white/50 hover:text-cyan-400 disabled:opacity-50 transition-colors flex items-center justify-center touch-manipulation z-10",
           "before:absolute before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:min-w-[48px] before:min-h-[48px] before:content-['']",
@@ -240,6 +316,18 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
       {errorMsg && (
         <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 whitespace-nowrap bg-red-500 text-white text-xs px-2 py-1 rounded select-none pointer-events-none z-50 shadow-xl border border-red-400/30">
           {errorMsg}
+        </div>
+      )}
+
+      {showPermissionWarning && (
+        <div className="absolute bottom-full mb-3 right-0 w-[240px] bg-gray-800 text-gray-200 text-xs p-3 rounded-lg shadow-xl border border-white/10 flex items-start gap-2 z-50">
+          <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1">
+            <span className="font-medium text-white">Audio not available</span>
+            <span className="text-[11px] text-gray-400 leading-tight">
+              Check site sound permissions in Chrome settings (Settings → Site Settings → Sound → Allow).
+            </span>
+          </div>
         </div>
       )}
     </div>
