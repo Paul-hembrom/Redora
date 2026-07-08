@@ -1699,41 +1699,50 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
   try {
     const { text } = req.body;
     if (!text) {
-      return res.status(400).json({ error: "missing text" });
+      return res.status(400).json({ error: 'Missing text' });
     }
+
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: "Missing ELEVENLABS_API_KEY" });
+      console.error('ELEVENLABS_API_KEY is not set');
+      return res.status(500).json({ error: 'Server configuration error' });
     }
-    
-    // Voice ID for "George" is requested: JBFqnCBsd6RMkjVDRZzb
-    // Output format mp3_44100_128
-    const response = await fetch('https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb?output_format=mp3_44100_128', {
+
+    // Use fetch instead of SDK for simplicity (SDK not needed)
+    const voiceId = 'JBFqnCBsd6RMkjVDRZzb'; // George
+    const modelId = 'eleven_v3';
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'xi-api-key': apiKey
+        'xi-api-key': apiKey,
       },
       body: JSON.stringify({
         text,
-        model_id: 'eleven_v3' // User requested eleven_v3
-      })
+        model_id: modelId,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+        },
+      }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("ElevenLabs error:", errorText);
-      return res.status(response.status).json({ error: "ElevenLabs API error" });
+      const errText = await response.text();
+      console.error(`ElevenLabs TTS API error: ${response.status}`, errText);
+      return res.status(500).json({ error: 'TTS generation failed' });
     }
 
     const audioBuffer = await response.arrayBuffer();
-    const base64Audio = Buffer.from(audioBuffer).toString('base64');
-    const audioUrl = `data:audio/mp3;base64,${base64Audio}`;
+    const base64 = Buffer.from(audioBuffer).toString('base64');
+    const audioUrl = `data:audio/mpeg;base64,${base64}`;
 
     res.json({ audioUrl });
   } catch (err: any) {
-    console.error("ElevenLabs TTS generation failed:", err);
-    res.status(500).json({ error: err.message });
+    console.error('ElevenLabs TTS endpoint error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
