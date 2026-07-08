@@ -10,8 +10,9 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sql, { dbReady } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
+import { synthesizeSpeech } from './server/synthesizeSpeech.js';
 import { getUserRoleInOrg } from './server/roles.js';
-import { generateChapterMetadata, generateSearchQueries } from './src/lib/gemini.js';
+import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -1409,12 +1410,10 @@ app.post('/api/retrieve-videos', authenticate, retrieveVideosLimiter, async (req
         }
       }
     });
+
     const conceptsStr = Array.isArray(keyConcepts) ? keyConcepts.join(', ') : '';
-
     const contextPrefix = class_context ? `Class Context: ${class_context}` : `Grade Level: ${grade}`;
-
-    const prompt = `
-You are an expert Educational Video Retrieval Engine.
+    const prompt = `You are an expert Educational Video Retrieval Engine.
 Your task is to find the best educational YouTube videos for a specific chapter context.
 
 ${contextPrefix}
@@ -1448,8 +1447,7 @@ Return ONLY valid JSON exactly matching this schema:
     }
   ]
 }
-Leave "video_id" empty if unsure, do not invent 11-char IDs.
-`;
+Leave "video_id" empty if unsure, do not invent 11-char IDs.`;
 
     let responseText = '{}';
     try {
@@ -1465,7 +1463,6 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
       console.warn("Gemini retrieve-videos failed:", geminiError.message, "- trying DeepSeek fallback");
       const dsKey = process.env.DEEPSEEK_API_KEY || process.env.VITE_DEEPSEEK_API_KEY;
       let dsSucceeded = false;
-
       if (dsKey) {
         try {
           const dsRes = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -1475,7 +1472,7 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
               'Authorization': `Bearer ${dsKey}`
             },
             body: JSON.stringify({
-              model: 'deepseek-chat', // Use deepseek-chat or deepseek-v4-flash depending on config, but deepseek-chat is standard for text
+              model: 'deepseek-chat',
               messages: [{ role: 'user', content: prompt }],
               response_format: { type: 'json_object' }
             })
@@ -1514,9 +1511,9 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.
     console.log("LLM response text:", responseText);
     let parsedData;
     try {
-      parsedData = JSON.parse(responseText.trim().replace(/^```json/, '').replace(/```$/, ''));
+      parsedData = JSON.parse(responseText.trim().replace(/^\s*```json/, '').replace(/```\s*$/, ''));
     } catch (e) {
-      console.error("Failed to parse Gemini response:", e);
+      console.error("Failed to parse AI response:", e);
       return res.status(500).json({ error: 'Failed to parse AI response' });
     }
 
@@ -1566,131 +1563,125 @@ app.post('/api/topics/:id/images', authenticate, imagesLimiter, async (req: any,
     }
 
     const { org_context, title, key_concepts, summary } = req.body;
-    const ai = new GoogleGenAI({ 
-      apiKey: process.env.GEMINI_API_KEY || '',
-      httpOptions: {
-        retryOptions: {
-          attempts: 5
-        }
-      }
-    });
     
     const conceptsStr = Array.isArray(key_concepts) ? key_concepts.join(', ') : '';
-    const prompt = `Search Google Images for high-quality educational diagrams or illustrations about: ${title} (${conceptsStr}). Return exactly 3 direct image URLs in a JSON array of strings. Do not include any other text.`;
+    const keywordPrompt = `You are an Educational Search Assistant. Your job is to extract a single, precise, physical or scientific search keyword from the provided chapter and subtopics that can be used on photo/diagram search engines. Return ONLY a JSON object matching this format: {"keyword": "string"}
 
-    const images: any[] = [];
+Chapter Title: ${title}
+Key Concepts: ${conceptsStr}`;
 
+    let searchQuery = `${title} ${conceptsStr}`.substring(0, 50).trim();
     try {
-      const imageResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }]
-        }
-      });
-      
-      const responseText = imageResponse.text || '';
-      
-      // Try to parse JSON array of URLs
-      let extractedUrls: string[] = [];
-      try {
-        const cleaned = responseText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
-        extractedUrls = JSON.parse(cleaned);
-      } catch (e) {
-        // Fallback: extract markdown images or http links
-        const urlRegex = /(?:https?:\/\/)[^\s"']+\.(?:png|jpg|jpeg|gif|webp)/gi;
-        const matches = responseText.match(urlRegex) || [];
-        extractedUrls = [...new Set(matches)];
-      }
-
-      for (const url of extractedUrls) {
-        if (typeof url === 'string' && url.startsWith('http')) {
-          images.push({
-            url: url,
-            thumbnail: url,
-            alt: `Image for ${title}`,
-            source: "google-search"
-          });
-        }
+      const raw = await callLLM(keywordPrompt, undefined, 'json_object');
+      const parsed = JSON.parse(raw);
+      if (parsed.keyword) {
+        searchQuery = parsed.keyword.trim();
       }
     } catch (err) {
-      console.error("Gemini image generation/search error", err);
+      console.error("DeepSeek query generation failed, using fallback query", err);
+    }
+
+    const pexelsKey = process.env.IMAGE_SEARCH_API_KEY;
+    const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
+    const images: any[] = [];
+
+    if (pexelsKey) {
+      try {
+        const pexelsRes = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(searchQuery)}&per_page=6`, {
+          headers: { Authorization: pexelsKey }
+        });
+        if (pexelsRes.ok) {
+          const data = await pexelsRes.json();
+          if (data.photos && data.photos.length > 0) {
+            for (const photo of data.photos) {
+              images.push({
+                url: photo.src.large || photo.src.original,
+                thumbnail: photo.src.medium,
+                alt: photo.alt || `Image for ${searchQuery}`,
+                source: "pexels"
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Pexels search failed", err);
+      }
     }
     
-    // Fallback to Wikipedia API if Google Search (Gemini) failed (e.g. 429 billing limit)
+    if (images.length === 0 && unsplashKey) {
+      try {
+        const unsplashRes = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=6`, {
+          headers: { Authorization: `Client-ID ${unsplashKey}` }
+        });
+        if (unsplashRes.ok) {
+          const data = await unsplashRes.json();
+          if (data.results && data.results.length > 0) {
+            for (const photo of data.results) {
+              images.push({
+                url: photo.urls.regular || photo.urls.full,
+                thumbnail: photo.urls.small,
+                alt: photo.alt_description || `Image for ${searchQuery}`,
+                source: "unsplash"
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Unsplash search failed", err);
+      }
+    }
+
     if (images.length === 0) {
       try {
-        const cleanTitle = title.split(':')[0].trim(); // Take first part of title
-        const wikiRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&piprop=original&titles=${encodeURIComponent(cleanTitle)}`);
+        const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(searchQuery + " diagram")}&gsrnamespace=6&prop=imageinfo&iiprop=url&format=json&origin=*`;
+        const wikiRes = await fetch(wikiUrl);
         if (wikiRes.ok) {
           const wikiData = await wikiRes.json();
           const pages = wikiData.query?.pages;
           if (pages) {
             for (const pageId in pages) {
-              if (pages[pageId].original?.source) {
-                const url = pages[pageId].original.source;
-                images.push({
-                  url,
-                  thumbnail: url,
-                  alt: title,
-                  source: 'wikipedia'
-                });
-                break;
+              const info = pages[pageId].imageinfo?.[0];
+              if (info?.url) {
+                images.push({ url: info.url, thumbnail: info.url, alt: searchQuery, source: "wikimedia-commons" });
+                if (images.length >= 3) break;
               }
             }
           }
         }
-      } catch (wikiErr) {
-        console.error("Wikipedia image fallback failed", wikiErr);
+      } catch (err) {
+        console.error("Wikimedia Commons search failed", err);
       }
     }
 
-    res.json({ images });
+    if (images.length === 0 && req.body.generateDiagram === true) {
+      try {
+        const krokiPrompt = `Generate a simple Mermaid.js diagram description for the following topic. Only return the Mermaid code, no other text.
+Topic: ${title} (${conceptsStr})`;
+        
+        const rawKroki = await callLLM(krokiPrompt);
+        const cleanedMermaid = rawKroki.replace(/```mermaid\s*/gi, '').replace(/```\s*/gi, '').trim();
+        
+        if (cleanedMermaid) {
+           const krokiUrl = `https://kroki.io/mermaid/svg/${encodeURIComponent(cleanedMermaid)}`;
+           images.push({
+             url: krokiUrl,
+             thumbnail: krokiUrl,
+             alt: `Diagram for ${title}`,
+             source: "kroki"
+           });
+        }
+      } catch (err) {
+        console.error("Kroki diagram generation failed", err);
+      }
+    }
 
+    if (images.length === 0) {
+      return res.json({ images: [], message: "No images found. Try searching for videos instead." });
+    }
+
+    res.json({ images });
   } catch (err: any) {
     console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-import { synthesizeSpeech } from './server/synthesizeSpeech.js';
-
-app.post('/api/lessons/study-plan', authenticate, async (req: any, res) => {
-  try {
-    const { docId } = req.body;
-    let chapters;
-    if (docId) {
-       const docs = await sql`SELECT chapters FROM documents WHERE id = ${docId} AND ${getDocUserFilter(req)}`;
-       if (!docs || docs.length === 0) return res.status(404).json({error: "Not found"});
-       chapters = typeof docs[0].chapters === 'string' ? JSON.parse(docs[0].chapters) : docs[0].chapters;
-    } else {
-       const docs = await sql`SELECT name, chapters FROM documents WHERE ${getDocUserFilter(req)}`;
-       chapters = docs.map((d: any) => ({
-         title: "Project: " + d.name,
-         children: typeof d.chapters === 'string' ? JSON.parse(d.chapters) : d.chapters
-       }));
-    }
-    
-    // We send to gemini to create a schedule
-    const text = JSON.stringify(chapters, ['title', 'summary', 'children']);
-    
-    const prompt = `You are a learning expert. Given the following document chapter hierarchy, generate a multi-day study schedule.
-Format it in Markdown, with headings for Day 1, Day 2, etc., and bullet points for what chapters or parts to study. Break it down reasonably.
-
-Chapter data:
-${text.substring(0, 50000)}`;
-    
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY || ''
-    });
-    const result = await ai.models.generateContent({
-      model: 'gemini-3.1-pro-preview',
-      contents: [{ role: 'user', parts: [{ text: prompt }]}]
-    });
-    
-    let plan = result.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Failed to generate study plan.';
-    res.json({ plan });
-  } catch(err: any) {
     res.status(500).json({ error: err.message });
   }
 });
