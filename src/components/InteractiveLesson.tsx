@@ -93,7 +93,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
            const text = '[smiling] Take your time, there is no rush.';
            let audioUrl = await getCachedTtsAudio(text);
            if (!audioUrl) {
-             const ttsRes = await fetch(`/api/tts`, {
+             const ttsRes = await fetch(`/api/tts/elevenlabs`, {
                method: 'POST',
                headers: { 'Content-Type': 'application/json' },
                body: JSON.stringify({ text })
@@ -274,7 +274,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
        try {
          let audioUrl = await getCachedTtsAudio(aiResponseText);
          if (!audioUrl) {
-           const ttsRes = await fetch(`/api/tts`, {
+           const ttsRes = await fetch(`/api/tts/elevenlabs`, {
              method: 'POST',
              credentials: 'include',
              headers: { 'Content-Type': 'application/json' },

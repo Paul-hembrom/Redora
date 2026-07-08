@@ -1695,6 +1695,48 @@ ${text.substring(0, 50000)}`;
   }
 });
 
+app.post('/api/tts/elevenlabs', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: "missing text" });
+    }
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "Missing ELEVENLABS_API_KEY" });
+    }
+    
+    // Voice ID for "George" is requested: JBFqnCBsd6RMkjVDRZzb
+    // Output format mp3_44100_128
+    const response = await fetch('https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb?output_format=mp3_44100_128', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': apiKey
+      },
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_v3' // User requested eleven_v3
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("ElevenLabs error:", errorText);
+      return res.status(response.status).json({ error: "ElevenLabs API error" });
+    }
+
+    const audioBuffer = await response.arrayBuffer();
+    const base64Audio = Buffer.from(audioBuffer).toString('base64');
+    const audioUrl = `data:audio/mp3;base64,${base64Audio}`;
+
+    res.json({ audioUrl });
+  } catch (err: any) {
+    console.error("ElevenLabs TTS generation failed:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/tts', async (req, res) => {
   try {
     const { text } = req.body;

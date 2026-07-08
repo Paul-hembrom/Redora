@@ -17,10 +17,11 @@ import { ImageCard } from './ImageCard';
 import { InteractiveLesson } from './InteractiveLesson';
 import { BetaBadge } from './BetaBadge';
 import { ExerciseCard } from './ExerciseCard';
+import { ReadAloudButton } from './ReadAloudButton';
 import { smartNormalizeText } from '../lib/utils';
 
 import { useAuth } from '../contexts/AuthContext';
-import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages, getCachedTtsAudio, cacheTtsAudio } from '../lib/offline';
+import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -240,10 +241,6 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [playbackRate, setPlaybackRate] = useState<number>(1);
-  const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
-  const [isSpeakingChapter, setIsSpeakingChapter] = useState(false);
-  const [isTtsLoading, setIsTtsLoading] = useState(false);
-  const ttsAudioRef = useRef<HTMLAudioElement>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [canGenerateVideo, setCanGenerateVideo] = useState(true);
   const formRef = useRef<HTMLFormElement>(null);
@@ -328,169 +325,6 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       .catch(() => {});
   }, []);
 
-  const handlePlayTTS = async (msg: ChatMessage) => {
-    if (playingMessageId === msg.id) {
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        ttsAudioRef.current.currentTime = 0;
-      }
-      setPlayingMessageId(null);
-      return;
-    }
-
-    // Stop chapter TTS if playing
-    if (isSpeakingChapter) {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      if (ttsAudioRef.current) ttsAudioRef.current.pause();
-      setIsSpeakingChapter(false);
-    }
-
-    try {
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        // Unlock audio context for mobile browsers by playing a silent buffer synchronously
-        ttsAudioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-        ttsAudioRef.current.play().catch(() => {});
-      }
-      setPlayingMessageId(msg.id);
-      setIsTtsLoading(true);
-      
-      let audioUrl = await getCachedTtsAudio(msg.text);
-      if (!audioUrl) {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: msg.text })
-        });
-        
-        if (!res.ok) throw new Error('TTS failed');
-        const data = await res.json();
-        audioUrl = data.audioUrl;
-        if (audioUrl) {
-          await cacheTtsAudio(msg.text, audioUrl);
-        }
-      }
-      
-      if (ttsAudioRef.current && audioUrl) {
-        ttsAudioRef.current.src = audioUrl;
-        ttsAudioRef.current.playbackRate = playbackRate;
-        ttsAudioRef.current.onended = () => {
-          setPlayingMessageId(null);
-        };
-        await ttsAudioRef.current.play();
-      }
-    } catch(err) {
-      console.error('Server TTS failed, falling back to browser TTS', err);
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(msg.text);
-        utterance.rate = playbackRate;
-        
-        utterance.onend = () => setPlayingMessageId(null);
-        utterance.onerror = (e) => {
-          console.error('Speech synthesis error', e);
-          setPlayingMessageId(null);
-          setError("Could not read aloud right now.");
-        };
-        
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setPlayingMessageId(null);
-        setError("Could not read aloud right now.");
-      }
-    } finally {
-      setIsTtsLoading(false);
-    }
-  };
-
-  const [isChapterTtsLoading, setIsChapterTtsLoading] = useState(false);
-
-  const handleListenChapter = async () => {
-    if (isSpeakingChapter) {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        ttsAudioRef.current.currentTime = 0;
-      }
-      setIsSpeakingChapter(false);
-      return;
-    }
-
-    // Stop message TTS if playing
-    if (playingMessageId) {
-      if (ttsAudioRef.current) ttsAudioRef.current.pause();
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-      setPlayingMessageId(null);
-    }
-    
-    // Clear any previous speech
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-
-    let textToRead = typeof chapter.content === 'string' ? chapter.content : (chapter.summary || '');
-
-    // Remove markdown formatting
-    textToRead = textToRead.replace(/[*#_]/g, '');
-
-    if (!textToRead.trim()) return;
-
-    if (ttsAudioRef.current) {
-      // Unlock audio context for mobile browsers by playing a silent buffer synchronously
-      ttsAudioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-      ttsAudioRef.current.play().catch(() => {});
-    }
-
-    setIsSpeakingChapter(true);
-    setIsChapterTtsLoading(true);
-
-    try {
-      let audioUrl = await getCachedTtsAudio(textToRead);
-      if (!audioUrl) {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: textToRead })
-        });
-        
-        if (!res.ok) throw new Error('TTS failed');
-        const data = await res.json();
-        audioUrl = data.audioUrl;
-        if (audioUrl) {
-          await cacheTtsAudio(textToRead, audioUrl);
-        }
-      }
-      
-      if (ttsAudioRef.current && audioUrl) {
-        ttsAudioRef.current.src = audioUrl;
-        ttsAudioRef.current.playbackRate = playbackRate;
-        ttsAudioRef.current.onended = () => {
-          setIsSpeakingChapter(false);
-        };
-        await ttsAudioRef.current.play();
-      }
-    } catch(err) {
-      console.error('Server TTS failed, falling back to browser TTS', err);
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(textToRead);
-        utterance.rate = playbackRate;
-        
-        utterance.onend = () => {
-          setIsSpeakingChapter(false);
-        };
-        
-        utterance.onerror = (e) => {
-          console.error('Speech synthesis error', e);
-          setIsSpeakingChapter(false);
-          setError("Could not read aloud right now.");
-        };
-        
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setIsSpeakingChapter(false);
-        setError("Could not read aloud right now.");
-      }
-    } finally {
-      setIsChapterTtsLoading(false);
-    }
-  };
 
   useEffect(() => {
     // Cleanup speech synthesis on unmount or chapter change
@@ -1098,19 +932,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   };
 
   useEffect(() => {
-    if (ttsAudioRef.current) {
-      ttsAudioRef.current.playbackRate = playbackRate;
-    }
   }, [playbackRate]);
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#050505] relative w-full max-w-full">
-      <audio 
-        ref={ttsAudioRef} 
-        onEnded={() => setPlayingMessageId(null)}
-        onError={() => setPlayingMessageId(null)}
-        className="hidden"
-      />
+      
       <div className="flex flex-col lg:flex-row lg:items-center justify-between px-4 md:px-8 py-3 lg:py-0 lg:h-16 shrink-0 bg-[#0a0a0a]/80 backdrop-blur-md z-10 gap-3 border-b border-white/5">
         <div className="min-w-0 shrink-0">
           <div className="flex items-center gap-2">
@@ -1125,19 +951,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
           <p className="text-xs text-white/40 font-light tracking-wide truncate">Context restricted to this chapter</p>
         </div>
         <ScrollableActionBar className="w-full lg:w-auto pb-1 lg:pb-0 min-w-0" innerClassName="gap-2">
-          <button
-            onClick={handleListenChapter}
-            className={cn(
-              "flex items-center shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
-              isSpeakingChapter 
-                ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/30" 
-                : "bg-black/40 text-white/80 border-white/5 hover:bg-white/5 hover:text-white"
-            )}
-            title={isSpeakingChapter ? "Stop Listening" : "Listen to Chapter"}
-          >
-            {isChapterTtsLoading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : isSpeakingChapter ? <Square className="w-4 h-4 mr-1.5 fill-current" /> : <Volume2 className="w-4 h-4 mr-1.5" />}
-            {isChapterTtsLoading ? "Loading..." : isSpeakingChapter ? "Stop" : "Listen"}
-          </button>
+          <ReadAloudButton 
+            text={typeof chapter.content === 'string' ? chapter.content : (chapter.summary || '')} 
+            className="flex items-center shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-black/40 text-white/80 border-white/5 hover:bg-white/5 hover:text-white"
+            iconSizeClasses="w-4 h-4"
+          />
           <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
              <Volume2 className="w-3.5 h-3.5 text-white/40 ml-1" />
              <select 
@@ -1446,19 +1264,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       </button>
                     )}
                     {msg.role === 'model' && (
-                      <button
-                        onClick={() => handlePlayTTS(msg)}
-                        className="p-1.5 text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40 rounded-md transition-all"
-                        title={playingMessageId === msg.id ? "Stop TTS" : "Play TTS"}
-                      >
-                        {isTtsLoading && playingMessageId === msg.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : playingMessageId === msg.id ? (
-                          <Square className="w-3.5 h-3.5 fill-current" />
-                        ) : (
-                          <Volume2 className="w-3.5 h-3.5" />
-                        )}
-                      </button>
+                      <ReadAloudButton 
+                        text={msg.text} 
+                        iconSizeClasses="w-3.5 h-3.5" 
+                        className="bg-black/20 hover:bg-black/40" 
+                      />
                     )}
                     {msg.role === 'model' && (
                       <button

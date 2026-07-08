@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import fs from 'fs';
+const content = `import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Square, Loader2, AudioLines, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -30,10 +31,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       if ('speechSynthesis' in window) {
         const voices = window.speechSynthesis.getVoices();
         
-        const logVoices = (vList: SpeechSynthesisVoice[]) => {
-          console.log(`[SmartReadAloud] Found ${vList.length} voices.`);
+        const logVoices = (vList) => {
+          console.log(\`[SmartReadAloud] Found \${vList.length} voices.\`);
           if (vList.length > 0) {
-            console.log(`[SmartReadAloud] Languages: ${Array.from(new Set(vList.map(v => v.lang))).join(', ')}`);
+            console.log(\`[SmartReadAloud] Languages: \${Array.from(new Set(vList.map(v => v.lang))).join(', ')}\`);
           }
         };
 
@@ -109,7 +110,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         body: JSON.stringify({ text })
       });
       if (!res.ok) {
-        throw new Error(`API returned ${res.status}`);
+        throw new Error(\`API returned \${res.status}\`);
       }
       const data = await res.json();
       if (!data.audioUrl) throw new Error('No audio URL returned');
@@ -160,7 +161,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     const englishVoice = voices.find(v => v.lang.toLowerCase().includes('en') && v.localService) || voices[0];
     if (englishVoice) {
       utterance.voice = englishVoice;
-      console.log(`[SmartReadAloud] Selected voice: ${englishVoice.name} (${englishVoice.lang})`);
+      console.log(\`[SmartReadAloud] Selected voice: \${englishVoice.name} (\${englishVoice.lang})\`);
     } else {
       console.log("[SmartReadAloud] Selected voice: Default");
     }
@@ -218,12 +219,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     const btn = buttonRef.current;
     if (!btn) return;
 
-    const handleTouchStart = (e: TouchEvent) => {
+    const handleTouchStart = (e) => {
       e.preventDefault(); 
       triggerSpeech();
     };
 
-    const handleClick = (e: MouseEvent) => {
+    const handleClick = (e) => {
       e.preventDefault();
       triggerSpeech();
     };
@@ -237,7 +238,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, [text, isPlaying, isLoading, voicesAvailable]); 
 
-  const showError = (msg: string) => {
+  const showError = (msg) => {
     setErrorMsg(msg);
     setTimeout(() => {
       setErrorMsg('');
@@ -291,3 +292,5 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 }
 
 export { SmartReadAloudButton as ReadAloudButton };
+`;
+fs.writeFileSync('src/components/ReadAloudButton.tsx', content);
