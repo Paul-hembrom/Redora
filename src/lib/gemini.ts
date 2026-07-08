@@ -1,6 +1,5 @@
 import { ChatMessage, ReadingPersona } from '../types';
 import { jsonrepair } from 'jsonrepair';
-import { getCachedTtsAudio, cacheTtsAudio } from './offline';
 
 // ---------------------------------------------------------------------------
 // Retry wrapper with exponential backoff for ApiRateLimitError
@@ -926,47 +925,6 @@ IMPORTANT: You must return ONLY a valid JSON object exactly matching this struct
 // ──────────────────────────────────────────────
 // 10. NEW public functions (TTS, STT, Video)
 // ──────────────────────────────────────────────
-
-export async function elevenlabsTTS(text: string, voiceId: string = "21m00Tcm4TlvDq8ikWAM"): Promise<string> {
-  const apiKey = getEnvSafe('VITE_ELEVENLABS_API_KEY', () => import.meta.env.VITE_ELEVENLABS_API_KEY as string);
-  if (!apiKey) throw new Error('ElevenLabs API key required for TTS');
-  
-  const cachedUrl = await getCachedTtsAudio(text);
-  if (cachedUrl) return cachedUrl;
-
-  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`, {
-    method: 'POST',
-    headers: {
-      'xi-api-key': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text,
-      model_id: 'eleven_v3',
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75
-      }
-    })
-  });
-  
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`ElevenLabs TTS failed: ${err}`);
-  }
-  
-  const blob = await response.blob();
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-  
-  await cacheTtsAudio(text, dataUrl);
-  return dataUrl;
-}
-
 export async function synthesizeSpeech(text: string, voiceName?: string): Promise<string> {
   if (!hasKey(GEMINI_KEY)) throw new Error('Gemini API key required for TTS');
   

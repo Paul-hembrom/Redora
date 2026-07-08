@@ -7,7 +7,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { useChatAutosave } from '../hooks/useChatAutosave';
 import { getCachedTtsAudio, cacheTtsAudio } from '../lib/offline';
 import { TeacherAvatar } from './TeacherAvatar';
-import { elevenlabsTTS } from "../lib/gemini";
 import { BetaBadge } from './BetaBadge';
 
 interface LessonStep {
@@ -92,11 +91,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
          // Speak "Take your time"
          try {
            const text = '[smiling] Take your time, there is no rush.';
-           let audioUrl = await elevenlabsTTS(text).catch(e => {
-             console.warn('ElevenLabs failed:', e);
-             return null;
-           });
-           
+           let audioUrl = await getCachedTtsAudio(text);
            if (!audioUrl) {
              const ttsRes = await fetch(`/api/tts`, {
                method: 'POST',
@@ -106,6 +101,9 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
              if (ttsRes.ok) {
                const data = await ttsRes.json();
                audioUrl = data.audioUrl;
+               if (audioUrl) {
+                 await cacheTtsAudio(text, audioUrl);
+               }
              }
            }
            if (audioUrl && chatAudioRef.current) {
@@ -274,11 +272,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
        // Trigger TTS for AI response
        try {
-         let audioUrl = await elevenlabsTTS(aiResponseText).catch(e => {
-           console.warn('ElevenLabs failed:', e);
-           return null;
-         });
-         
+         let audioUrl = await getCachedTtsAudio(aiResponseText);
          if (!audioUrl) {
            const ttsRes = await fetch(`/api/tts`, {
              method: 'POST',
@@ -290,6 +284,9 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
            if (ttsRes.ok) {
              const data = await ttsRes.json();
              audioUrl = data.audioUrl;
+             if (audioUrl) {
+               await cacheTtsAudio(aiResponseText, audioUrl);
+             }
            }
          }
          
