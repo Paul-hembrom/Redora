@@ -1,6 +1,6 @@
 import { GoogleGenAI, Schema, Type } from "@google/genai";
 import sql from "./db.js";
-import { synthesizeSpeech } from "../src/lib/gemini.js";
+import { synthesizeSpeech, synthesizeElevenLabsSpeech } from "../src/lib/gemini.js";
 import { v4 as uuidv4 } from "uuid";
 import { getStudentMemory } from "./studentMemory.js";
 
@@ -216,8 +216,14 @@ Output valid JSON only.`;
           ttsText = `[${em}] ${ttsText}`;
         }
         
-        const url = await synthesizeSpeech(ttsText, 'Kore');
-        step.narration_audio_url = url;
+        try {
+          const url = await synthesizeElevenLabsSpeech(ttsText);
+          step.narration_audio_url = url;
+        } catch (e) {
+          console.warn('ElevenLabs TTS failed, falling back to Gemini TTS');
+          const url = await synthesizeSpeech(ttsText, 'Kore');
+          step.narration_audio_url = url;
+        }
       } catch(e) {
          console.error("TTS generation failed for step:", step.id, e);
          // Fallback to a tiny silent WAV data URI so the frontend logic can proceed
