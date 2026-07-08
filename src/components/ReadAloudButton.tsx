@@ -8,6 +8,24 @@ interface Props {
   iconSizeClasses?: string;
 }
 
+
+const logInfo = (msg: string, data?: any) => {
+  console.log('%c[SmartReadAloud]', 'color: #0ea5e9; font-weight: bold; background: #0ea5e91a; padding: 2px 6px; border-radius: 4px;', msg, data || '');
+};
+
+const logSuccess = (msg: string, data?: any) => {
+  console.log('%c[SmartReadAloud]', 'color: #10b981; font-weight: bold; background: #10b9811a; padding: 2px 6px; border-radius: 4px;', msg, data || '');
+};
+
+const logWarning = (msg: string, data?: any) => {
+  console.warn('%c[SmartReadAloud]', 'color: #f59e0b; font-weight: bold; background: #f59e0b1a; padding: 2px 6px; border-radius: 4px;', msg, data || '');
+};
+
+const logError = (msg: string, data?: any) => {
+  console.error('%c[SmartReadAloud]', 'color: #ef4444; font-weight: bold; background: #ef44441a; padding: 2px 6px; border-radius: 4px;', msg, data || '');
+};
+
+
 export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4" }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,14 +49,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         const voices = window.speechSynthesis.getVoices();
         
         const logVoices = (vList: SpeechSynthesisVoice[]) => {
-          console.log(`[SmartReadAloud] Found ${vList.length} voices.`);
+          logSuccess(`Found ${vList.length} voices loaded.`);
           if (vList.length > 0) {
-            console.log(`[SmartReadAloud] Languages: ${Array.from(new Set(vList.map(v => v.lang))).join(', ')}`);
+            logInfo(`Available voice languages: ${Array.from(new Set(vList.map(v => v.lang))).join(', ')}`);
           }
         };
 
         if (voices.length === 0) {
-          console.log("[SmartReadAloud] No voices initially. Listening for voiceschanged...");
+          logInfo('No voices initially. Listening for voiceschanged event...');
           const handleVoicesChanged = () => {
             const updatedVoices = window.speechSynthesis.getVoices();
             logVoices(updatedVoices);
@@ -51,7 +69,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           setVoicesAvailable(true);
         }
       } else {
-        console.log("[SmartReadAloud] speechSynthesis API not found.");
+        logError('speechSynthesis API not found in this browser.');
         setVoicesAvailable(false);
       }
     };
@@ -99,7 +117,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   const tryElevenLabsTTS = async () => {
-    console.log("[SmartReadAloud] Trying ElevenLabs TTS");
+    logInfo('Triggered: Attempting ElevenLabs TTS API call...');
     try {
       setIsLoading(true);
       setErrorMsg('');
@@ -119,16 +137,16 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       audio.onended = () => setIsPlaying(false);
       audio.onerror = () => {
         setIsPlaying(false);
-        console.error("[SmartReadAloud] ElevenLabs audio playback error");
+        logError('ElevenLabs audio element threw a playback error.');
         speakWithBrowser();
       };
       
       await audio.play();
       setIsLoading(false);
       setIsPlaying(true);
-      console.log("[SmartReadAloud] ElevenLabs TTS playing successfully.");
+      logSuccess('ElevenLabs TTS API call successful, audio is playing.');
     } catch (err) {
-      console.error("[SmartReadAloud] ElevenLabs TTS failed:", err);
+      logError('ElevenLabs TTS API call failed:', err);
       setIsLoading(false);
       setIsPlaying(false);
       speakWithBrowser();
@@ -136,9 +154,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   const speakWithBrowser = () => {
-    console.log("[SmartReadAloud] Falling back to browser SpeechSynthesis");
+    logWarning('Falling back to local browser SpeechSynthesis engine...');
     if (!('speechSynthesis' in window)) {
-      console.log("[SmartReadAloud] speechSynthesis not supported.");
+      logError('SpeechSynthesis engine is not supported by this browser.');
       showError('Audio playback not available.');
       return;
     }
@@ -149,7 +167,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     const voices = window.speechSynthesis.getVoices();
     
     if (voices.length === 0) {
-      console.log("[SmartReadAloud] No voices available at speak time.");
+      logError('TTS Failed: No local voices available at time of speak request.');
       setVoicesAvailable(false);
       setShowPermissionWarning(true);
       setTimeout(() => setShowPermissionWarning(false), 5000);
@@ -160,9 +178,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     const englishVoice = voices.find(v => v.lang.toLowerCase().includes('en') && v.localService) || voices[0];
     if (englishVoice) {
       utterance.voice = englishVoice;
-      console.log(`[SmartReadAloud] Selected voice: ${englishVoice.name} (${englishVoice.lang})`);
+      logSuccess(`Selected local voice: ${englishVoice.name} (${englishVoice.lang})`);
     } else {
-      console.log("[SmartReadAloud] Selected voice: Default");
+      logInfo('Selected local voice: Default system voice');
     }
     
     let didEnd = false;
@@ -172,7 +190,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       setIsPlaying(false);
     };
     utterance.onerror = (e) => {
-      console.error("[SmartReadAloud] SpeechSynthesis error:", e);
+      logError('SpeechSynthesis API threw an error:', e);
       setIsPlaying(false);
       if (!stopIntentRef.current) {
         showError('Audio playback not available.');
@@ -183,9 +201,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     
     try {
       window.speechSynthesis.speak(utterance);
-      console.log("[SmartReadAloud] Called speechSynthesis.speak()");
+      logInfo('Called window.speechSynthesis.speak() command.');
     } catch (err) {
-      console.error("[SmartReadAloud] Exception calling speak():", err);
+      logError('Caught exception when calling speak():', err);
       showError('Audio playback not available.');
       return;
     }
@@ -195,11 +213,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     setTimeout(() => {
       if (stopIntentRef.current || didEnd) return;
       if (!window.speechSynthesis.speaking) {
-         console.warn("[SmartReadAloud] Speaking is false after 2 seconds. Triggering fallback error.");
+         logWarning('Timeout check: speaking flag is still false after 2 seconds. Triggering failure.');
          window.speechSynthesis.cancel();
          showError('Audio playback not available.');
       } else {
-         console.log("[SmartReadAloud] Confirmed speaking started successfully.");
+         logSuccess('Timeout check: confirmed local synthesis is successfully speaking.');
       }
     }, 2000);
   };
@@ -219,11 +237,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     if (!btn) return;
 
     const handleTouchStart = (e: TouchEvent) => {
+      logInfo("Trigger Event: touchstart detected on ReadAloudButton");
       e.preventDefault(); 
       triggerSpeech();
     };
 
     const handleClick = (e: MouseEvent) => {
+      logInfo("Trigger Event: click detected on ReadAloudButton");
       e.preventDefault();
       triggerSpeech();
     };
