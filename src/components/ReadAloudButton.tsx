@@ -22,6 +22,8 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  
+  const stopIntentRef = useRef(false);
 
   useEffect(() => {
     return () => stopPlaying();
@@ -32,10 +34,20 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
     const checkVoices = () => {
       if ('speechSynthesis' in window) {
         const voices = window.speechSynthesis.getVoices();
+        
+        const logVoices = (vList: SpeechSynthesisVoice[]) => {
+          console.log(`[SmartReadAloud] Found ${vList.length} voices.`);
+          if (vList.length > 0) {
+            console.log(`[SmartReadAloud] Languages: ${Array.from(new Set(vList.map(v => v.lang))).join(', ')}`);
+          }
+        };
+
         if (voices.length === 0) {
+          console.log("[SmartReadAloud] No voices initially. Listening for voiceschanged...");
           // If empty, wait for voiceschanged to fire
           const handleVoicesChanged = () => {
             const updatedVoices = window.speechSynthesis.getVoices();
+            logVoices(updatedVoices);
             if (updatedVoices.length === 0) {
               setVoicesAvailable(false);
             } else {
@@ -45,9 +57,11 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
           window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
           return () => window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
         } else {
+          logVoices(voices);
           setVoicesAvailable(true);
         }
       } else {
+        console.log("[SmartReadAloud] speechSynthesis API not found.");
         setVoicesAvailable(false);
       }
     };
@@ -100,6 +114,7 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
   }, []);
 
   const stopPlaying = () => {
+    stopIntentRef.current = true;
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -111,41 +126,8 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
     setIsLoading(false);
   };
 
-  const speakWithBrowser = (): boolean => {
-    if (!('speechSynthesis' in window)) return false;
-    
-    window.speechSynthesis.cancel(); // Stop anything playing
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    
-    if (voices.length === 0) {
-      setVoicesAvailable(false);
-      return false;
-    }
-
-    const englishVoice = voices.find(v => v.lang.includes('en') && v.localService) || voices[0];
-    if (englishVoice) {
-      utterance.voice = englishVoice;
-    }
-    
-    utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => setIsPlaying(false);
-    utterance.onerror = (e) => {
-      console.error("SpeechSynthesis error:", e);
-      setIsPlaying(false);
-    };
-    
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-    
-    // Sometimes onstart doesn't fire immediately on mobile
-    setIsPlaying(true); 
-    
-    return true;
-  };
-
-  const tryGeminiTTS = async () => {
+  const tryGeminiTTS = async (reason?: string) => {
+    if (reason) console.log(`[SmartReadAloud] Falling back to Gemini TTS. Reason: ${reason}`);
     try {
       setIsLoading(true);
       setErrorMsg('');
@@ -162,12 +144,83 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
       setIsLoading(false);
       setIsPlaying(true);
       await audio.play();
+      console.log("[SmartReadAloud] Gemini TTS playing successfully.");
     } catch (err) {
-      console.error(err);
+      console.error("[SmartReadAloud] Gemini TTS fallback failed:", err);
       setIsLoading(false);
       setIsPlaying(false);
       showError('Voice playback not supported on this device.');
     }
+  };
+
+  const speakWithBrowser = () => {
+    if (!('speechSynthesis' in window)) {
+      console.log("[SmartReadAloud] speechSynthesis not supported.");
+      tryGeminiTTS("speechSynthesis not supported");
+      return;
+    }
+    
+    window.speechSynthesis.cancel(); // Stop anything playing
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    
+    if (voices.length === 0) {
+      console.log("[SmartReadAloud] No voices available at speak time.");
+      setVoicesAvailable(false);
+      setShowPermissionWarning(true);
+      setTimeout(() => setShowPermissionWarning(false), 5000);
+      tryGeminiTTS("No voices available");
+      return;
+    }
+
+    const englishVoice = voices.find(v => v.lang.toLowerCase().includes('en') && v.localService) || voices[0];
+    if (englishVoice) {
+      utterance.voice = englishVoice;
+      console.log(`[SmartReadAloud] Selected voice: ${englishVoice.name} (${englishVoice.lang})`);
+    } else {
+      console.log("[SmartReadAloud] Selected voice: Default");
+    }
+    
+    let didEnd = false;
+    utterance.onstart = () => setIsPlaying(true);
+    utterance.onend = () => {
+      didEnd = true;
+      setIsPlaying(false);
+    };
+    utterance.onerror = (e) => {
+      console.error("[SmartReadAloud] SpeechSynthesis error:", e);
+      setIsPlaying(false);
+      if (!stopIntentRef.current) {
+        tryGeminiTTS(`SpeechSynthesis error: ${e.error}`);
+      }
+    };
+    
+    utteranceRef.current = utterance;
+    
+    try {
+      window.speechSynthesis.speak(utterance);
+      console.log("[SmartReadAloud] Called speechSynthesis.speak()");
+    } catch (err) {
+      console.error("[SmartReadAloud] Exception calling speak():", err);
+      tryGeminiTTS(`Exception calling speak(): ${err}`);
+      return;
+    }
+    
+    // Sometimes onstart doesn't fire immediately on mobile
+    setIsPlaying(true); 
+    
+    // 2-second timeout to check if it actually started speaking
+    setTimeout(() => {
+      if (stopIntentRef.current || didEnd) return;
+      if (!window.speechSynthesis.speaking) {
+         console.warn("[SmartReadAloud] Speaking is false after 2 seconds. Triggering fallback.");
+         window.speechSynthesis.cancel();
+         tryGeminiTTS("Speaking false after 2 seconds timeout");
+      } else {
+         console.log("[SmartReadAloud] Confirmed speaking started successfully.");
+      }
+    }, 2000);
   };
 
   const triggerSpeech = async () => {
@@ -176,22 +229,21 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
       return;
     }
 
+    stopIntentRef.current = false;
+
     if (!voicesAvailable && !usePremium) {
+      console.log("[SmartReadAloud] Voices unavailable, showing warning and falling back.");
       setShowPermissionWarning(true);
       setTimeout(() => setShowPermissionWarning(false), 5000);
       // fallback to Gemini if possible
-      await tryGeminiTTS();
+      await tryGeminiTTS("Voices unavailable on click");
       return;
     }
 
     if (usePremium) {
-      await tryGeminiTTS();
+      await tryGeminiTTS("Premium mode selected");
     } else {
-      const started = speakWithBrowser();
-      if (!started) {
-        // Fallback to Gemini if browser TTS is unsupported
-        await tryGeminiTTS();
-      }
+      speakWithBrowser();
     }
   };
 
@@ -323,9 +375,9 @@ export function ReadAloudButton({ text, className, iconSizeClasses = "w-3 h-3" }
         <div className="absolute bottom-full mb-3 right-0 w-[240px] bg-gray-800 text-gray-200 text-xs p-3 rounded-lg shadow-xl border border-white/10 flex items-start gap-2 z-50">
           <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="flex flex-col gap-1">
-            <span className="font-medium text-white">Audio not available</span>
+            <span className="font-medium text-white">No voices found.</span>
             <span className="text-[11px] text-gray-400 leading-tight">
-              Check site sound permissions in Chrome settings (Settings → Site Settings → Sound → Allow).
+              Check Chrome site sound settings (Settings → Site Settings → Sound → Allow).
             </span>
           </div>
         </div>
