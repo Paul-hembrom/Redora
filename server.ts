@@ -1702,7 +1702,7 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
       return res.status(400).json({ error: 'Missing text' });
     }
 
-    const apiKey = process.env.ELEVENLABS_API_KEY;
+    const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) {
       console.error('ELEVENLABS_API_KEY is not set');
       return res.status(500).json({ error: 'Server configuration error' });
@@ -1768,7 +1768,7 @@ app.post('/api/stt/transcribe', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ error: "Missing audio file" });
     }
 
-    const apiKey = process.env.ELEVENLABS_API_KEY;
+    const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: "Missing ELEVENLABS_API_KEY" });
     }
