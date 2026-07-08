@@ -259,7 +259,15 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
        const contentContext = `Current Step Content: ${currentStep?.caption || currentStep?.text || currentStep?.narrationText || ''}`;
        
        const { generateILMChatResponse } = await import('../lib/gemini');
-       const aiResponseText = await generateILMChatResponse(textToSubmit, contentContext, chatHistory as any);
+       
+       const timeoutPromise = new Promise<string>((_, reject) => {
+         setTimeout(() => reject(new Error('TIMEOUT')), 30000);
+       });
+       
+       const aiResponseText = await Promise.race([
+         generateILMChatResponse(textToSubmit, contentContext, chatHistory as any),
+         timeoutPromise
+       ]);
 
        setChatHistory(prev => [...prev, { role: 'model', text: aiResponseText }]);
        
@@ -300,7 +308,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
        }
     } catch (err) {
       console.error(err);
-      setError("Failed to get an answer.");
+      setError("Maya is having trouble answering right now. Please try again.");
     } finally {
       setIsChatLoading(false);
     }
@@ -612,10 +620,13 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
                 ))}
                 {isChatLoading && (
                   <div className="flex w-full justify-start">
-                    <div className="bg-zinc-800/80 rounded-3xl px-6 py-5 rounded-bl-sm border border-white/10 flex gap-2 shadow-md">
-                      <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div className="bg-zinc-800/80 rounded-3xl px-6 py-5 rounded-bl-sm border border-white/10 flex items-center gap-3 shadow-md">
+                      <span className="text-white/60 text-sm font-medium">Maya is thinking...</span>
+                      <div className="flex gap-1.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </div>
                     </div>
                   </div>
                 )}

@@ -193,7 +193,7 @@ Output valid JSON only.`;
          }
        }
      } catch(e) {
-       console.error("Failed to enrich Maya personality:", e);
+       console.warn("Maya personality enrichment failed, using raw steps", e.message || e);
      }
   }
 
