@@ -263,15 +263,22 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
-        recognition.continuous = false;
+        recognition.continuous = true;
         recognition.interimResults = true;
+        
+        let finalTranscript = '';
 
         recognition.onresult = (event: any) => {
-          let transcript = '';
+          let interimTranscript = '';
+          finalTranscript = '';
           for (let i = 0; i < event.results.length; ++i) {
-            transcript += event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+               finalTranscript += event.results[i][0].transcript;
+            } else {
+               interimTranscript += event.results[i][0].transcript;
+            }
           }
-          setInput((prefixRef.current ? prefixRef.current + ' ' : '') + transcript);
+          setInput((prefixRef.current ? prefixRef.current + ' ' : '') + finalTranscript + interimTranscript);
         };
 
         recognition.onerror = (event: any) => {
@@ -281,7 +288,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
         recognition.onend = () => {
           setIsListening(false);
-          // Auto-send if there's transcribed input and we were actively listening
+          // Auto-send if there's transcribed input
           setTimeout(() => {
             if (formRef.current) {
                const textarea = formRef.current.querySelector('textarea');
@@ -1627,6 +1634,22 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
       <div className="p-4 md:p-6 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent shrink-0 relative z-10">
         <div className="max-w-4xl mx-auto">
+          <AnimatePresence>
+            {isListening && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="flex items-center gap-2 text-xs md:text-sm text-red-400 font-medium mb-3 ml-2 bg-red-500/10 border border-red-500/20 px-3 py-1.5 rounded-full w-fit shadow-md"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                </span>
+                <span>Listening verbally... speak now, then stop or submit to ask AI.</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <form ref={formRef} onSubmit={handleSubmit} className="relative flex items-end gap-2 md:gap-3 bg-white/5 border border-white/10 rounded-2xl p-1.5 md:p-2 focus-within:border-cyan-500/50 focus-within:bg-white/[0.07] transition-all duration-300 shadow-lg backdrop-blur-sm">
             <textarea
               value={input}

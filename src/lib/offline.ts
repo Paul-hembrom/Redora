@@ -58,12 +58,20 @@ interface ReadoraDB extends DBSchema {
       timestamp: number;
     };
   };
+  tts_cache: {
+    key: string; // text hash
+    value: {
+      id: string;
+      audioUrl: string;
+      timestamp: number;
+    };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<ReadoraDB>> | null = null;
 
 if (typeof window !== 'undefined') {
-  dbPromise = openDB<ReadoraDB>('readora-offline-db', 2, {
+  dbPromise = openDB<ReadoraDB>('readora-offline-db', 3, {
     upgrade(db, oldVersion) {
       if (oldVersion < 1) {
         db.createObjectStore('user', { keyPath: 'id' });
@@ -75,6 +83,9 @@ if (typeof window !== 'undefined') {
         db.createObjectStore('topic_chats', { keyPath: 'id' });
         db.createObjectStore('topic_videos', { keyPath: 'id' });
         db.createObjectStore('topic_images', { keyPath: 'id' });
+      }
+      if (oldVersion < 3) {
+        db.createObjectStore('tts_cache', { keyPath: 'id' });
       }
     },
   });
