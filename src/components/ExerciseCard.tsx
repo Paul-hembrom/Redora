@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { markdownComponents } from './MarkdownComponents';
+import { ReadAloudButton } from './ReadAloudButton';
 
 interface ExerciseCardProps {
   question: string;
@@ -53,6 +54,7 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
       </div>
       
       <div className="absolute top-4 right-4 flex items-center gap-2">
+        <ReadAloudButton text={isRevealed && answer ? `${question}. Answer: ${answer}` : question} className="px-2 py-1.5 bg-black/40 hover:bg-white/10 text-white/60 hover:text-white border border-white/10" iconSizeClasses="w-4 h-4" />
         <button
           onClick={handleReveal}
           disabled={isLoading}

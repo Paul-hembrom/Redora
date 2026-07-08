@@ -9,7 +9,8 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChatResponse, generateActionTool, generateExerciseAnswer, generateSearchQueries } from '../lib/gemini';
+import { ReadAloudButton } from "./ReadAloudButton";
+import { generateChatResponse, elevenlabsTTS, generateActionTool, generateExerciseAnswer, generateSearchQueries } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
 import { ScrollableActionBar } from './ScrollableActionBar';
@@ -362,7 +363,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       setPlayingMessageId(msg.id);
       setIsTtsLoading(true);
       
-      let audioUrl = await getCachedTtsAudio(msg.text);
+      let audioUrl = await elevenlabsTTS(msg.text).catch(e => {
+        console.warn('ElevenLabs failed:', e);
+        return null;
+      });
+      
       if (!audioUrl) {
         const res = await fetch('/api/tts', {
           method: 'POST',
@@ -373,9 +378,6 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         if (!res.ok) throw new Error('TTS failed');
         const data = await res.json();
         audioUrl = data.audioUrl;
-        if (audioUrl) {
-          await cacheTtsAudio(msg.text, audioUrl);
-        }
       }
       
       if (ttsAudioRef.current && audioUrl) {
@@ -449,7 +451,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     setIsChapterTtsLoading(true);
 
     try {
-      let audioUrl = await getCachedTtsAudio(textToRead);
+      let audioUrl = await elevenlabsTTS(textToRead).catch(e => {
+        console.warn('ElevenLabs failed:', e);
+        return null;
+      });
+      
       if (!audioUrl) {
         const res = await fetch('/api/tts', {
           method: 'POST',
@@ -460,9 +466,6 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         if (!res.ok) throw new Error('TTS failed');
         const data = await res.json();
         audioUrl = data.audioUrl;
-        if (audioUrl) {
-          await cacheTtsAudio(textToRead, audioUrl);
-        }
       }
       
       if (ttsAudioRef.current && audioUrl) {
@@ -1036,6 +1039,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
               <BookA className="w-4 h-4" /> Glossary of Terms
+              <ReadAloudButton 
+                text={terms.map((t: any) => `${t.term}. ${t.definition}`).join(' ')} 
+                className="bg-transparent text-emerald-400 hover:text-emerald-300 border border-emerald-400/20" 
+                iconSizeClasses="w-3.5 h-3.5" 
+              />
             </h3>
             <div className="flex items-center gap-2">
               <button 
@@ -1066,7 +1074,14 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       const { summaryMemo, actionItems = [], keyArguments = [] } = msg.actionData;
       return (
         <div className="mt-4 space-y-5">
-          <h3 className="text-sm font-bold text-amber-400 uppercase tracking-widest mb-3 flex items-center gap-2"><Zap className="w-4 h-4" /> Executive Briefing</h3>
+          <h3 className="text-sm font-bold text-amber-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+            <Zap className="w-4 h-4" /> Executive Briefing
+            <ReadAloudButton 
+              text={`Memo: ${summaryMemo}. Key Arguments: ${keyArguments.join('. ')}. Action Items: ${actionItems.join('. ')}`}
+              className="bg-transparent text-amber-400 hover:text-amber-300 border border-amber-400/20"
+              iconSizeClasses="w-3.5 h-3.5"
+            />
+          </h3>
           <div className="bg-amber-400/5 border border-amber-400/20 p-4 rounded-xl">
             <h4 className="text-xs uppercase tracking-wide text-amber-400 mb-2 font-semibold">Memo</h4>
             <p className="text-sm text-white/80 leading-relaxed">{summaryMemo}</p>
@@ -1453,19 +1468,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       </button>
                     )}
                     {msg.role === 'model' && (
-                      <button
-                        onClick={() => handlePlayTTS(msg)}
-                        className="p-1.5 text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40 rounded-md transition-all"
-                        title={playingMessageId === msg.id ? "Stop TTS" : "Play TTS"}
-                      >
-                        {isTtsLoading && playingMessageId === msg.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : playingMessageId === msg.id ? (
-                          <Square className="w-3.5 h-3.5 fill-current" />
-                        ) : (
-                          <Volume2 className="w-3.5 h-3.5" />
-                        )}
-                      </button>
+                      <ReadAloudButton 
+                        text={msg.text} 
+                        className="p-1.5 text-white/30 hover:text-cyan-400 bg-black/20 hover:bg-black/40 rounded-md transition-all" 
+                        iconSizeClasses="w-3.5 h-3.5" 
+                      />
                     )}
                     {msg.role === 'model' && (
                       <button
