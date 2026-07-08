@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { motion, AnimatePresence } from 'motion/react';
 import { Document, PreprocessOptions, ReadingPersona } from '../types';
 import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles, BookA, Target, Lock } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
@@ -252,6 +253,18 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   const [sortBy, setSortBy] = useState<'date' | 'name'>('date');
   const [filterText, setFilterText] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const prevIsUploading = useRef(isUploading);
+
+  useEffect(() => {
+    if (prevIsUploading.current && !isUploading && !uploadError && !localError) {
+      setShowSuccess(true);
+      const timer = setTimeout(() => setShowSuccess(false), 3000);
+      return () => clearTimeout(timer);
+    }
+    prevIsUploading.current = isUploading;
+  }, [isUploading, uploadError, localError]);
+
   const [editingTagsFor, setEditingTagsFor] = useState<string | null>(null);
   const [newTagInput, setNewTagInput] = useState('');
   const [copiedSummaryId, setCopiedSummaryId] = useState<string | null>(null);
@@ -644,40 +657,97 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
               className={cn(
                 "flex-1 border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden",
                 isDragActive ? "border-cyan-400 bg-cyan-400/10" : "border-white/20 hover:border-cyan-400/60 hover:bg-white/10 bg-white/[0.02]",
-                isUploading ? "opacity-50 cursor-not-allowed pointer-events-none" : "",
-                (uploadError || localError) && "border-red-500/50 bg-red-500/5"
+                isUploading || showSuccess ? "pointer-events-none" : "",
+                (uploadError || localError) && "border-red-500/50 bg-red-500/5",
+                showSuccess && "border-green-400 bg-green-400/10"
               )}
             >
-              {isUploading && (
-                <div className="absolute inset-0 bg-cyan-500/10 animate-pulse" />
-              )}
-              {isUploading && progressPercent !== null && (
-                <div 
-                  className="absolute bottom-0 left-0 h-1 bg-cyan-400 transition-all duration-300 ease-out" 
-                  style={{ width: `${progressPercent}%` }} 
-                />
-              )}
+              <AnimatePresence>
+                {isUploading && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 bg-cyan-500/10 animate-pulse pointer-events-none" 
+                  />
+                )}
+              </AnimatePresence>
+
+              <div className="absolute bottom-0 left-0 w-full h-1 bg-white/5 overflow-hidden">
+                <AnimatePresence>
+                  {(isUploading && progressPercent !== null) && (
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progressPercent}%` }}
+                      transition={{ type: 'spring', bounce: 0, duration: 0.5 }}
+                      className="h-full bg-cyan-400 absolute bottom-0 left-0"
+                    />
+                  )}
+                  {showSuccess && (
+                    <motion.div 
+                      initial={{ width: '100%' }}
+                      animate={{ opacity: 0 }}
+                      transition={{ delay: 2, duration: 0.5 }}
+                      className="h-full bg-green-400 absolute bottom-0 left-0 w-full"
+                    />
+                  )}
+                </AnimatePresence>
+              </div>
+
               <input {...getInputProps()} />
-              {isUploading ? (
-                <Loader2 className="w-10 h-10 mx-auto mb-3 text-cyan-400 animate-spin" />
-              ) : (
-                <UploadCloud className={cn(
-                  "w-10 h-10 mx-auto mb-3 transition-all duration-300 transform group-hover:-translate-y-1 group-hover:scale-110",
-                  isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/50 group-hover:text-cyan-400"
-                )} />
-              )}
-              <p className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">
-                {isUploading ? uploadProgress : 'Drag & Drop or Click to Browse'}
-              </p>
-              {!isUploading && (
-                <div className="flex flex-wrap justify-center gap-1.5 mt-4">
-                  {['PDF', 'EPUB', 'DOCX', 'TXT', 'IMG'].map(ext => (
-                    <span key={ext} className="px-2 py-1 rounded bg-white/10 text-white/70 text-[10px] font-bold tracking-wider">
-                      {ext}
-                    </span>
-                  ))}
-                </div>
-              )}
+              
+              <AnimatePresence mode="wait">
+                {isUploading ? (
+                  <motion.div
+                    key="uploading"
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="flex flex-col items-center relative z-10"
+                  >
+                    <Loader2 className="w-10 h-10 mx-auto mb-3 text-cyan-400 animate-spin" />
+                    <p className="text-sm font-semibold text-cyan-300 transition-colors">
+                      {uploadProgress || 'Processing...'}
+                    </p>
+                  </motion.div>
+                ) : showSuccess ? (
+                  <motion.div
+                    key="success"
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="flex flex-col items-center relative z-10"
+                  >
+                    <CheckCircle2 className="w-10 h-10 mx-auto mb-3 text-green-400" />
+                    <p className="text-sm font-semibold text-green-400 transition-colors">
+                      Upload Complete
+                    </p>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="idle"
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="relative z-10"
+                  >
+                    <UploadCloud className={cn(
+                      "w-10 h-10 mx-auto mb-3 transition-all duration-300 transform group-hover:-translate-y-1 group-hover:scale-110",
+                      isDragActive ? "text-cyan-400" : (uploadError || localError) ? "text-red-400" : "text-white/50 group-hover:text-cyan-400"
+                    )} />
+                    <p className="text-sm font-semibold text-white/80 group-hover:text-white transition-colors">
+                      Drag & Drop or Click to Browse
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-1.5 mt-4">
+                      {['PDF', 'EPUB', 'DOCX', 'TXT', 'IMG'].map(ext => (
+                        <span key={ext} className="px-2 py-1 rounded bg-white/10 text-white/70 text-[10px] font-bold tracking-wider">
+                          {ext}
+                        </span>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             
             <label className="flex flex-col items-center justify-center w-16 border border-white/10 rounded-xl cursor-pointer hover:bg-white/[0.02] hover:border-cyan-500/50 transition-all group">

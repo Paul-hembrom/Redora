@@ -1517,15 +1517,45 @@ Output only the summary text or "NO_SUMMARY", no other text.
   }
 }
 
-export async function synthesizeElevenLabsSpeech(text: string): Promise<string> {
-  const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
-  const res = await fetch(`${baseUrl}/api/tts/elevenlabs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text })
-  });
-  if (!res.ok) throw new Error('ElevenLabs TTS failed');
-  const data = await res.json();
-  return data.audioUrl;
-}
+export async function synthesizeElevenLabsSpeech(text: string): Promise<string | null> {
+  try {
+    const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      console.error('ELEVENLABS_API_KEY is not set');
+      return null;
+    }
 
+    const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R - Real Estate Sales
+    const modelId = 'eleven_v3';
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        text,
+        model_id: modelId,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`ElevenLabs TTS API error: ${response.status}`, errText);
+      return null;
+    }
+
+    const audioBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(audioBuffer).toString('base64');
+    return `data:audio/mpeg;base64,${base64}`;
+  } catch (err) {
+    console.error('ElevenLabs TTS helper error:', err);
+    return null;
+  }
+}
