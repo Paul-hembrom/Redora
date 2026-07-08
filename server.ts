@@ -1405,7 +1405,7 @@ app.post('/api/retrieve-videos', authenticate, retrieveVideosLimiter, async (req
       apiKey: process.env.GEMINI_API_KEY || '',
       httpOptions: {
         retryOptions: {
-          attempts: 5
+          attempts: 2
         }
       }
     });
@@ -1582,7 +1582,7 @@ app.post('/api/topics/:id/images', authenticate, imagesLimiter, async (req: any,
 
     try {
       const imageResponse = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }]
