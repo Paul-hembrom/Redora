@@ -2256,9 +2256,11 @@ app.post('/api/curriculum/generate', authenticate, async (req: any, res) => {
       return res.status(400).json({ error: 'Expected an array' });
     }
 
-    const results = [];
-    
-    for (const item of items) {
+    const results = new Array(items.length);
+    let currentIndex = 0;
+
+    const processItem = async (index: number) => {
+      const item = items[index];
       const { grade, subject, title, subtopic, generateQuestions } = item;
       
       try {
@@ -2455,14 +2457,26 @@ Generate 3 multiple-choice questions for ${grade} ${subject}. Return JSON exactl
           VALUES (${grade}, ${subject}, ${title}, ${subtopic}, ${generatedContent}, ${JSON.stringify(images)}, ${JSON.stringify(videos)}, ${JSON.stringify(questions)})
         `;
 
-        results.push({ subtopic, status: "success" });
-        
+        results[index] = { subtopic, status: "success" };
       } catch(err: any) {
         console.error(`Error generating curriculum for ${subtopic}:`, err);
-        results.push({ subtopic, status: "error", error: err.message });
+        results[index] = { subtopic, status: "error", error: err.message };
       }
+    };
+
+    const workers = [];
+    const concurrency = 3;
+    for (let i = 0; i < concurrency; i++) {
+      workers.push((async () => {
+        while (currentIndex < items.length) {
+          const index = currentIndex++;
+          await processItem(index);
+        }
+      })());
     }
-    
+
+    await Promise.all(workers);
+
     res.json(results);
   } catch(err: any) {
     console.error("Error in /api/curriculum/generate:", err);

@@ -1,4 +1,12 @@
 {
+  "functions": {
+    "api/curriculum/generate": {
+      "maxDuration": 900
+    },
+    "api/index": {
+      "maxDuration": 900
+    }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/auth/(.*)", "destination": "/api/index" }
