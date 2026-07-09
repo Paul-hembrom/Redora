@@ -19,14 +19,8 @@ export default defineConfig(({mode}) => {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
             {
-              urlPattern: /^\/api\/(?!ai|tts|generate).*/i,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-cache',
-                networkTimeoutSeconds: 5,
-                expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
-                cacheableResponse: { statuses: [0, 200] }
-              }
+              urlPattern: /\/api\/.*/i,
+              handler: 'NetworkOnly'
             },
             {
               urlPattern: /^https:\/\/.*/i,
