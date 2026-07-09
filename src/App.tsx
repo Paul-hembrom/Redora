@@ -183,6 +183,27 @@ export default function App() {
     const urlParams = new URLSearchParams(window.location.search);
     const sharedDocId = urlParams.get('sharedDoc');
 
+    
+    const source = urlParams.get('source');
+    const grade = urlParams.get('grade');
+    const subject = urlParams.get('subject');
+    
+    if (source === 'curriculum' && grade && subject) {
+      if (user) return; // Handled in the main fetch below
+      
+      fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`)
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('Not found');
+        })
+        .then(data => {
+          if (data) setSharedPublicDoc(data);
+          else alert("This curriculum content is not yet available.");
+        })
+        .catch(console.error);
+      return;
+    }
+    
     if (sharedDocId) {
       if (user) {
         // Handled inside the main fetch below
@@ -239,6 +260,36 @@ export default function App() {
             let docs = data;
             
             // If there's a shared doc ID and it's not in the user's docs, fetch it
+            
+            const source = urlParams.get('source');
+            const grade = urlParams.get('grade');
+            const subject = urlParams.get('subject');
+            
+            if (source === 'curriculum' && grade && subject) {
+              try {
+                const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`);
+                if (currRes.ok) {
+                  const currDoc = await currRes.json();
+                  if (currDoc) {
+                    docs = [currDoc, ...docs];
+                    setSelectedDocId(currDoc.id);
+                    if (currDoc.chapters && currDoc.chapters.length > 0) {
+                      // find first topic or part
+                      const firstDisplay = currDoc.chapters.find((c: any) => c.type === 'topic') || currDoc.chapters[0];
+                      setSelectedChapterId(firstDisplay.id);
+                    }
+                  } else {
+                    setUploadError("This curriculum content is not yet available.");
+                  }
+                } else {
+                   setUploadError("Failed to fetch curriculum content.");
+                }
+              } catch (err) {
+                 console.error("Failed to fetch curriculum:", err);
+                 setUploadError("Failed to fetch curriculum content.");
+              }
+            }
+            
             if (sharedDocId && !docs.some(d => d.id === sharedDocId)) {
               try {
                 const sharedRes = await fetch(`/api/shared/${sharedDocId}`);

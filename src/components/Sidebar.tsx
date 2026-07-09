@@ -974,7 +974,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>
                 </button>
-                {!isStudent && onClearChats && (
+                {!isStudent && onClearChats && !doc.id.startsWith('curr_') && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onClearChats(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-yellow-400 hover:bg-white/5 rounded-md transition-all"
@@ -983,7 +983,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     <MessageSquare className="w-3.5 h-3.5" />
                   </button>
                 )}
-                {!isStudent && onDeleteDocument && (
+                {!isStudent && onDeleteDocument && !doc.id.startsWith('curr_') && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
