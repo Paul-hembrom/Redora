@@ -2344,6 +2344,7 @@ app.get('/api/curriculum', async (req: any, res) => {
 });
 
 app.post('/api/curriculum/generate', authenticate, async (req: any, res) => {
+  console.log('>>> CURRICULUM GENERATE ENDPOINT HIT <<<');
   try {
     if (!process.env.SUPERADMIN_EMAIL) {
       console.warn('SUPERADMIN_EMAIL environment variable is not set.');
