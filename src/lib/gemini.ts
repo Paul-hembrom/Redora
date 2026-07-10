@@ -1511,7 +1511,25 @@ Output only the summary text or "NO_SUMMARY", no other text.
   }
 }
 
-export async function synthesizeElevenLabsSpeech(text: string): Promise<string | null> {
+function splitIntoSentences(text: string): string[] {
+  const regex = /([^.!?]+[.!?]+)\s*/g;
+  let sentences: string[] = [];
+  let match;
+  let lastIndex = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1].trim()) {
+      sentences.push(match[1].trim());
+    }
+    lastIndex = regex.lastIndex;
+  }
+  const remaining = text.substring(lastIndex).trim();
+  if (remaining) {
+    sentences.push(remaining);
+  }
+  return sentences;
+}
+
+export async function synthesizeElevenLabsSpeech(text: string): Promise<any[] | null> {
   try {
     const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) {
@@ -1519,37 +1537,39 @@ export async function synthesizeElevenLabsSpeech(text: string): Promise<string |
       return null;
     }
 
-    const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R - Real Estate Sales
-    const modelId = 'eleven_v3';
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+    const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
+    const modelId = 'eleven_flash_v2_5';
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
+    const sentences = splitIntoSentences(text);
+    
+    const promises = sentences.map(async (sentence, index) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
         },
-      }),
+        body: JSON.stringify({
+          text: sentence,
+          model_id: modelId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('TTS generation failed');
+      }
+
+      const audioBuffer = await response.arrayBuffer();
+      const base64 = Buffer.from(audioBuffer).toString('base64');
+      return { index, audioUrl: `data:audio/mpeg;base64,${base64}` };
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`ElevenLabs TTS API error: ${response.status}`, errText);
-      return null;
-    }
-
-    const audioBuffer = await response.arrayBuffer();
-    const base64 = Buffer.from(audioBuffer).toString('base64');
-    return `data:audio/mpeg;base64,${base64}`;
+    const chunks = await Promise.all(promises);
+    chunks.sort((a, b) => a.index - b.index);
+    return chunks;
   } catch (err) {
-    console.error('ElevenLabs TTS helper error:', err);
+    console.error('ElevenLabs TTS failed:', err);
     return null;
   }
 }

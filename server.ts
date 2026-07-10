@@ -1728,6 +1728,27 @@ Topic: ${title} (${conceptsStr})`;
     res.status(500).json({ error: err.message });
   }
 });
+
+function splitIntoSentences(text) {
+  // Split on . ! ? followed by whitespace, keeping the punctuation
+  const regex = /([^.!?]+[.!?]+)\s*/g;
+  let sentences = [];
+  let match;
+  let lastIndex = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1].trim()) {
+      sentences.push(match[1].trim());
+    }
+    lastIndex = regex.lastIndex;
+  }
+  // Fallback for remaining text without punctuation
+  const remaining = text.substring(lastIndex).trim();
+  if (remaining) {
+    sentences.push(remaining);
+  }
+  return sentences;
+}
+
 app.post('/api/tts/elevenlabs', async (req, res) => {
   try {
     const { text } = req.body;
@@ -1741,44 +1762,51 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    // Use fetch instead of SDK for simplicity (SDK not needed)
-    const voiceId = 'JBFqnCBsd6RMkjVDRZzb'; // George
-    const modelId = 'eleven_v3';
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+    const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
+    const modelId = 'eleven_flash_v2_5';
+    // Reduce output format to mp3_22050_32
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
+    const sentences = splitIntoSentences(text);
+    
+    // Fetch all chunks in parallel
+    const promises = sentences.map(async (sentence, index) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
         },
-      }),
+        body: JSON.stringify({
+          text: sentence,
+          model_id: modelId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error(`ElevenLabs TTS API error: ${response.status}`, errText);
+        throw new Error('TTS generation failed');
+      }
+
+      const audioBuffer = await response.arrayBuffer();
+      const base64 = Buffer.from(audioBuffer).toString('base64');
+      const audioUrl = `data:audio/mpeg;base64,${base64}`;
+      
+      return { index, audioUrl };
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`ElevenLabs TTS API error: ${response.status}`, errText);
-      return res.status(500).json({ error: 'TTS generation failed' });
-    }
+    const chunks = await Promise.all(promises);
+    
+    // Sort just in case Promise.all returned out of order (though map preserves order, index is good for safety)
+    chunks.sort((a, b) => a.index - b.index);
 
-    const audioBuffer = await response.arrayBuffer();
-    const base64 = Buffer.from(audioBuffer).toString('base64');
-    const audioUrl = `data:audio/mpeg;base64,${base64}`;
-
-    res.json({ audioUrl });
-  } catch (err: any) {
+    res.json({ chunks });
+  } catch (err) {
     console.error('ElevenLabs TTS endpoint error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
-
 app.post('/api/tts', async (req, res) => {
   try {
     const { text } = req.body;

@@ -116,6 +116,42 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     setIsLoading(false);
   };
 
+  const playQueue = async (chunks) => {
+    if (stopIntentRef.current || chunks.length === 0) {
+      setIsPlaying(false);
+      return;
+    }
+    const currentChunk = chunks.shift();
+    const audio = new Audio(currentChunk.audioUrl);
+    audioRef.current = audio;
+    
+    // Preload next chunk if available
+    let nextAudio = null;
+    if (chunks.length > 0) {
+      nextAudio = new Audio(chunks[0].audioUrl);
+      nextAudio.preload = 'auto';
+    }
+
+    audio.onended = () => {
+      if (!stopIntentRef.current) {
+        playQueue(chunks);
+      }
+    };
+    audio.onerror = () => {
+      setIsPlaying(false);
+      logError('ElevenLabs chunk audio element threw a playback error.');
+      speakWithBrowser();
+    };
+
+    try {
+      await audio.play();
+      setIsPlaying(true);
+    } catch (err) {
+      setIsPlaying(false);
+      logError('ElevenLabs chunk playback failed:', err);
+    }
+  };
+
   const tryElevenLabsTTS = async () => {
     logInfo('Triggered: Attempting ElevenLabs TTS API call...');
     try {
@@ -130,21 +166,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         throw new Error(`API returned ${res.status}`);
       }
       const data = await res.json();
-      if (!data.audioUrl) throw new Error('No audio URL returned');
+      if (!data.chunks || data.chunks.length === 0) throw new Error('No audio chunks returned');
       
-      const audio = new Audio(data.audioUrl);
-      audioRef.current = audio;
-      audio.onended = () => setIsPlaying(false);
-      audio.onerror = () => {
-        setIsPlaying(false);
-        logError('ElevenLabs audio element threw a playback error.');
-        speakWithBrowser();
-      };
-      
-      await audio.play();
       setIsLoading(false);
-      setIsPlaying(true);
-      logSuccess('ElevenLabs TTS API call successful, audio is playing.');
+      stopIntentRef.current = false;
+      playQueue(data.chunks);
+      
+      logSuccess('ElevenLabs TTS API call successful, chunk queue started.');
     } catch (err) {
       logError('ElevenLabs TTS API call failed:', err);
       setIsLoading(false);

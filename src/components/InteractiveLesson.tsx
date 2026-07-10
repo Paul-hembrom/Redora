@@ -14,6 +14,7 @@ interface LessonStep {
   type: 'video' | 'image' | 'question' | 'intro' | 'joke' | 'fun_fact';
   url?: string;
   narration_audio_url?: string;
+  narration_audio_chunks?: { index: number; audioUrl: string }[];
   narrationText?: string;
   caption?: string;
   text?: string; 
@@ -117,16 +118,35 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
     }
   }, [lessonState, chatHistory.length, isChatLoading, isRecording, isTranscribing]);
 
+  const chunkIndexRef = useRef(0);
+  useEffect(() => {
+    chunkIndexRef.current = 0;
+  }, [currentStepIndex]);
+
   const currentStep = steps[currentStepIndex];
 
   useEffect(() => {
     if (lessonState === 'playing' && currentStep) {
-      if (currentStep.narration_audio_url && audioRef.current) {
+      if (currentStep.narration_audio_chunks && currentStep.narration_audio_chunks.length > 0 && audioRef.current) {
+        const chunkIndex = chunkIndexRef.current;
+        if (chunkIndex < currentStep.narration_audio_chunks.length) {
+          const chunkUrl = currentStep.narration_audio_chunks[chunkIndex].audioUrl;
+          if (audioRef.current.getAttribute('src') !== chunkUrl) {
+            audioRef.current.src = chunkUrl;
+            
+            if (chunkIndex + 1 < currentStep.narration_audio_chunks.length) {
+                const preloadAudio = new Audio(currentStep.narration_audio_chunks[chunkIndex + 1].audioUrl);
+                preloadAudio.preload = 'auto';
+            }
+          }
+          audioRef.current.play().catch(e => console.error("Audio block:", e));
+        }
+      } else if (currentStep.narration_audio_url && audioRef.current) {
         if (audioRef.current.getAttribute('src') !== currentStep.narration_audio_url) {
           audioRef.current.src = currentStep.narration_audio_url;
         }
         audioRef.current.play().catch(e => console.error("Audio block:", e));
-      } else if (currentStep.type !== 'video' && !currentStep.narration_audio_url) {
+      } else if (currentStep.type !== 'video' && !currentStep.narration_audio_url && (!currentStep.narration_audio_chunks || currentStep.narration_audio_chunks.length === 0)) {
         // Fallback for steps without audio, so it doesn't get stuck forever
         if (currentStep.type === 'question') {
           const timer = setTimeout(openAskScreen, 3000);
@@ -176,6 +196,20 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   };
 
   const handleAudioEnded = () => {
+    if (currentStep && currentStep.narration_audio_chunks && chunkIndexRef.current + 1 < currentStep.narration_audio_chunks.length) {
+        chunkIndexRef.current += 1;
+        if (audioRef.current) {
+            const nextUrl = currentStep.narration_audio_chunks[chunkIndexRef.current].audioUrl;
+            audioRef.current.src = nextUrl;
+            audioRef.current.play().catch(e => console.error("Audio chunk block:", e));
+            
+            if (chunkIndexRef.current + 1 < currentStep.narration_audio_chunks.length) {
+                const preloadAudio = new Audio(currentStep.narration_audio_chunks[chunkIndexRef.current + 1].audioUrl);
+                preloadAudio.preload = 'auto';
+            }
+        }
+        return;
+    }
     // If it's a video step, wait for video unless it's already ended or absent
     if (currentStep && currentStep.type === 'video' && videoRef.current) {
       if (!videoRef.current.ended) return; // Wait for video to finish
@@ -280,28 +314,39 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
        // Trigger TTS for AI response
        try {
-         let audioUrl = await getCachedTtsAudio(aiResponseText);
-         if (!audioUrl) {
-           const ttsRes = await fetch(`/api/tts/elevenlabs`, {
-             method: 'POST',
-             credentials: 'include',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ text: aiResponseText })
-           });
-           
-           if (ttsRes.ok) {
-             const data = await ttsRes.json();
-             audioUrl = data.audioUrl;
-             if (audioUrl) {
-               await cacheTtsAudio(aiResponseText, audioUrl);
-             }
-           }
-         }
+         const ttsRes = await fetch('/api/tts/elevenlabs', {
+           method: 'POST',
+           credentials: 'include',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ text: aiResponseText })
+         });
          
-         if (audioUrl && chatAudioRef.current) {
-           chatAudioRef.current.src = audioUrl;
-           chatAudioRef.current.play().catch(console.error);
-           setChatAudioPlaying(true);
+         if (ttsRes.ok) {
+           const data = await ttsRes.json();
+           if (data.chunks && data.chunks.length > 0 && chatAudioRef.current) {
+             const playQAQueue = async (chunks, index) => {
+               if (index >= chunks.length) return;
+               const qaAudio = new Audio(chunks[index].audioUrl);
+               
+               if (index + 1 < chunks.length) {
+                 const nextAudio = new Audio(chunks[index + 1].audioUrl);
+                 nextAudio.preload = 'auto';
+               }
+               
+               qaAudio.onended = () => {
+                 playQAQueue(chunks, index + 1);
+               };
+               
+               try {
+                 await qaAudio.play();
+                 setChatAudioPlaying(true);
+               } catch (e) {
+                 console.error("QA chunk play error", e);
+                 setChatAudioPlaying(false);
+               }
+             };
+             playQAQueue(data.chunks, 0);
+           }
          }
        } catch (err) {
          console.error("TTS play error", err);
@@ -477,7 +522,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
               playsInline
               onEnded={() => {
                 // If there's an audio URL being played, we must wait for it if it hasn't ended.
-                if (currentStep.narration_audio_url && audioRef.current && !audioRef.current.ended) {
+                if (((currentStep.narration_audio_chunks && currentStep.narration_audio_chunks.length > 0) || currentStep.narration_audio_url) && audioRef.current && !audioRef.current.ended) {
                   return;
                 }
                 handleNext();
@@ -541,7 +586,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
               <p className="text-white md:text-2xl font-medium tracking-wide drop-shadow-sm leading-relaxed text-left flex-1">
                 {currentStep.narrationText.replace(/\[.*?\]/g, '')}
               </p>
-              {!currentStep.narration_audio_url && (
+              {!(currentStep.narration_audio_url || (currentStep.narration_audio_chunks && currentStep.narration_audio_chunks.length > 0)) && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleNext(); }}
                   className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition shrink-0 font-medium ml-4 pointer-events-auto"
