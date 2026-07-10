@@ -6,6 +6,7 @@ interface Props {
   text: string;
   className?: string;
   iconSizeClasses?: string;
+  containerRef?: React.RefObject<HTMLElement> | null;
 }
 
 
@@ -26,7 +27,75 @@ const logError = (msg: string, data?: any) => {
 };
 
 
-export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4" }: Props) {
+
+const getSentenceElement = (container: HTMLElement, sentence: string): HTMLElement | null => {
+  const cleanSentence = sentence.replace(/\s+/g, ' ').trim();
+  if (!cleanSentence) return null;
+
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+  let fullText = "";
+  const nodes: { node: Node, start: number, end: number }[] = [];
+  
+  let node;
+  while ((node = walker.nextNode())) {
+    const text = node.nodeValue || "";
+    nodes.push({ node, start: fullText.length, end: fullText.length + text.length });
+    fullText += text;
+  }
+  
+  let matchIndex = fullText.replace(/\s+/g, ' ').indexOf(cleanSentence);
+  if (matchIndex === -1) {
+    const shortSearch = cleanSentence.substring(0, 15);
+    matchIndex = fullText.replace(/\s+/g, ' ').indexOf(shortSearch);
+  }
+  
+  if (matchIndex !== -1) {
+    let realIndex = 0;
+    let cleanIndex = 0;
+    for (let i = 0; i < fullText.length; i++) {
+      if (cleanIndex === matchIndex) {
+        realIndex = i;
+        break;
+      }
+      const isSpace = /\s/.test(fullText[i]);
+      if (isSpace) {
+         if (i === 0 || !/\s/.test(fullText[i-1])) {
+            cleanIndex++;
+         }
+      } else {
+         cleanIndex++;
+      }
+    }
+    
+    for (const n of nodes) {
+      if (realIndex >= n.start && realIndex < n.end) {
+        return n.node.parentElement;
+      }
+    }
+  }
+
+  return null;
+};
+
+const splitIntoSentences = (text: string) => {
+  const regex = /([^.!?]+[.!?]+)\s*/g;
+  let sentences = [];
+  let match;
+  let lastIndex = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1].trim()) {
+      sentences.push(match[1].trim());
+    }
+    lastIndex = regex.lastIndex;
+  }
+  const remaining = text.substring(lastIndex).trim();
+  if (remaining) {
+    sentences.push(remaining);
+  }
+  return sentences;
+};
+
+export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -116,16 +185,32 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     setIsLoading(false);
   };
 
-  const playQueue = async (chunks) => {
+  
+  const playQueue = async (chunks: any[], sentences: string[]) => {
     if (stopIntentRef.current || chunks.length === 0) {
       setIsPlaying(false);
       return;
     }
     const currentChunk = chunks.shift();
+    const currentSentence = sentences.shift();
+    
+    // Auto-scroll
+    try {
+        let container = containerRef?.current;
+        if (!container && buttonRef.current) {
+           container = buttonRef.current.closest('.prose, .content, .reader, .markdown-body') as HTMLElement;
+        }
+        if (container && currentSentence) {
+            const targetEl = getSentenceElement(container, currentSentence);
+            if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    } catch(e) { console.error("Scroll error", e); }
+
     const audio = new Audio(currentChunk.audioUrl);
     audioRef.current = audio;
     
-    // Preload next chunk if available
     let nextAudio = null;
     if (chunks.length > 0) {
       nextAudio = new Audio(chunks[0].audioUrl);
@@ -134,7 +219,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
     audio.onended = () => {
       if (!stopIntentRef.current) {
-        playQueue(chunks);
+        playQueue(chunks, sentences);
       }
     };
     audio.onerror = () => {
@@ -170,7 +255,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       
       setIsLoading(false);
       stopIntentRef.current = false;
-      playQueue(data.chunks);
+      playQueue(data.chunks, splitIntoSentences(text));
       
       logSuccess('ElevenLabs TTS API call successful, chunk queue started.');
     } catch (err) {
