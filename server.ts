@@ -2319,9 +2319,13 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
           const imgs: any[] = [];
           if (pexelsKey) {
             try {
-              const pexelsRes = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=3`, {
+              const pexelsUrl = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=3`;
+              console.warn(`[Pexels] Requesting URL: ${pexelsUrl}`);
+              const pexelsRes = await fetch(pexelsUrl, {
                 headers: { Authorization: pexelsKey }
               });
+              const pexelsText = await pexelsRes.clone().text();
+              console.warn(`[Pexels] Response Status: ${pexelsRes.status}, Body: ${pexelsText.substring(0, 200)}`);
               if (pexelsRes.ok) {
                 const data = await pexelsRes.json();
                 if (data.photos && data.photos.length > 0) {
@@ -2335,14 +2339,18 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
                   }
                 }
               }
-            } catch (err) {}
+            } catch (err: any) { console.warn(`[Pexels] Error: ${err.message}`); }
           }
           
           if (imgs.length === 0 && unsplashKey) {
             try {
-              const unsplashRes = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=3`, {
+              const unsplashUrl = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=3`;
+              console.warn(`[Unsplash] Requesting URL: ${unsplashUrl}`);
+              const unsplashRes = await fetch(unsplashUrl, {
                 headers: { Authorization: `Client-ID ${unsplashKey}` }
               });
+              const unsplashText = await unsplashRes.clone().text();
+              console.warn(`[Unsplash] Response Status: ${unsplashRes.status}, Body: ${unsplashText.substring(0, 200)}`);
               if (unsplashRes.ok) {
                 const data = await unsplashRes.json();
                 if (data.results && data.results.length > 0) {
@@ -2356,13 +2364,16 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
                   }
                 }
               }
-            } catch (err) {}
+            } catch (err: any) { console.warn(`[Unsplash] Error: ${err.message}`); }
           }
 
           if (imgs.length === 0) {
             try {
               const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query + " diagram")}&gsrnamespace=6&prop=imageinfo&iiprop=url&format=json&origin=*`;
+              console.warn(`[Wikimedia] Requesting URL: ${wikiUrl}`);
               const wikiRes = await fetch(wikiUrl);
+              const wikiText = await wikiRes.clone().text();
+              console.warn(`[Wikimedia] Response Status: ${wikiRes.status}, Body: ${wikiText.substring(0, 200)}`);
               if (wikiRes.ok) {
                 const wikiData = await wikiRes.json();
                 const pages = wikiData.query?.pages;
@@ -2376,7 +2387,7 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
                   }
                 }
               }
-            } catch (err) {}
+            } catch (err: any) { console.warn(`[Wikimedia] Error: ${err.message}`); }
           }
           return imgs;
         }
@@ -2390,11 +2401,14 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
            const checkWords = [...titleWords].filter(w => w.length > 2);
            const isRelevant = checkWords.some(w => combinedText.includes(w));
            if (!isRelevant && checkWords.length > 0) {
+              console.warn(`[Relevance Check] Failed for query: ${searchQuery}. Falling back to broader query: ${title.trim()}`);
               const broaderQuery = title.trim();
               const retryImages = await fetchImagesForQuery(broaderQuery);
               if (retryImages.length > 0) {
                  images = retryImages;
               }
+           } else {
+              console.warn(`[Relevance Check] Passed for query: ${searchQuery}`);
            }
         }
 
@@ -2424,7 +2438,9 @@ Return ONLY valid JSON exactly matching this schema:
           if (parsedVid.recommended_videos) {
             for (const vid of parsedVid.recommended_videos.slice(0, 3)) {
               try {
+                console.warn(`[YouTube] Requesting search query: ${vid.search_query_used || vid.title}`);
                 const searchResult = await ytSearch(vid.search_query_used || vid.title);
+                console.warn(`[YouTube] Response received. Found ${searchResult?.videos?.length || 0} videos.`);
                 if (searchResult && searchResult.videos.length > 0) {
                   videos.push({
                     video_id: searchResult.videos[0].videoId,
@@ -2433,10 +2449,10 @@ Return ONLY valid JSON exactly matching this schema:
                     quality_score: vid.quality_score || 80
                   });
                 }
-              } catch(e) {}
+              } catch(e: any) { console.warn(`[YouTube] Error: ${e.message}`); }
             }
           }
-        } catch(e) {}
+        } catch(e: any) { console.warn(`[YouTube] LLM parsing error: ${e.message}`); }
 
         // 4. Generate Questions
         let questions: any[] = [];
