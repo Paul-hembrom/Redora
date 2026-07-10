@@ -275,8 +275,17 @@ export default function App() {
                     setSelectedDocId(currDoc.id);
                     if (currDoc.chapters && currDoc.chapters.length > 0) {
                       // find first topic or part
-                      const firstDisplay = currDoc.chapters.find((c: any) => c.type === 'topic') || currDoc.chapters[0];
-                      setSelectedChapterId(firstDisplay.id);
+                      let firstDisplay = currDoc.chapters.find((c: any) => c.type === 'topic');
+                      if (!firstDisplay) {
+                          // Try first chapter's first child
+                          const firstChap = currDoc.chapters[0];
+                          if (firstChap && firstChap.children && firstChap.children.length > 0) {
+                              firstDisplay = firstChap.children[0];
+                          } else {
+                              firstDisplay = firstChap;
+                          }
+                      }
+                      setSelectedChapterId(firstDisplay?.id);
                     }
                   } else {
                     setUploadError("This curriculum content is not yet available.");

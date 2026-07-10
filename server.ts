@@ -2510,7 +2510,7 @@ async function startServer() {
   
 
 
-app.get('/api/curriculum', async (req: any, res) => {
+app.get('/api/curriculum', authenticate, async (req: any, res) => {
   try {
     const { grade, subject } = req.query;
     if (!grade || !subject) {
