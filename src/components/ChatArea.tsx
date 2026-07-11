@@ -1330,7 +1330,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                   </motion.div>
                 )}
 
-                {msg.images && msg.images.length > 0 && (
+                {Array.isArray(msg.images) && msg.images.length > 0 && (
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -1341,7 +1341,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       Images & Diagrams
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {msg.images.map((img, iIdx) => (
+                      {(Array.isArray(msg.images) ? msg.images : []).map((img, iIdx) => (
                         <ImageCard key={iIdx} image={img} />
                       ))}
                     </div>
