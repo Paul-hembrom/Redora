@@ -1,8 +1,5 @@
 {
   "functions": {
-    "api/curriculum/generate": {
-      "maxDuration": 300
-    },
     "api/index": {
       "maxDuration": 300
     }
