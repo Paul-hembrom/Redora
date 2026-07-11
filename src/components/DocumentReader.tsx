@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import { markdownComponents } from './MarkdownComponents';
 
 const splitIntoSentences = (text: string) => {
-  const regex = /([^.!?]+[.!?]+)s*/g;
+  const regex = /([^.!?]+[.!?]+)(\s*)/g;
   let sentences = [];
   let match;
   let lastIndex = 0;
@@ -13,11 +13,20 @@ const splitIntoSentences = (text: string) => {
     if (match.index > lastIndex) {
       sentences.push({ text: text.slice(lastIndex, match.index), isSentence: false });
     }
-    sentences.push({ text: match[1], isSentence: true });
+    const isActuallySentence = match[1].trim().length > 0;
+    sentences.push({ text: match[1], isSentence: isActuallySentence });
+    
+    // Add the trailing whitespace back as non-sentence
+    if (match[2]) {
+      sentences.push({ text: match[2], isSentence: false });
+    }
     lastIndex = regex.lastIndex;
   }
   if (lastIndex < text.length) {
-    sentences.push({ text: text.slice(lastIndex), isSentence: false });
+    const remaining = text.slice(lastIndex);
+    const isActuallySentence = remaining.trim().length > 0;
+    // For ReadAloudButton, it pushes the remainder as a sentence if it's non-empty
+    sentences.push({ text: remaining, isSentence: isActuallySentence });
   }
   return sentences;
 };
@@ -30,7 +39,7 @@ const SentenceWrapper = ({ text }: { text: string }) => {
       {parts.map((part, i) => {
         if (part.isSentence) {
           const currentIndex = sentenceIdx++;
-          return <span key={i} data-sentence-index={currentIndex} className="transition-colors duration-300">{part.text} </span>;
+          return <span key={i} data-sentence-index={currentIndex} className="transition-colors duration-300">{part.text}</span>;
         }
         return <span key={i}>{part.text}</span>;
       })}
@@ -140,7 +149,7 @@ export default function DocumentReader({ document }: Props) {
       const title = parentChapter ? `${parentChapter.title} - ${chapter.title}` : chapter.title;
       
       textContent += `## ${index + 1}. ${title}\n\n`;
-      textContent += `$<SentenceWrapper text={chapter.content} />\n\n`;
+      textContent += `$<SentenceWrapper text={typeof chapter.content === 'string' ? chapter.content : ''} />\n\n`;
       textContent += `---\n\n`;
     });
 
@@ -242,8 +251,8 @@ export default function DocumentReader({ document }: Props) {
                     </div>
                   </div>
                 )}
-                <div className="prose prose-invert max-w-none text-white/80 whitespace-pre-wrap font-serif leading-relaxed">
-                  {chapter.content}
+                <div className="prose prose-invert max-w-none text-white/80 whitespace-pre-wrap font-serif leading-relaxed reader-content">
+                  <SentenceWrapper text={typeof chapter.content === 'string' ? chapter.content : ''} />
                 </div>
 
                 {/* Chapter Navigation Linking */}

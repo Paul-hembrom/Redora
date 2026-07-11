@@ -6,7 +6,7 @@ import { createInteractiveLesson } from './server/lessonOrchestrator.js';
 import { saveSessionMemory } from './server/studentMemory.js';
 import { createServer as createViteServer } from 'vite';
 
-const app = express();
+export const app = express();
 const PORT = 3000;
 
 app.use(cors({ origin: true, credentials: true }));
@@ -92,7 +92,9 @@ app.get('/api/curriculum', async (req, res) => {
   try {
     const { grade, subject } = req.query;
     if (!grade || !subject) return res.status(400).json({ error: 'grade and subject required' });
-    const rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY title, subtopic`;
+    const gradeStr = typeof grade === 'string' ? grade : String(grade);
+    const subjectStr = typeof subject === 'string' ? subject : String(subject);
+    const rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${gradeStr} AND subject = ${subjectStr} ORDER BY title, subtopic`;
     if (rows.length === 0) return res.json(null);
     const docId = `curr_${grade}_${subject}`.replace(/\s+/g, '_');
     const doc = { id: docId, name: `${grade} - ${subject} Curriculum`, uploadDate: new Date().toISOString(), chapters: [] };

@@ -173,14 +173,23 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, []);
 
+  const getContainer = (): HTMLElement => {
+    let container = containerRef?.current;
+    if (!container && buttonRef.current) {
+      container = buttonRef.current.closest('.prose, .content, .reader, .markdown-body, .scroll-container') as HTMLElement;
+    }
+    if (!container) {
+      // Fallback: look for the document reader or standard prose element
+      container = (document.querySelector('.reader-content') || document.querySelector('.prose') || document.querySelector('.markdown-body') || document.body) as HTMLElement;
+    }
+    return container;
+  };
+
   const stopPlaying = () => {
-  if (containerRef?.current) {
-    containerRef.current.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
-  }
-  if (buttonRef.current) {
-    const container = buttonRef.current.closest('.prose, .content, .reader, .markdown-body');
-    if (container) container.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
-  }
+    const container = getContainer();
+    if (container) {
+      container.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
+    }
     stopIntentRef.current = true;
     if (audioRef.current) {
       audioRef.current.pause();
@@ -194,7 +203,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     setIsLoading(false);
   };
 
-  
   const playQueue = async (chunks: any[], sentences: string[], currentSentenceIndex: number = 0, totalChunks: number = chunks.length) => {
     if (stopIntentRef.current || chunks.length === 0) {
       setIsPlaying(false);
@@ -206,18 +214,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     
     // Auto-scroll
     try {
-        let container = containerRef?.current;
-        if (!container && buttonRef.current) {
-           container = buttonRef.current.closest('.prose, .content, .reader, .markdown-body') as HTMLElement;
-        }
+        const container = getContainer();
         if (container && currentSentence) {
+            // Find all matching active sentences across the page just in case, but scope to container
+            const allElements = container.querySelectorAll('[data-sentence-index]');
+            allElements.forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
+            
             const targetEl = container.querySelector(`[data-sentence-index="${currentSentenceIndex}"]`);
-if (targetEl) {
-  container.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
-  targetEl.classList.add('bg-cyan-500/20', 'text-cyan-300');
-}
             if (targetEl) {
-                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                targetEl.classList.add('bg-cyan-500/20', 'text-cyan-300');
+                
+                // Determine the scrollable parent to scroll instead of just using scrollIntoView, which might fail or over-scroll
+                // But scrollIntoView with smooth/center/nearest is standard.
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
             }
         }
     } catch(e) { console.error("Scroll error", e); }
