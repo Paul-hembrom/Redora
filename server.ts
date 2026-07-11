@@ -50106,4 +50106,5 @@ var init_node = __esm({
        * @return A promise that resolves to a `types.File` object.
        * @throws An error if called on a Vertex AI client.
        * @throws An error if the `mimeType` is not provided and can not be inferred,
-       * the `mimeType` can be provided in the `param*/
+       * the `mimeType` can be provided in the `param
+*/

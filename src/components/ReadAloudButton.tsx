@@ -99,6 +99,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [progress, setProgress] = useState(0);
   const [voicesAvailable, setVoicesAvailable] = useState(true);
   const [showPermissionWarning, setShowPermissionWarning] = useState(false);
   
@@ -173,6 +174,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   }, []);
 
   const stopPlaying = () => {
+  if (containerRef?.current) {
+    containerRef.current.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
+  }
+  if (buttonRef.current) {
+    const container = buttonRef.current.closest('.prose, .content, .reader, .markdown-body');
+    if (container) container.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
+  }
     stopIntentRef.current = true;
     if (audioRef.current) {
       audioRef.current.pause();
@@ -182,16 +190,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       window.speechSynthesis.cancel();
     }
     setIsPlaying(false);
+    setProgress(0);
     setIsLoading(false);
   };
 
   
-  const playQueue = async (chunks: any[], sentences: string[]) => {
+  const playQueue = async (chunks: any[], sentences: string[], currentSentenceIndex: number = 0, totalChunks: number = chunks.length) => {
     if (stopIntentRef.current || chunks.length === 0) {
       setIsPlaying(false);
       return;
     }
     const currentChunk = chunks.shift();
+    setProgress(Math.round(((currentSentenceIndex + 1) / totalChunks) * 100));
     const currentSentence = sentences.shift();
     
     // Auto-scroll
@@ -201,7 +211,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
            container = buttonRef.current.closest('.prose, .content, .reader, .markdown-body') as HTMLElement;
         }
         if (container && currentSentence) {
-            const targetEl = getSentenceElement(container, currentSentence);
+            const targetEl = container.querySelector(`[data-sentence-index="${currentSentenceIndex}"]`);
+if (targetEl) {
+  container.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
+  targetEl.classList.add('bg-cyan-500/20', 'text-cyan-300');
+}
             if (targetEl) {
                 targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
@@ -219,7 +233,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
     audio.onended = () => {
       if (!stopIntentRef.current) {
-        playQueue(chunks, sentences);
+        playQueue(chunks, sentences, currentSentenceIndex + 1, totalChunks);
       }
     };
     audio.onerror = () => {
@@ -241,6 +255,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     logInfo('Triggered: Attempting ElevenLabs TTS API call...');
     try {
       setIsLoading(true);
+      setProgress(0);
       setErrorMsg('');
       const res = await fetch('/api/tts/elevenlabs', {
         method: 'POST',
@@ -394,6 +409,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           <Loader2 className={cn("animate-spin", iconSizeClasses)} />
         ) : isPlaying ? (
           <div className="flex items-center gap-1">
+            {progress > 0 && <span className="text-[10px] font-mono text-cyan-400 absolute -bottom-4">{progress}%</span>}
             <AudioLines className={cn("animate-pulse text-cyan-400", iconSizeClasses)} />
             <Square className="w-2.5 h-2.5 fill-current opacity-70" />
           </div>

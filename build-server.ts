@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild';
 
 esbuild.build({
-  entryPoints: ['server.ts'],
+  entryPoints: ['server2.ts'],
   bundle: true,
   platform: 'node',
   target: 'node18',
