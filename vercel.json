@@ -1,10 +1,10 @@
 {
   "functions": {
     "api/curriculum/generate": {
-      "maxDuration": 900
+      "maxDuration": 300
     },
     "api/index": {
-      "maxDuration": 900
+      "maxDuration": 300
     }
   },
   "rewrites": [
