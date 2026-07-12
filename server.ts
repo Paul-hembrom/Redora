@@ -466,8 +466,6 @@ if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   // production fallback omitted for brevity
 }
 
-if (!process.env.VERCEL) {
-  
 // --- Auth Routes ---
 app.post('/api/auth/signup', (req, res) => {
   res.json({ success: true, message: 'Signup implemented natively on frontend or token-exchange' });
@@ -486,7 +484,8 @@ app.get('/api/auth/me', (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
