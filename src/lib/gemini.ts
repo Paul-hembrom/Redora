@@ -1511,7 +1511,7 @@ Output only the summary text or "NO_SUMMARY", no other text.
   }
 }
 
-export async function synthesizeElevenLabsSpeech(text: string): Promise<string | null> {
+export async function synthesizeElevenLabsSpeech(text: string): Promise<any[] | string | null> {
   try {
     const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) {
@@ -1519,35 +1519,48 @@ export async function synthesizeElevenLabsSpeech(text: string): Promise<string |
       return null;
     }
 
-    const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R - Real Estate Sales
-    const modelId = 'eleven_v3';
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+    const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
+    const modelId = 'eleven_flash_v2_5';
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'xi-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`ElevenLabs TTS API error: ${response.status}`, errText);
-      return null;
+    let sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
+    if (!sentences) {
+       sentences = [text.trim()];
+    } else {
+       sentences = sentences.map((s: string) => s.trim()).filter(Boolean);
     }
 
-    const audioBuffer = await response.arrayBuffer();
-    const base64 = Buffer.from(audioBuffer).toString('base64');
-    return `data:audio/mpeg;base64,${base64}`;
+    const chunks = await Promise.all(sentences.map(async (sentence: string, index: number) => {
+       const response = await fetch(url, {
+         method: 'POST',
+         headers: {
+           'Content-Type': 'application/json',
+           'xi-api-key': apiKey,
+         },
+         body: JSON.stringify({
+           text: sentence,
+           model_id: modelId,
+           voice_settings: {
+             stability: 0.5,
+             similarity_boost: 0.75,
+           },
+         }),
+       });
+
+       if (!response.ok) {
+         console.error(`ElevenLabs TTS chunk ${index} error: ${response.status}`);
+         return null;
+       }
+
+       const audioBuffer = await response.arrayBuffer();
+       const base64 = Buffer.from(audioBuffer).toString('base64');
+       return { index, audioUrl: `data:audio/mpeg;base64,${base64}` };
+    }));
+
+    const validChunks = chunks.filter(c => c !== null);
+    if (validChunks.length === 0) return null;
+
+    return validChunks;
   } catch (err) {
     console.error('ElevenLabs TTS helper error:', err);
     return null;

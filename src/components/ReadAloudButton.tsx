@@ -130,21 +130,68 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         throw new Error(`API returned ${res.status}`);
       }
       const data = await res.json();
-      if (!data.audioUrl) throw new Error('No audio URL returned');
       
-      const audio = new Audio(data.audioUrl);
-      audioRef.current = audio;
-      audio.onended = () => setIsPlaying(false);
-      audio.onerror = () => {
-        setIsPlaying(false);
-        logError('ElevenLabs audio element threw a playback error.');
-        speakWithBrowser();
-      };
+      if (data.audioUrl) {
+        const audio = new Audio(data.audioUrl);
+        audioRef.current = audio;
+        audio.onended = () => setIsPlaying(false);
+        audio.onerror = () => {
+          setIsPlaying(false);
+          logError('ElevenLabs audio element threw a playback error.');
+          speakWithBrowser();
+        };
+        await audio.play();
+        setIsLoading(false);
+        setIsPlaying(true);
+        logSuccess('ElevenLabs TTS API call successful, audio is playing.');
+        return;
+      }
+
+      if (!data.chunks || !Array.isArray(data.chunks) || data.chunks.length === 0) {
+        throw new Error('No audio chunks returned');
+      }
+
+      const chunks = data.chunks.sort((a: any, b: any) => a.index - b.index);
       
-      await audio.play();
       setIsLoading(false);
       setIsPlaying(true);
-      logSuccess('ElevenLabs TTS API call successful, audio is playing.');
+      
+      let i = 0;
+      
+      const playNextChunk = async () => {
+        if (stopIntentRef.current || i >= chunks.length) {
+          setIsPlaying(false);
+          return;
+        }
+        
+        const audio = new Audio(chunks[i].audioUrl);
+        audioRef.current = audio;
+        
+        if (i + 1 < chunks.length) {
+          const nextAudio = new Audio(chunks[i+1].audioUrl);
+          nextAudio.preload = "auto";
+        }
+        
+        audio.onended = () => {
+          i++;
+          playNextChunk();
+        };
+        
+        audio.onerror = () => {
+          setIsPlaying(false);
+          if (!stopIntentRef.current) speakWithBrowser();
+        };
+        
+        try {
+          await audio.play();
+        } catch (e) {
+          setIsPlaying(false);
+          if (!stopIntentRef.current) speakWithBrowser();
+        }
+      };
+      
+      playNextChunk();
+      logSuccess('ElevenLabs TTS API call successful, starting chunk playback.');
     } catch (err) {
       logError('ElevenLabs TTS API call failed:', err);
       setIsLoading(false);

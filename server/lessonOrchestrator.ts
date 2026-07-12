@@ -217,8 +217,15 @@ Output valid JSON only.`;
         }
         
         
-        const url = await synthesizeElevenLabsSpeech(ttsText);
-        step.narration_audio_url = url || null;
+        const result = await synthesizeElevenLabsSpeech(ttsText);
+        if (typeof result === 'string') {
+          step.narration_audio_url = result || null;
+        } else if (Array.isArray(result) && result.length > 0) {
+          step.narration_audio_chunks = result;
+          step.narration_audio_url = result[0].audioUrl; // fallback
+        } else {
+          step.narration_audio_url = null;
+        }
 
       } catch(e) {
          console.error("TTS generation failed for step:", step.id, e);

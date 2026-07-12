@@ -14,6 +14,7 @@ interface LessonStep {
   type: 'video' | 'image' | 'question' | 'intro' | 'joke' | 'fun_fact';
   url?: string;
   narration_audio_url?: string;
+  narration_audio_chunks?: { index: number, audioUrl: string }[];
   narrationText?: string;
   caption?: string;
   text?: string; 
@@ -51,6 +52,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
   // Audio references
   const audioRef = useRef<HTMLAudioElement>(null);
+  const currentChunkIndexRef = useRef(0);
   const chatAudioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -121,12 +123,30 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
   useEffect(() => {
     if (lessonState === 'playing' && currentStep) {
-      if (currentStep.narration_audio_url && audioRef.current) {
+      if (currentStep.narration_audio_chunks && currentStep.narration_audio_chunks.length > 0 && audioRef.current) {
+        // Reset index if we are just starting this step
+        if (audioRef.current.getAttribute('data-step-id') !== currentStep.id) {
+           currentChunkIndexRef.current = 0;
+           audioRef.current.setAttribute('data-step-id', currentStep.id);
+        }
+        
+        const chunks = currentStep.narration_audio_chunks;
+        const index = currentChunkIndexRef.current;
+        if (index < chunks.length) {
+           if (audioRef.current.getAttribute('src') !== chunks[index].audioUrl) {
+             audioRef.current.src = chunks[index].audioUrl;
+           }
+           audioRef.current.play().catch(e => console.error("Audio chunk block:", e));
+        } else {
+           handleAudioEnded(); // all chunks played
+        }
+      } else if (currentStep.narration_audio_url && audioRef.current) {
+        audioRef.current.removeAttribute('data-step-id');
         if (audioRef.current.getAttribute('src') !== currentStep.narration_audio_url) {
           audioRef.current.src = currentStep.narration_audio_url;
         }
         audioRef.current.play().catch(e => console.error("Audio block:", e));
-      } else if (currentStep.type !== 'video' && !currentStep.narration_audio_url) {
+      } else if (currentStep.type !== 'video' && !currentStep.narration_audio_url && (!currentStep.narration_audio_chunks || currentStep.narration_audio_chunks.length === 0)) {
         // Fallback for steps without audio, so it doesn't get stuck forever
         if (currentStep.type === 'question') {
           const timer = setTimeout(openAskScreen, 3000);
@@ -176,6 +196,17 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
   };
 
   const handleAudioEnded = () => {
+    // If playing chunks, advance to the next chunk if available
+    if (currentStep && currentStep.narration_audio_chunks && currentStep.narration_audio_chunks.length > 0) {
+      currentChunkIndexRef.current += 1;
+      const chunks = currentStep.narration_audio_chunks;
+      if (currentChunkIndexRef.current < chunks.length && audioRef.current) {
+        audioRef.current.src = chunks[currentChunkIndexRef.current].audioUrl;
+        audioRef.current.play().catch(e => console.error("Audio chunk block:", e));
+        return; // wait for this chunk to end
+      }
+    }
+
     // If it's a video step, wait for video unless it's already ended or absent
     if (currentStep && currentStep.type === 'video' && videoRef.current) {
       if (!videoRef.current.ended) return; // Wait for video to finish
@@ -477,7 +508,13 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
               playsInline
               onEnded={() => {
                 // If there's an audio URL being played, we must wait for it if it hasn't ended.
-                if (currentStep.narration_audio_url && audioRef.current && !audioRef.current.ended) {
+                const hasAudio = currentStep.narration_audio_url || (currentStep.narration_audio_chunks && currentStep.narration_audio_chunks.length > 0);
+                if (hasAudio && audioRef.current && !audioRef.current.ended) {
+                  return;
+                }
+                
+                // Also check if we have more chunks to play
+                if (currentStep.narration_audio_chunks && currentChunkIndexRef.current < currentStep.narration_audio_chunks.length - 1) {
                   return;
                 }
                 handleNext();
