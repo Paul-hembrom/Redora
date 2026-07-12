@@ -39,6 +39,7 @@ interface Props {
   onSummarizeChapter?: (docId: string, chapterId: string) => void;
   summarizingChapters?: Set<string>;
   isStudent?: boolean;
+  isCurriculum?: boolean;
 }
 
 interface ChapterNodeProps {
@@ -246,7 +247,7 @@ const ChapterNode = ({
   );
 };
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, onSummarizeChapter, summarizingChapters, isStudent: propIsStudent }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, onSummarizeChapter, summarizingChapters, isStudent: propIsStudent, isCurriculum = false }: Props) {
   const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed' });
@@ -653,7 +654,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
 
         {/* Removed PricingModal rendering so it doesn't overlap */}
 
-        {!isStudent && !selectedDocId?.startsWith('curr_') && (
+        {!isStudent && !isCurriculum && (
           <div className="flex gap-2 mb-4">
             <div 
               {...getRootProps()} 
@@ -884,7 +885,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                 </button>
-                {!isStudent && !doc.id.startsWith('curr_') && (
+                {!isStudent && !isCurriculum && (
                   <button 
                     onClick={(e) => handleShare(e, doc)}
                     className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}
@@ -977,7 +978,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>
                 </button>
-                {!isStudent && onClearChats && !doc.id.startsWith('curr_') && (
+                {!isStudent && onClearChats && !isCurriculum && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onClearChats(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-yellow-400 hover:bg-white/5 rounded-md transition-all"
@@ -986,7 +987,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     <MessageSquare className="w-3.5 h-3.5" />
                   </button>
                 )}
-                {!isStudent && onDeleteDocument && !doc.id.startsWith('curr_') && (
+                {!isStudent && onDeleteDocument && !isCurriculum && (
                   <button 
                     onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc.id); }}
                     className="p-1.5 text-white/30 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
@@ -1009,7 +1010,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                       </span>
                     ))}
                   </div>
-                  {!isStudent && !doc.id.startsWith('curr_') && (
+                  {!isStudent && !isCurriculum && (
                     editingTagsFor === doc.id ? (
                       <div className="flex flex-col gap-2 mt-1">
                         <input 
@@ -1136,7 +1137,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                       onSummarizeChapter={onSummarizeChapter}
                       summarizingChapters={summarizingChapters}
                       isStudent={isStudent}
-                      isCurriculum={doc.id.startsWith('curr_')}
+                      isCurriculum={isCurriculum}
                     />
                   ));
                 })()}

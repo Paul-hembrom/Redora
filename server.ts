@@ -2301,8 +2301,12 @@ RULES:
         const generatedContent = await callLLM(contentPrompt);
 
         // 2. Fetch Images
-        const keywordPrompt = `You are an Educational Search Assistant. Based on the chapter title, key concepts, and a detailed content summary, generate a single, precise search keyword that can be used on a photo/diagram search engine to find a relevant educational image. Return ONLY a JSON object: {"keyword": "string"}
+        const keywordPrompt = `You are an Educational Search Assistant. Based on the chapter title, key concepts, and a detailed content summary, generate a single, precise search keyword that can be used on a photo/diagram search engine to find a relevant educational image. 
+- If the subject is Mathematics, the search keyword must include the word "mathematics" or "math" and be appropriate for a classroom diagram (e.g., "set theory diagram math").
+- Avoid generic keywords that could return irrelevant results (e.g., jewellery, fashion).
+Return ONLY a JSON object: {"keyword": "string"}
 
+Subject: ${subject}
 Chapter Title: ${subtopic}
 Key Concepts: ${title}
 Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`;
@@ -2398,12 +2402,12 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
 
         // Relevance check
         if (images.length > 0) {
-           const combinedText = images.map(img => (img.alt || "").toLowerCase()).join(" ");
-           const titleWords = title.toLowerCase().split(/\s+/);
-           const checkWords = [...titleWords].filter(w => w.length > 2);
-           const isRelevant = checkWords.some(w => combinedText.includes(w));
-           if (!isRelevant && checkWords.length > 0) {
-              const broaderQuery = title.trim();
+           const firstAlt = (images[0].alt || "").toLowerCase();
+           const topicWords = subtopic.toLowerCase().split(/\s+/).concat(subject.toLowerCase().split(/\s+/));
+           const checkWords = [...topicWords].filter(w => w.length > 2);
+           const isRelevant = checkWords.length === 0 || checkWords.some(w => firstAlt.includes(w));
+           if (!isRelevant) {
+              const broaderQuery = `${subject} ${title}`.trim();
               const retryImages = await fetchImagesForQuery(broaderQuery);
               if (retryImages.length > 0) {
                  images = retryImages;
@@ -2467,7 +2471,7 @@ Generate 3 multiple-choice questions for ${grade} ${subject}. Return JSON exactl
         // 5. Insert into DB
         await sql`
           INSERT INTO curriculum_library (grade, subject, title, subtopic, content, images, videos, questions)
-          VALUES (${grade}, ${subject}, ${title}, ${subtopic}, ${generatedContent}, ${JSON.stringify(images)}, ${JSON.stringify(videos)}, ${JSON.stringify(questions)})
+          VALUES (${grade}, ${subject}, ${title}, ${subtopic}, ${generatedContent}, ${sql.json(images)}, ${sql.json(videos)}, ${sql.json(questions)})
         `;
 
         results.push({ subtopic, status: "success" });

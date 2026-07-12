@@ -56,6 +56,7 @@ const flattenChapters = (chapters: any[] = [], parentPrefix: string = ''): any[]
 };
 
 export default function App() {
+  const isCurriculum = new URLSearchParams(window.location.search).get('source') === 'curriculum';
   const { user, loading, logout, isOffline } = useAuth();
   const [isStudent, setIsStudent] = useState(user?.role === 'student');
 
@@ -827,6 +828,7 @@ export default function App() {
         <div className={`absolute md:static inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out flex ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
           <Sidebar 
             documents={safeDocuments}
+            isCurriculum={isCurriculum}
             selectedDocId={selectedDocId}
             selectedChapterId={selectedChapterId}
             onSelectChapter={handleSelectChapter}
