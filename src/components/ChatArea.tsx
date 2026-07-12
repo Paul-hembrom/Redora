@@ -21,7 +21,7 @@ import { ReadAloudButton } from './ReadAloudButton';
 import { smartNormalizeText } from '../lib/utils';
 
 import { useAuth } from '../contexts/AuthContext';
-import {  cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages , cacheWholeTopic } from '../lib/offline';
+import { cacheTopicChats, getCachedTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -1035,8 +1035,8 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             )}
             <button 
               onClick={async () => {
-                
-                await cacheWholeTopic(chapter);
+                const lib = await import('../lib/offline');
+                await lib.cacheWholeTopic(chapter);
                 alert('Chapter is now available offline');
               }} 
               className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" 
@@ -1330,7 +1330,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                   </motion.div>
                 )}
 
-                {Array.isArray(msg.images) && msg.images.length > 0 && (
+                {msg.images && msg.images.length > 0 && (
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -1341,7 +1341,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       Images & Diagrams
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {(Array.isArray(msg.images) ? msg.images : []).map((img, iIdx) => (
+                      {msg.images.map((img, iIdx) => (
                         <ImageCard key={iIdx} image={img} />
                       ))}
                     </div>

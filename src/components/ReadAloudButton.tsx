@@ -6,7 +6,6 @@ interface Props {
   text: string;
   className?: string;
   iconSizeClasses?: string;
-  containerRef?: React.RefObject<HTMLElement> | null;
 }
 
 
@@ -27,79 +26,10 @@ const logError = (msg: string, data?: any) => {
 };
 
 
-
-const getSentenceElement = (container: HTMLElement, sentence: string): HTMLElement | null => {
-  const cleanSentence = sentence.replace(/\s+/g, ' ').trim();
-  if (!cleanSentence) return null;
-
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-  let fullText = "";
-  const nodes: { node: Node, start: number, end: number }[] = [];
-  
-  let node;
-  while ((node = walker.nextNode())) {
-    const text = node.nodeValue || "";
-    nodes.push({ node, start: fullText.length, end: fullText.length + text.length });
-    fullText += text;
-  }
-  
-  let matchIndex = fullText.replace(/\s+/g, ' ').indexOf(cleanSentence);
-  if (matchIndex === -1) {
-    const shortSearch = cleanSentence.substring(0, 15);
-    matchIndex = fullText.replace(/\s+/g, ' ').indexOf(shortSearch);
-  }
-  
-  if (matchIndex !== -1) {
-    let realIndex = 0;
-    let cleanIndex = 0;
-    for (let i = 0; i < fullText.length; i++) {
-      if (cleanIndex === matchIndex) {
-        realIndex = i;
-        break;
-      }
-      const isSpace = /\s/.test(fullText[i]);
-      if (isSpace) {
-         if (i === 0 || !/\s/.test(fullText[i-1])) {
-            cleanIndex++;
-         }
-      } else {
-         cleanIndex++;
-      }
-    }
-    
-    for (const n of nodes) {
-      if (realIndex >= n.start && realIndex < n.end) {
-        return n.node.parentElement;
-      }
-    }
-  }
-
-  return null;
-};
-
-const splitIntoSentences = (text: string) => {
-  const regex = /([^.!?]+[.!?]+)\s*/g;
-  let sentences = [];
-  let match;
-  let lastIndex = 0;
-  while ((match = regex.exec(text)) !== null) {
-    if (match[1].trim()) {
-      sentences.push(match[1].trim());
-    }
-    lastIndex = regex.lastIndex;
-  }
-  const remaining = text.substring(lastIndex).trim();
-  if (remaining) {
-    sentences.push(remaining);
-  }
-  return sentences;
-};
-
-export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef }: Props) {
+export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4" }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [progress, setProgress] = useState(0);
   const [voicesAvailable, setVoicesAvailable] = useState(true);
   const [showPermissionWarning, setShowPermissionWarning] = useState(false);
   
@@ -173,23 +103,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, []);
 
-  const getContainer = (): HTMLElement => {
-    let container = containerRef?.current;
-    if (!container && buttonRef.current) {
-      container = buttonRef.current.closest('.prose, .content, .reader, .markdown-body, .scroll-container') as HTMLElement;
-    }
-    if (!container) {
-      // Fallback: look for the document reader or standard prose element
-      container = (document.querySelector('.reader-content') || document.querySelector('.prose') || document.querySelector('.markdown-body') || document.body) as HTMLElement;
-    }
-    return container;
-  };
-
   const stopPlaying = () => {
-    const container = getContainer();
-    if (container) {
-      container.querySelectorAll('[data-sentence-index]').forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
-    }
     stopIntentRef.current = true;
     if (audioRef.current) {
       audioRef.current.pause();
@@ -199,84 +113,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       window.speechSynthesis.cancel();
     }
     setIsPlaying(false);
-    setProgress(0);
     setIsLoading(false);
-  };
-
-  const playQueue = async (chunks: any[], sentences: string[], currentSentenceIndex: number = 0, totalChunks: number = chunks.length) => {
-    if (stopIntentRef.current || chunks.length === 0) {
-      setIsPlaying(false);
-      return;
-    }
-    const currentChunk = chunks.shift();
-    setProgress(Math.round(((currentSentenceIndex + 1) / totalChunks) * 100));
-    const currentSentence = sentences.shift();
-    
-    // Auto-scroll
-    try {
-        const container = getContainer();
-        if (container && currentSentence) {
-            // Find all matching active sentences across the page just in case, but scope to container
-            const allElements = container.querySelectorAll('[data-sentence-index]');
-            allElements.forEach(el => el.classList.remove('bg-cyan-500/20', 'text-cyan-300'));
-            
-            const targetEl = container.querySelector(`[data-sentence-index="${currentSentenceIndex}"]`);
-            if (targetEl) {
-                targetEl.classList.add('bg-cyan-500/20', 'text-cyan-300');
-                
-                // Determine the scrollable parent to scroll instead of just using scrollIntoView, which might fail or over-scroll
-                // But scrollIntoView with smooth/center/nearest is standard.
-                
-                const scrollParent = targetEl.closest('.overflow-y-auto') || targetEl.closest('.overflow-auto') || document.documentElement;
-                if (scrollParent && scrollParent !== document.documentElement) {
-                    const targetRect = targetEl.getBoundingClientRect();
-                    const parentRect = scrollParent.getBoundingClientRect();
-                    
-                    // If target is out of view (above or below) or we just want to ensure it's centered
-                    const offset = targetRect.top - parentRect.top + scrollParent.scrollTop - (parentRect.height / 2) + (targetRect.height / 2);
-                    scrollParent.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
-                } else {
-                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-                }
-
-            }
-        }
-    } catch(e) { console.error("Scroll error", e); }
-
-    const audio = new Audio(currentChunk.audioUrl);
-    audioRef.current = audio;
-    
-    let nextAudio = null;
-    if (chunks.length > 0) {
-      nextAudio = new Audio(chunks[0].audioUrl);
-      nextAudio.preload = 'auto';
-    }
-
-    audio.onended = () => {
-      if (!stopIntentRef.current) {
-        playQueue(chunks, sentences, currentSentenceIndex + 1, totalChunks);
-      }
-    };
-    audio.onerror = () => {
-      setIsPlaying(false);
-      logError('ElevenLabs chunk audio element threw a playback error.');
-      speakWithBrowser();
-    };
-
-    try {
-      await audio.play();
-      setIsPlaying(true);
-    } catch (err) {
-      setIsPlaying(false);
-      logError('ElevenLabs chunk playback failed:', err);
-    }
   };
 
   const tryElevenLabsTTS = async () => {
     logInfo('Triggered: Attempting ElevenLabs TTS API call...');
     try {
       setIsLoading(true);
-      setProgress(0);
       setErrorMsg('');
       const res = await fetch('/api/tts/elevenlabs', {
         method: 'POST',
@@ -287,13 +130,21 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         throw new Error(`API returned ${res.status}`);
       }
       const data = await res.json();
-      if (!data.chunks || data.chunks.length === 0) throw new Error('No audio chunks returned');
+      if (!data.audioUrl) throw new Error('No audio URL returned');
       
+      const audio = new Audio(data.audioUrl);
+      audioRef.current = audio;
+      audio.onended = () => setIsPlaying(false);
+      audio.onerror = () => {
+        setIsPlaying(false);
+        logError('ElevenLabs audio element threw a playback error.');
+        speakWithBrowser();
+      };
+      
+      await audio.play();
       setIsLoading(false);
-      stopIntentRef.current = false;
-      playQueue(data.chunks, splitIntoSentences(text));
-      
-      logSuccess('ElevenLabs TTS API call successful, chunk queue started.');
+      setIsPlaying(true);
+      logSuccess('ElevenLabs TTS API call successful, audio is playing.');
     } catch (err) {
       logError('ElevenLabs TTS API call failed:', err);
       setIsLoading(false);
@@ -430,7 +281,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           <Loader2 className={cn("animate-spin", iconSizeClasses)} />
         ) : isPlaying ? (
           <div className="flex items-center gap-1">
-            {progress > 0 && <span className="text-[10px] font-mono text-cyan-400 absolute -bottom-4">{progress}%</span>}
             <AudioLines className={cn("animate-pulse text-cyan-400", iconSizeClasses)} />
             <Square className="w-2.5 h-2.5 fill-current opacity-70" />
           </div>

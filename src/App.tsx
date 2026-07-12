@@ -1,4 +1,3 @@
-import { cacheDocuments, getCachedDocuments } from './lib/offline';
 import React, { useState, useEffect } from 'react';
 import { Document, PreprocessOptions, ChatMessage, ReadingPersona } from './types';
 import Sidebar from './components/Sidebar';
@@ -111,7 +110,7 @@ export default function App() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setDocuments(data);
-          cacheDocuments(data);
+          import('./lib/offline').then(m => m.cacheDocuments(data));
         }
       }
     } catch (err) {
@@ -186,7 +185,6 @@ export default function App() {
 
     
     const source = urlParams.get('source');
-    const subtopic = urlParams.get('subtopic');
     const grade = urlParams.get('grade');
     const subject = urlParams.get('subject');
     
@@ -194,40 +192,13 @@ export default function App() {
       if (user) return; // Handled in the main fetch below
       
       fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`)
-        .then(async res => {
-          if (res.ok) {
-            const data = await res.json();
-            if (data) {
-                // If there's a subtopic, we might want to pass it to the DocumentReader somehow, 
-                // but for now, DocumentReader selects the first chapter by default.
-                // We'll update DocumentReader later or just pass it in URL.
-                // But App.tsx sets sharedPublicDoc here.
-                setSharedPublicDoc(data);
-                
-                // Set the selected chapter if a subtopic was specified.
-                if (subtopic && data.chapters) {
-                    
-                    let targetChapter;
-                    for (const chap of data.chapters) {
-                        if (chap.title === subtopic) { targetChapter = chap; break; }
-                        if (chap.children) {
-                            const found = chap.children.find((child: any) => child.title === subtopic);
-                            if (found) { targetChapter = found; break; }
-                        }
-                    }
-
-                    if (targetChapter) {
-                        // we need to set selectedChapterId somehow, but for unauth user, 
-                        // App.tsx uses selectedChapterId as well!
-                        setSelectedChapterId(targetChapter.id);
-                    }
-                }
-            } else {
-                alert("Curriculum content not yet available for this grade and subject.");
-            }
-          } else {
-            alert("Curriculum content not yet available for this grade and subject.");
-          }
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('Not found');
+        })
+        .then(data => {
+          if (data) setSharedPublicDoc(data);
+          else alert("This curriculum content is not yet available.");
         })
         .catch(console.error);
       return;
@@ -262,7 +233,7 @@ export default function App() {
       setIsDocsLoading(true);
       setDocuments([]); // Clear any old docs immediately upon getting a new user context
       if (!navigator.onLine) {
-         getCachedDocuments().then(docs => {
+         import('./lib/offline').then(m => m.getCachedDocuments()).then(docs => {
             setDocuments(docs);
             setIsDocsLoading(false);
          });
@@ -293,7 +264,6 @@ export default function App() {
             const source = urlParams.get('source');
             const grade = urlParams.get('grade');
             const subject = urlParams.get('subject');
-            const subtopic = urlParams.get('subtopic');
             
             if (source === 'curriculum' && grade && subject) {
               try {
@@ -304,39 +274,15 @@ export default function App() {
                     docs = [currDoc, ...docs];
                     setSelectedDocId(currDoc.id);
                     if (currDoc.chapters && currDoc.chapters.length > 0) {
-                      let targetDisplay;
-                      if (subtopic) {
-                          // Try to find the exact subtopic
-                          
-                          for (const chap of currDoc.chapters) {
-                              if (chap.title === subtopic) { targetDisplay = chap; break; }
-                              if (chap.children) {
-                                  const found = chap.children.find((child: any) => child.title === subtopic);
-                                  if (found) { targetDisplay = found; break; }
-                              }
-                          }
-
-                      }
-                      
-                      if (!targetDisplay) {
-                          targetDisplay = currDoc.chapters.find((c: any) => c.type === 'topic');
-                      }
-                      
-                      if (!targetDisplay) {
-                          const firstChap = currDoc.chapters[0];
-                          if (firstChap && firstChap.children && firstChap.children.length > 0) {
-                              targetDisplay = firstChap.children[0];
-                          } else {
-                              targetDisplay = firstChap;
-                          }
-                      }
-                      setSelectedChapterId(targetDisplay?.id);
+                      // find first topic or part
+                      const firstDisplay = currDoc.chapters.find((c: any) => c.type === 'topic') || currDoc.chapters[0];
+                      setSelectedChapterId(firstDisplay.id);
                     }
                   } else {
-                    setUploadError("Curriculum content not yet available for this grade and subject.");
+                    setUploadError("This curriculum content is not yet available.");
                   }
                 } else {
-                   setUploadError("Curriculum content not yet available for this grade and subject.");
+                   setUploadError("Failed to fetch curriculum content.");
                 }
               } catch (err) {
                  console.error("Failed to fetch curriculum:", err);
@@ -546,7 +492,7 @@ export default function App() {
             const data = await docsRes.json();
             if (Array.isArray(data)) {
               setDocuments(data);
-              cacheDocuments(data);
+              import('./lib/offline').then(m => m.cacheDocuments(data));
               
               // Find the newly uploaded document (by tempDocId which was preserved, or just use the response if available)
               const newDocInList = data.find((d: any) => d.id === finalDoc.id);

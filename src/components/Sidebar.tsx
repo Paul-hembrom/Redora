@@ -1,4 +1,3 @@
-import { cacheDocument, cacheTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
 import React, { useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
@@ -53,7 +52,6 @@ interface ChapterNodeProps {
   onSelectChapter: (docId: string, chapterId: string) => void;
   onSummarizeChapter?: (docId: string, chapterId: string) => void;
   summarizingChapters?: Set<string>;
-  isReadOnly?: boolean;
 }
 
 const ChapterNode = ({ 
@@ -75,8 +73,7 @@ const ChapterNode = ({
   handleCopySummary,
   onSummarizeChapter,
   summarizingChapters,
-  isStudent,
-  isReadOnly
+  isStudent
 }: ChapterNodeProps & {
   editingSummaryId: string | null;
   editingSummaryDraft: string;
@@ -192,7 +189,7 @@ const ChapterNode = ({
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
                 <ReadAloudButton text={chapter.summary} className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400" />
-                {!isReadOnly && (
+                {!isStudent && (
                   <button
                     onClick={(e) => startEditingSummary(e, chapter.id, chapter.summary)}
                     className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
@@ -821,8 +818,6 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
 
           <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
             {sortedDocs.map(doc => {
-          const isCurriculum = doc.id.startsWith('curr_');
-          const isDocStudent = isStudent || isCurriculum;
           const isSelectedForLibrary = librarySelection.has(doc.id);
           return (
           <div key={doc.id} className={cn(
@@ -886,7 +881,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                 </button>
-                {!isDocStudent && (
+                {!isStudent && (
                   <button 
                     onClick={(e) => handleShare(e, doc)}
                     className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}
@@ -911,7 +906,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     <BookA className="w-3.5 h-3.5" />
                   </button>
                 )}
-                {!isDocStudent && (
+                {!isStudent && (
                   <button
                      onClick={(e) => {
                        e.stopPropagation();
@@ -954,7 +949,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                      const safeExpChaps = Array.isArray(doc.chapters) ? doc.chapters : [];
                      safeExpChaps.forEach(flatten);
                      
-                     
+                     const { cacheDocument, cacheTopicChats, cacheTopicVideos, cacheTopicImages } = await import('../lib/offline');
                      await cacheDocument(doc, flatChaps);
                      
                      for (const ch of flatChaps) {
@@ -1007,11 +1002,11 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                     {doc.tags?.map(tag => (
                       <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-white/60">
                         {tag}
-                        {!isDocStudent && <button onClick={(e) => { e.stopPropagation(); handleRemoveTag(doc, tag); }} className="hover:text-red-400"><X className="w-3 h-3" /></button>}
+                        {!isStudent && <button onClick={(e) => { e.stopPropagation(); handleRemoveTag(doc, tag); }} className="hover:text-red-400"><X className="w-3 h-3" /></button>}
                       </span>
                     ))}
                   </div>
-                  {!isDocStudent && (
+                  {!isStudent && (
                     editingTagsFor === doc.id ? (
                       <div className="flex flex-col gap-2 mt-1">
                         <input 
@@ -1137,7 +1132,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                       handleCopySummary={handleCopySummary}
                       onSummarizeChapter={onSummarizeChapter}
                       summarizingChapters={summarizingChapters}
-                      isReadOnly={isDocStudent}
+                      isStudent={isStudent}
                     />
                   ));
                 })()}

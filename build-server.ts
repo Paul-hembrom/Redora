@@ -7,5 +7,5 @@ esbuild.build({
   target: 'node18',
   outfile: 'dist/server.js',
   format: 'esm',
-  packages: 'external',
+  external: ['better-sqlite3', 'bcryptjs', 'express', 'cors', 'jsonwebtoken', 'cookie-parser', 'dotenv', 'vite'],
 }).catch(() => process.exit(1));

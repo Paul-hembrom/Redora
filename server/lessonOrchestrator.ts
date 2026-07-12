@@ -217,13 +217,8 @@ Output valid JSON only.`;
         }
         
         
-        const chunks = await synthesizeElevenLabsSpeech(ttsText);
-        if (chunks && chunks.length > 0) {
-          step.narration_audio_chunks = chunks;
-          step.narration_audio_url = chunks[0].audioUrl; // fallback
-        } else {
-          step.narration_audio_url = null;
-        }
+        const url = await synthesizeElevenLabsSpeech(ttsText);
+        step.narration_audio_url = url || null;
 
       } catch(e) {
          console.error("TTS generation failed for step:", step.id, e);
