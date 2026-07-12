@@ -433,3 +433,4 @@ if (!process.env.VERCEL) {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
+export default app;
