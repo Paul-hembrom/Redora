@@ -226,7 +226,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 
                 // Determine the scrollable parent to scroll instead of just using scrollIntoView, which might fail or over-scroll
                 // But scrollIntoView with smooth/center/nearest is standard.
-                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                
+                const scrollParent = targetEl.closest('.overflow-y-auto') || targetEl.closest('.overflow-auto') || document.documentElement;
+                if (scrollParent && scrollParent !== document.documentElement) {
+                    const targetRect = targetEl.getBoundingClientRect();
+                    const parentRect = scrollParent.getBoundingClientRect();
+                    
+                    // If target is out of view (above or below) or we just want to ensure it's centered
+                    const offset = targetRect.top - parentRect.top + scrollParent.scrollTop - (parentRect.height / 2) + (targetRect.height / 2);
+                    scrollParent.scrollTo({ top: Math.max(0, offset), behavior: 'smooth' });
+                } else {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                }
+
             }
         }
     } catch(e) { console.error("Scroll error", e); }
