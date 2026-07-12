@@ -1,3 +1,4 @@
+import { transcribeSpeech, generateILMChatResponse } from '../lib/gemini';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -240,7 +241,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
         stream.getTracks().forEach(track => track.stop());
         
         try {
-          const { transcribeSpeech } = await import('../lib/gemini');
+          
           const text = await transcribeSpeech(audioBlob);
           if (text) {
             submitQuestionWithText(text);
@@ -292,7 +293,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
 
        const contentContext = `Current Step Content: ${currentStep?.caption || currentStep?.text || currentStep?.narrationText || ''}`;
        
-       const { generateILMChatResponse } = await import('../lib/gemini');
+       
        
        const timeoutPromise = new Promise<string>((_, reject) => {
          setTimeout(() => reject(new Error('TIMEOUT')), 30000);

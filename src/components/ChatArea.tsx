@@ -1035,7 +1035,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             )}
             <button 
               onClick={async () => {
-                const lib = await import('../lib/offline');
+                
                 await lib.cacheWholeTopic(chapter);
                 alert('Chapter is now available offline');
               }} 

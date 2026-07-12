@@ -1,3 +1,4 @@
+import { cacheDocument, cacheTopicChats, cacheTopicVideos, cacheTopicImages } from '../lib/offline';
 import React, { useState, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
@@ -953,7 +954,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                      const safeExpChaps = Array.isArray(doc.chapters) ? doc.chapters : [];
                      safeExpChaps.forEach(flatten);
                      
-                     const { cacheDocument, cacheTopicChats, cacheTopicVideos, cacheTopicImages } = await import('../lib/offline');
+                     
                      await cacheDocument(doc, flatChaps);
                      
                      for (const ch of flatChaps) {

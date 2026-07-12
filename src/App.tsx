@@ -1,3 +1,4 @@
+import { cacheDocuments, getCachedDocuments } from './lib/offline';
 import React, { useState, useEffect } from 'react';
 import { Document, PreprocessOptions, ChatMessage, ReadingPersona } from './types';
 import Sidebar from './components/Sidebar';
@@ -110,7 +111,7 @@ export default function App() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setDocuments(data);
-          import('./lib/offline').then(m => m.cacheDocuments(data));
+          cacheDocuments(data);
         }
       }
     } catch (err) {
@@ -261,7 +262,7 @@ export default function App() {
       setIsDocsLoading(true);
       setDocuments([]); // Clear any old docs immediately upon getting a new user context
       if (!navigator.onLine) {
-         import('./lib/offline').then(m => m.getCachedDocuments()).then(docs => {
+         getCachedDocuments().then(docs => {
             setDocuments(docs);
             setIsDocsLoading(false);
          });
@@ -545,7 +546,7 @@ export default function App() {
             const data = await docsRes.json();
             if (Array.isArray(data)) {
               setDocuments(data);
-              import('./lib/offline').then(m => m.cacheDocuments(data));
+              cacheDocuments(data);
               
               // Find the newly uploaded document (by tempDocId which was preserved, or just use the response if available)
               const newDocInList = data.find((d: any) => d.id === finalDoc.id);

@@ -4,7 +4,7 @@ import cookieParser from 'cookie-parser';
 import sql from './server/db.js';
 import { createInteractiveLesson } from './server/lessonOrchestrator.js';
 import { saveSessionMemory } from './server/studentMemory.js';
-import { createServer as createViteServer } from 'vite';
+
 import jwt from 'jsonwebtoken';
 import ytSearch from 'yt-search';
 import { callLLM } from './src/lib/gemini.js';
@@ -415,10 +415,16 @@ Return ONLY valid JSON exactly matching this schema:
 
 
 // Vite middleware
-if (process.env.NODE_ENV !== 'production') {
-  const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
-  app.use(vite.middlewares);
-} else {
+
+// Avoid top-level await and dynamic import Vite to avoid bloating production builds
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  import('vite').then(({ createServer: createViteServer }) => {
+    createViteServer({ server: { middlewareMode: true }, appType: 'spa' }).then(vite => {
+      app.use(vite.middlewares);
+    });
+  }).catch(err => console.error('Failed to start Vite middleware:', err));
+}
+ else {
   // production fallback omitted for brevity
 }
 
