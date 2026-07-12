@@ -84,6 +84,7 @@ const ChapterNode = ({
   copiedSummaryId: string | null;
   handleCopySummary: (e: React.MouseEvent, id: string, summary: string) => void;
   isStudent?: boolean;
+  isCurriculum?: boolean;
 }) => {
   const [localExpanded, setLocalExpanded] = useState(level === 0 || chapter.type === 'part');
   const paddingLeft = `${level * 0.75 + 1}rem`;
@@ -189,7 +190,7 @@ const ChapterNode = ({
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
                 <ReadAloudButton text={chapter.summary} className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400" />
-                {!isStudent && (
+                {!isStudent && !isCurriculum && (
                   <button
                     onClick={(e) => startEditingSummary(e, chapter.id, chapter.summary)}
                     className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400"
@@ -235,6 +236,7 @@ const ChapterNode = ({
               onSummarizeChapter={onSummarizeChapter}
               summarizingChapters={summarizingChapters}
               isStudent={isStudent}
+              isCurriculum={isCurriculum}
             />
           ))}
         </div>
@@ -650,7 +652,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
 
         {/* Removed PricingModal rendering so it doesn't overlap */}
 
-        {!isStudent && (
+        {!isStudent && !selectedDocId?.startsWith('curr_') && (
           <div className="flex gap-2 mb-4">
             <div 
               {...getRootProps()} 
@@ -881,7 +883,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                 </button>
-                {!isStudent && (
+                {!isStudent && !doc.id.startsWith('curr_') && (
                   <button 
                     onClick={(e) => handleShare(e, doc)}
                     className={cn("p-1.5 hover:bg-white/5 rounded-md transition-all", doc.isPublic ? "text-cyan-400" : "text-white/30 hover:text-cyan-400")}
@@ -1006,7 +1008,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                       </span>
                     ))}
                   </div>
-                  {!isStudent && (
+                  {!isStudent && !doc.id.startsWith('curr_') && (
                     editingTagsFor === doc.id ? (
                       <div className="flex flex-col gap-2 mt-1">
                         <input 
@@ -1133,6 +1135,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                       onSummarizeChapter={onSummarizeChapter}
                       summarizingChapters={summarizingChapters}
                       isStudent={isStudent}
+                      isCurriculum={doc.id.startsWith('curr_')}
                     />
                   ));
                 })()}

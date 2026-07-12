@@ -2526,27 +2526,35 @@ app.get('/api/curriculum', async (req: any, res) => {
        
        let fullContent = row.content || '';
        
-       if (row.images && Array.isArray(row.images) && row.images.length > 0) {
+       let imgs = row.images;
+       if (typeof imgs === 'string') try { imgs = JSON.parse(imgs); } catch(e) {}
+       if (imgs && Array.isArray(imgs) && imgs.length > 0) {
           fullContent += '\n\n### Related Images\n\n';
-          row.images.forEach((img: any) => {
-             fullContent += `![${img.alt}](${img.url})\n\n`;
+          imgs.forEach((img: any) => {
+             fullContent += `![${img.alt || 'image'}](${img.url})\n\n`;
           });
        }
        
-       if (row.videos && Array.isArray(row.videos) && row.videos.length > 0) {
+       let vids = row.videos;
+       if (typeof vids === 'string') try { vids = JSON.parse(vids); } catch(e) {}
+       if (vids && Array.isArray(vids) && vids.length > 0) {
           fullContent += '\n\n### Related Videos\n';
-          row.videos.forEach((vid: any) => {
+          vids.forEach((vid: any) => {
              fullContent += `- [${vid.title}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
           });
        }
        
-       if (row.questions && Array.isArray(row.questions) && row.questions.length > 0) {
+       let qsts = row.questions;
+       if (typeof qsts === 'string') try { qsts = JSON.parse(qsts); } catch(e) {}
+       if (qsts && Array.isArray(qsts) && qsts.length > 0) {
           fullContent += '\n\n### Practice Questions\n';
-          row.questions.forEach((q: any, i: number) => {
+          qsts.forEach((q: any, i: number) => {
              fullContent += `**Q${i+1}: ${q.question}**\n`;
-             q.options.forEach((opt: string) => {
-                fullContent += `- ${opt}\n`;
-             });
+             if (q.options) {
+                q.options.forEach((opt: string) => {
+                   fullContent += `- ${opt}\n`;
+                });
+             }
              fullContent += `*Answer: ${q.answer}*\n\n`;
           });
        }
@@ -2559,13 +2567,14 @@ app.get('/api/curriculum', async (req: any, res) => {
           content: fullContent,
           type: 'topic',
           parentId: chap.id,
-          sortOrder: chap.sortOrder + topicNumber
+          sortOrder: chap.sortOrder + topicNumber,
+          children: []
        };
-       doc.chapters.push(topic);
+       chap.children.push(topic);
        topicNumber++;
     }
     
-    doc.chapters.push(...Array.from(chaptersMap.values()));
+    doc.chapters = Array.from(chaptersMap.values());
     
     // Sort all by sortOrder
     doc.chapters.sort((a, b) => a.sortOrder - b.sortOrder);
