@@ -73,7 +73,8 @@ const ChapterNode = ({
   handleCopySummary,
   onSummarizeChapter,
   summarizingChapters,
-  isStudent
+  isStudent,
+  isCurriculum = false
 }: ChapterNodeProps & {
   editingSummaryId: string | null;
   editingSummaryDraft: string;
