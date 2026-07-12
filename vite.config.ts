@@ -7,7 +7,22 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    build: { target: 'esnext' },
+    build: { 
+      target: 'esnext',
+      chunkSizeWarningLimit: 4000,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('pdfjs-dist')) return 'pdf';
+              if (id.includes('mammoth')) return 'documentProcessor';
+              if (id.includes('lucide-react')) return 'icons';
+              return 'vendor';
+            }
+          }
+        }
+      }
+    },
     plugins: [
       react(), 
       tailwindcss(),
