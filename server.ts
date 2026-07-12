@@ -51,6 +51,40 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
+app.all(['/auth/token-exchange', '/api/auth/token-exchange'], (req, res) => {
+  const { token, role, org_id, redirect } = req.query;
+
+  if (token) {
+    const cookieOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+    
+    res.cookie('token', token, cookieOptions);
+    if (role) res.cookie('sb-role', role, cookieOptions);
+    if (org_id) res.cookie('sb-org-id', org_id, cookieOptions);
+  }
+
+  let redirectUrl = redirect ? decodeURIComponent(redirect) : '/';
+  // Force production domain if staging domain is passed
+  if (redirectUrl.includes('d1.alphanexoraai.com')) {
+    redirectUrl = redirectUrl.replace('d1.alphanexoraai.com', 'redora.alphanexoraai.com');
+  }
+  // Ensure the token exchange itself uses the correct domain base if absolute
+  if (redirectUrl.startsWith('http') && !redirectUrl.includes('redora.alphanexoraai.com') && !redirectUrl.includes('localhost')) {
+     try {
+       const url = new URL(redirectUrl);
+       url.hostname = 'redora.alphanexoraai.com';
+       redirectUrl = url.toString();
+     } catch (e) {}
+  }
+  res.redirect(redirectUrl);
+});
+
+
 // TTS Route
 app.post('/api/tts/elevenlabs', async (req, res) => {
   try {
