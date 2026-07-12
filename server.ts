@@ -2497,7 +2497,15 @@ async function startServer() {
 
 app.get('/api/curriculum', async (req: any, res) => {
   try {
-    const { grade, subject } = req.query;
+    let { grade, subject } = req.query;
+    
+    if (grade) {
+      try { grade = decodeURIComponent(grade as string); } catch(e) {}
+    }
+    if (subject) {
+      try { subject = decodeURIComponent(subject as string); } catch(e) {}
+    }
+
     if (!grade || !subject) {
       return res.status(400).json({ error: 'grade and subject are required' });
     }

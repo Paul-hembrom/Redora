@@ -198,7 +198,7 @@ export default function App() {
         })
         .then(data => {
           if (data) setSharedPublicDoc(data);
-          else alert("This curriculum content is not yet available.");
+          else alert("Curriculum content not yet available for this grade and subject.");
         })
         .catch(console.error);
       return;
@@ -274,12 +274,47 @@ export default function App() {
                     docs = [currDoc, ...docs];
                     setSelectedDocId(currDoc.id);
                     if (currDoc.chapters && currDoc.chapters.length > 0) {
-                      // find first topic or part
-                      const firstDisplay = currDoc.chapters.find((c: any) => c.type === 'topic') || currDoc.chapters[0];
-                      setSelectedChapterId(firstDisplay.id);
+                      const subtopicTitle = urlParams.get('subtopic');
+                      let targetChapterId = null;
+                      
+                      if (subtopicTitle) {
+                         const allNodes: any[] = [];
+                         const traverse = (nodes: any[]) => {
+                            for (const node of nodes) {
+                               allNodes.push(node);
+                               if (node.children) traverse(node.children);
+                            }
+                         };
+                         traverse(currDoc.chapters);
+                         const target = allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
+                                        || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()));
+                         if (target) {
+                            targetChapterId = target.id;
+                         }
+                      }
+                      
+                      if (targetChapterId) {
+                         setSelectedChapterId(targetChapterId);
+                      } else {
+                         let firstDisplay = currDoc.chapters[0];
+                         const findFirstTopic = (nodes: any[]): any => {
+                            for (const n of nodes) {
+                               if (n.type === 'topic') return n;
+                               if (n.children && n.children.length > 0) {
+                                  const found = findFirstTopic(n.children);
+                                  if (found) return found;
+                               }
+                            }
+                            return null;
+                         };
+                         const foundTopic = findFirstTopic(currDoc.chapters);
+                         if (foundTopic) firstDisplay = foundTopic;
+                         
+                         setSelectedChapterId(firstDisplay.id);
+                      }
                     }
                   } else {
-                    setUploadError("This curriculum content is not yet available.");
+                    setUploadError("Curriculum content not yet available for this grade and subject.");
                   }
                 } else {
                    setUploadError("Failed to fetch curriculum content.");
