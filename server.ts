@@ -52,13 +52,16 @@ app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
 app.all(['/auth/token-exchange', '/api/auth/token-exchange'], (req, res) => {
-  const { token, role, org_id, redirect } = req.query;
+  const token = req.query.token as string;
+  const role = req.query.role as string;
+  const org_id = req.query.org_id as string;
+  const redirect = req.query.redirect as string;
 
   if (token) {
     const cookieOptions = {
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
+      sameSite: 'lax' as const,
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     };
