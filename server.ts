@@ -13,6 +13,7 @@ import { processVideoLessonJob, processSceneAssets } from './server/videoPipelin
 import { synthesizeSpeech } from './server/synthesizeSpeech.js';
 import { getUserRoleInOrg } from './server/roles.js';
 import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';
+import { createConcurrencyLimit } from './src/lib/documentProcessor.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -1753,31 +1754,47 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
        sentences = sentences.map((s: string) => s.trim()).filter(Boolean);
     }
 
+    const ttsLimiter = createConcurrencyLimit(3);
     const chunks = await Promise.all(sentences.map(async (sentence: string, index: number) => {
-       const response = await fetch(url, {
-         method: 'POST',
-         headers: {
-           'Content-Type': 'application/json',
-           'xi-api-key': apiKey,
-         },
-         body: JSON.stringify({
-           text: sentence,
-           model_id: modelId,
-           voice_settings: {
-             stability: 0.5,
-             similarity_boost: 0.75,
-           },
-         }),
-       });
-
-       if (!response.ok) {
-         console.error(`ElevenLabs TTS chunk ${index} error: ${response.status}`);
-         return null;
-       }
-
-       const audioBuffer = await response.arrayBuffer();
-       const base64 = Buffer.from(audioBuffer).toString('base64');
-       return { index, audioUrl: `data:audio/mpeg;base64,${base64}` };
+      return ttsLimiter(async () => {
+        let retries = 0;
+        let delay = 1000;
+        
+        while (retries <= 3) {
+           const response = await fetch(url, {
+             method: 'POST',
+             headers: {
+               'Content-Type': 'application/json',
+               'xi-api-key': apiKey,
+             },
+             body: JSON.stringify({
+               text: sentence,
+               model_id: modelId,
+               voice_settings: {
+                 stability: 0.5,
+                 similarity_boost: 0.75,
+               },
+             }),
+           });
+           
+           if (!response.ok) {
+             if (response.status === 429 && retries < 3) {
+                console.warn(`ElevenLabs TTS chunk ${index} 429 error, retrying in ${delay}ms (attempt ${retries + 1})`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                retries++;
+                delay *= 2;
+                continue;
+             }
+             console.error(`ElevenLabs TTS chunk ${index} error: ${response.status}`);
+             return null;
+           }
+           
+           const audioBuffer = await response.arrayBuffer();
+           const base64 = Buffer.from(audioBuffer).toString('base64');
+           return { index, audioUrl: `data:audio/mpeg;base64,${base64}` };
+        }
+        return null;
+      });
     }));
 
     // Filter out any failed chunks
@@ -2496,19 +2513,10 @@ async function startServer() {
 
   // --- Vite Middleware ---
   app.use(express.static(path.join(process.cwd(), 'public')));
-  
-
-
-app.get('/api/curriculum', async (req: any, res) => {
+  app.get("/api/curriculum", async (req: any, res) => {
   try {
     let { grade, subject } = req.query;
-    
-    if (grade) {
-      try { grade = decodeURIComponent(grade as string); } catch(e) {}
-    }
-    if (subject) {
-      try { subject = decodeURIComponent(subject as string); } catch(e) {}
-    }
+
 
     if (!grade || !subject) {
       return res.status(400).json({ error: 'grade and subject are required' });
@@ -2516,7 +2524,7 @@ app.get('/api/curriculum', async (req: any, res) => {
     const rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY title, subtopic`;
     
     if (rows.length === 0) {
-      return res.json(null);
+      return res.status(404).json({ error: 'Curriculum content not yet available for this grade and subject.' });
     }
     
     // Group by title

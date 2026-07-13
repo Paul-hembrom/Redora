@@ -963,9 +963,9 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                                const history = await res.json();
                                if (Array.isArray(history) && history.length > 0) {
                                   await cacheTopicChats(ch.id, history);
-                                  const videos = history.flatMap((m: any) => m.recommended_videos || []);
+                                  const videos = history.flatMap((m: any) => Array.isArray(m.recommended_videos) ? m.recommended_videos : []);
                                   if (videos.length > 0) await cacheTopicVideos(ch.id, videos);
-                                  const images = history.flatMap((m: any) => m.images || []);
+                                  const images = history.flatMap((m: any) => Array.isArray(m.images) ? m.images : []);
                                   if (images.length > 0) await cacheTopicImages(ch.id, images);
                                }
                            }

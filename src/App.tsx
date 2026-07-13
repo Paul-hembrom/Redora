@@ -100,6 +100,8 @@ export default function App() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+  const [initialScrollChapterId, setInitialScrollChapterId] = useState<string | null>(null);
+  const [curriculumError, setCurriculumError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSync = async () => {
@@ -198,10 +200,32 @@ export default function App() {
           throw new Error('Not found');
         })
         .then(data => {
-          if (data) setSharedPublicDoc(data);
-          else alert("Curriculum content not yet available for this grade and subject.");
+          if (data) {
+             setSharedPublicDoc(data);
+             const subtopicTitle = urlParams.get('subtopic');
+             if (subtopicTitle && data.chapters) {
+                 const allNodes: any[] = [];
+                 const traverse = (nodes: any[]) => {
+                    for (const node of nodes) {
+                       allNodes.push(node);
+                       if (node.children) traverse(node.children);
+                    }
+                 };
+                 traverse(data.chapters);
+                 const target = allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
+                                 || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()));
+                 if (target) {
+                    setInitialScrollChapterId(target.id);
+                 }
+             }
+          } else {
+             setCurriculumError("Curriculum content not yet available for this grade and subject.");
+          }
         })
-        .catch(console.error);
+        .catch(err => {
+           console.error(err);
+           setCurriculumError("Curriculum content not yet available for this grade and subject.");
+        });
       return;
     }
     
@@ -288,37 +312,29 @@ export default function App() {
                          };
                          traverse(currDoc.chapters);
                          const target = allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
-                                        || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()));
+                                         || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()));
                          if (target) {
                             targetChapterId = target.id;
                          }
                       }
                       
                       if (targetChapterId) {
-                         setSelectedChapterId(targetChapterId);
+                         setSelectedChapterId('read_all');
+                         setInitialScrollChapterId(targetChapterId);
                       } else {
-                         let firstDisplay = currDoc.chapters[0];
-                         const findFirstTopic = (nodes: any[]): any => {
-                            for (const n of nodes) {
-                               if (n.type === 'topic') return n;
-                               if (n.children && n.children.length > 0) {
-                                  const found = findFirstTopic(n.children);
-                                  if (found) return found;
-                               }
-                            }
-                            return null;
-                         };
-                         const foundTopic = findFirstTopic(currDoc.chapters);
-                         if (foundTopic) firstDisplay = foundTopic;
-                         
-                         setSelectedChapterId(firstDisplay.id);
+                         setSelectedChapterId('read_all');
                       }
                     }
                   } else {
                     setUploadError("Curriculum content not yet available for this grade and subject.");
                   }
                 } else {
-                   setUploadError("Failed to fetch curriculum content.");
+                   try {
+                     const errData = await currRes.json();
+                     setUploadError(errData.error || "Failed to fetch curriculum content.");
+                   } catch(e) {
+                     setUploadError("Failed to fetch curriculum content.");
+                   }
                 }
               } catch (err) {
                  console.error("Failed to fetch curriculum:", err);
@@ -390,6 +406,20 @@ export default function App() {
     );
   }
 
+  if (curriculumError && !user) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white">
+        <div className="max-w-md text-center">
+          <BookOpen className="w-12 h-12 text-white/20 mx-auto mb-6" />
+          <h2 className="text-xl font-semibold mb-4 text-white/80">{curriculumError}</h2>
+          <button onClick={() => setShowLogin(true)} className="mt-4 text-sm font-medium bg-white/5 border border-white/10 text-white/70 hover:text-white px-6 py-3 rounded-xl hover:bg-white/10 transition-colors">
+            Sign In or Create Account
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (sharedPublicDoc && !user) {
     return (
       <div className="min-h-screen bg-[#050505] text-white flex flex-col">
@@ -404,7 +434,7 @@ export default function App() {
           <button onClick={() => setShowLogin(true)} className="text-sm font-medium text-cyan-400 hover:text-cyan-300">Sign in to interact</button>
         </header>
         <div className="flex-1 overflow-hidden">
-          <DocumentReader document={sharedPublicDoc} />
+          <DocumentReader document={sharedPublicDoc} initialScrollChapterId={initialScrollChapterId} />
         </div>
       </div>
     );
@@ -874,7 +904,7 @@ export default function App() {
             }
 
             if (selectedChapterId === 'read_all' && selectedDoc) {
-              return <DocumentReader document={selectedDoc} />;
+              return <DocumentReader document={selectedDoc} initialScrollChapterId={initialScrollChapterId} />;
             }
 
             let hasPrevChapter = false;

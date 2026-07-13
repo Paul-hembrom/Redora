@@ -39,18 +39,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const buttonRef = useRef<HTMLButtonElement>(null);
   
   const stopIntentRef = useRef(false);
-  const containerDOMRef = useRef<HTMLElement | null>(null);
-  const originalHTMLRef = useRef<string | null>(null);
-
-  const restoreDOM = () => {
-    if (containerDOMRef.current && originalHTMLRef.current) {
-      try {
-        containerDOMRef.current.innerHTML = originalHTMLRef.current;
-      } catch (e) {}
-      containerDOMRef.current = null;
-      originalHTMLRef.current = null;
-    }
-  };
 
   useEffect(() => {
     return () => stopPlaying();
@@ -127,7 +115,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     }
     setIsPlaying(false);
     setIsLoading(false);
-    restoreDOM();
   };
 
   const tryElevenLabsTTS = async () => {
@@ -167,39 +154,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
       const chunks = data.chunks.sort((a: any, b: any) => a.index - b.index);
       
-      const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [text];
-      const trimmedSentences = sentences.map((s: string) => s.trim()).filter(Boolean);
-
-      let container: HTMLElement | null = null;
-      if (containerRef) {
-        if ('current' in containerRef) {
-          container = (containerRef as React.RefObject<HTMLElement>).current;
-        } else {
-          container = containerRef as HTMLElement;
-        }
-      }
-      if (!container) {
-        container = document.querySelector('.prose, .content, .reader, article') as HTMLElement;
-      }
-      if (!container) {
-        container = buttonRef.current?.closest('.prose, .content, .reader, .overflow-y-auto, .scrollable') as HTMLElement;
-      }
-
-      if (container) {
-        containerDOMRef.current = container;
-        originalHTMLRef.current = container.innerHTML;
-        let html = container.innerHTML;
-        trimmedSentences.forEach((sentence, idx) => {
-          if (sentence.length > 0) {
-             const spanHTML = `<span id="tts-sentence-${idx}">${sentence}</span>`;
-             html = html.replace(sentence, spanHTML);
-          }
-        });
-        if (html !== originalHTMLRef.current) {
-           container.innerHTML = html;
-        }
-      }
-      
       setIsLoading(false);
       setIsPlaying(true);
       
@@ -208,7 +162,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const playNextChunk = async () => {
         if (stopIntentRef.current || i >= chunks.length) {
           setIsPlaying(false);
-          restoreDOM();
           return;
         }
         
@@ -232,7 +185,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         
         audio.onerror = () => {
           setIsPlaying(false);
-          restoreDOM();
           if (!stopIntentRef.current) speakWithBrowser();
         };
         
@@ -240,7 +192,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           await audio.play();
         } catch (e) {
           setIsPlaying(false);
-          restoreDOM();
           if (!stopIntentRef.current) speakWithBrowser();
         }
       };
@@ -251,7 +202,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       logError('ElevenLabs TTS API call failed:', err);
       setIsLoading(false);
       setIsPlaying(false);
-      restoreDOM();
+      
       speakWithBrowser();
     }
   };

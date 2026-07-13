@@ -1523,11 +1523,12 @@ export async function synthesizeElevenLabsSpeech(text: string): Promise<any[] | 
     const modelId = 'eleven_flash_v2_5';
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`;
 
-    let sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
-    if (!sentences) {
+    let matchResult = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
+    let sentences: string[] = [];
+    if (!matchResult) {
        sentences = [text.trim()];
     } else {
-       sentences = sentences.map((s: string) => s.trim()).filter(Boolean);
+       sentences = matchResult.map((s: string) => s.trim()).filter(Boolean);
     }
 
     const chunks = await Promise.all(sentences.map(async (sentence: string, index: number) => {

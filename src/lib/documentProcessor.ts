@@ -74,7 +74,7 @@ export function preprocessText(text: string, options: PreprocessOptions): string
 // ---------------------------------------------------------------------------
 // Concurrency limiter
 // ---------------------------------------------------------------------------
-function createConcurrencyLimit(concurrency: number) {
+export function createConcurrencyLimit(concurrency: number) {
   let active = 0;
   const queue: Array<() => void> = [];
 

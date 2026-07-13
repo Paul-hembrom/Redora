@@ -402,9 +402,9 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   useEffect(() => {
     if (messages.length > 0 && !chapter.id.startsWith('lib_') && !isOffline) {
       cacheTopicChats(chapter.id, messages).catch(console.error);
-      const videos = messages.flatMap(m => m.recommended_videos || []);
+      const videos = messages.flatMap(m => Array.isArray(m.recommended_videos) ? m.recommended_videos : []);
       if (videos.length > 0) cacheTopicVideos(chapter.id, videos).catch(console.error);
-      const images = messages.flatMap(m => m.images || []);
+      const images = messages.flatMap(m => Array.isArray(m.images) ? m.images : []);
       if (images.length > 0) cacheTopicImages(chapter.id, images).catch(console.error);
     }
   }, [messages, chapter.id, isOffline]);
@@ -1120,12 +1120,23 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       : (chapter.title || 'Chapter Content')}
                 </div>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
-                    {smartNormalizeText(chapter.content)}
-                  </ReactMarkdown>
+                  {(() => {
+                    const normalized = smartNormalizeText(chapter.content);
+                    const sentences = normalized.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [normalized];
+                    return sentences.map((s, idx) => (
+                      <span key={idx} id={`tts-sentence-${idx}`}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            ...markdownComponents,
+                            p: ({node, children, ...props}: any) => <span {...props}>{children}</span>
+                          }}
+                        >
+                          {s}
+                        </ReactMarkdown>
+                      </span>
+                    ));
+                  })()}
                 </div>
               </div>
             )}
@@ -1330,7 +1341,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                   </motion.div>
                 )}
 
-                {msg.images && msg.images.length > 0 && (
+                {Array.isArray(msg.images) && msg.images.length > 0 && (
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -1341,7 +1352,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       Images & Diagrams
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {msg.images.map((img, iIdx) => (
+                      {Array.isArray(msg.images) && msg.images.map((img, iIdx) => (
                         <ImageCard key={iIdx} image={img} />
                       ))}
                     </div>

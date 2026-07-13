@@ -11,12 +11,21 @@ import html2pdf from 'html2pdf.js';
 
 interface Props {
   document: Document;
+  initialScrollChapterId?: string | null;
 }
 
-export default function DocumentReader({ document }: Props) {
+export default function DocumentReader({ document, initialScrollChapterId }: Props) {
   const chapterRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readingProgress, setReadingProgress] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (initialScrollChapterId && chapterRefs.current[initialScrollChapterId]) {
+      setTimeout(() => {
+        chapterRefs.current[initialScrollChapterId]?.scrollIntoView({ behavior: 'smooth' });
+      }, 500); // Give rendering a moment
+    }
+  }, [initialScrollChapterId, document.id]);
 
   const handleScroll = () => {
     if (!containerRef.current) return;
@@ -208,7 +217,9 @@ export default function DocumentReader({ document }: Props) {
                   </div>
                 )}
                 <div className="prose prose-invert max-w-none text-white/80 whitespace-pre-wrap font-serif leading-relaxed">
+                  
                   {chapter.content}
+
                 </div>
 
                 {/* Chapter Navigation Linking */}
