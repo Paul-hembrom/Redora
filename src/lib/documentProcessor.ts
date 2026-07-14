@@ -17,7 +17,7 @@ import {
   extractTechnicalTermsForChapter,
   extractSummaryForChapter,
   getGenAI
-} from './gemini';
+} from './gemini.js';
 
 let pdfjsLib: any = null;
 if (typeof window !== 'undefined') {
