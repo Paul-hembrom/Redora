@@ -2513,6 +2513,7 @@ async function startServer() {
   // --- Vite Middleware ---
   app.use(express.static(path.join(process.cwd(), 'public')));
   app.get("/api/curriculum", async (req: any, res) => {
+  console.log('>>> /api/curriculum HIT – query:', req.query);
   try {
     let { grade, subject } = req.query;
     console.log(`[Curriculum API] Received request - raw grade: "${grade}", raw subject: "${subject}"`);
@@ -2536,6 +2537,7 @@ async function startServer() {
           chapters: [] as any[],
           isPublic: true
       };
+      console.log('>>> /api/curriculum sending doc – chapters:', doc.chapters?.length, 'first title:', doc.chapters?.[0]?.title);
       return res.json(doc);
     }
     
@@ -2633,7 +2635,7 @@ async function startServer() {
     
     const jsonStr = JSON.stringify(doc);
     console.log(`[Curriculum API] Response JSON (truncated): ${jsonStr.substring(0, 500)}...`);
-    
+    console.log('>>> /api/curriculum sending doc – chapters:', doc.chapters?.length, 'first title:', doc.chapters?.[0]?.title);
     res.json(doc);
   } catch(err: any) {
     console.error('[Curriculum API] Error:', err);

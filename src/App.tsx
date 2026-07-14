@@ -200,10 +200,11 @@ export default function App() {
         .then(res => {
           if (res.ok) {
             return res.text().then(text => {
+              console.log('Curriculum raw response:', text.substring(0, 500));
               try {
                 return JSON.parse(text);
               } catch (e) {
-                console.error("JSON parsing error:", e, "Raw text:", text.substring(0, 500));
+                console.error("JSON parsing error:", e, "Full text:", text);
                 throw new Error('MalformedJSON');
               }
             });
@@ -312,11 +313,12 @@ export default function App() {
                 const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`);
                 if (currRes.ok) {
                   const rawText = await currRes.text();
+                  console.log('Curriculum raw response:', rawText.substring(0, 500));
                   let currDoc;
                   try {
                     currDoc = JSON.parse(rawText);
                   } catch (e) {
-                    console.error("JSON parsing error:", e, "Raw text:", rawText.substring(0, 500));
+                    console.error("JSON parsing error:", e, "Full text:", rawText);
                     setCurriculumError("Curriculum data is malformed. Please contact support.");
                     setIsCurriculumLoading(false);
                     return;
