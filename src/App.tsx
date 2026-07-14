@@ -11,7 +11,7 @@ import TerminologyExtractorModal from './components/TerminologyExtractorModal';
 import QuizDashboardModal from './components/QuizDashboardModal';
 import { useAuth } from './contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
-import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw, Loader2 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -102,6 +102,7 @@ export default function App() {
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [initialScrollChapterId, setInitialScrollChapterId] = useState<string | null>(null);
   const [curriculumError, setCurriculumError] = useState<string | null>(null);
+  const [isCurriculumLoading, setIsCurriculumLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSync = async () => {
@@ -194,6 +195,7 @@ export default function App() {
     if (source === 'curriculum' && grade && subject) {
       if (user) return; // Handled in the main fetch below
       
+      setIsCurriculumLoading(true);
       fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`)
         .then(res => {
           if (res.ok) return res.json();
@@ -225,7 +227,8 @@ export default function App() {
         .catch(err => {
            console.error(err);
            setCurriculumError("Curriculum content not yet available for this grade and subject.");
-        });
+        })
+        .finally(() => setIsCurriculumLoading(false));
       return;
     }
     
@@ -291,6 +294,7 @@ export default function App() {
             const subject = urlParams.get('subject');
             
             if (source === 'curriculum' && grade && subject) {
+              setIsCurriculumLoading(true);
               try {
                 const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`);
                 if (currRes.ok) {
@@ -339,6 +343,8 @@ export default function App() {
               } catch (err) {
                  console.error("Failed to fetch curriculum:", err);
                  setUploadError("Failed to fetch curriculum content.");
+              } finally {
+                 setIsCurriculumLoading(false);
               }
             }
             
@@ -402,6 +408,17 @@ export default function App() {
           <BookOpen className="w-6 h-6 animate-pulse" />
         </div>
         <p className="text-white/40 font-display tracking-widest uppercase text-sm font-medium animate-pulse">Loading Readora</p>
+      </div>
+    );
+  }
+
+  if (isCurriculumLoading && !user) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center">
+        <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.2)] mb-4">
+          <Loader2 className="w-6 h-6 animate-spin" />
+        </div>
+        <p className="text-white/40 font-display tracking-widest uppercase text-sm font-medium animate-pulse">Loading Curriculum</p>
       </div>
     );
   }

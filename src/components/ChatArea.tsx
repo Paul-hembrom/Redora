@@ -1120,23 +1120,12 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       : (chapter.title || 'Chapter Content')}
                 </div>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
-                  {(() => {
-                    const normalized = smartNormalizeText(chapter.content);
-                    const sentences = normalized.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [normalized];
-                    return sentences.map((s, idx) => (
-                      <span key={idx} id={`tts-sentence-${idx}`}>
-                        <ReactMarkdown 
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            ...markdownComponents,
-                            p: ({node, children, ...props}: any) => <span {...props}>{children}</span>
-                          }}
-                        >
-                          {s}
-                        </ReactMarkdown>
-                      </span>
-                    ));
-                  })()}
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                  >
+                    {smartNormalizeText(chapter.content)}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}
