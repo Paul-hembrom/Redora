@@ -1122,12 +1122,8 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
                   {(() => {
                     const content = smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : '');
-                    let sentences = content.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
-                    if (!sentences) {
-                      sentences = [content];
-                    } else {
-                      sentences = sentences.map(s => s.trim()).filter(Boolean);
-                    }
+                    let sentences: string[] = content.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [];
+                    if (!sentences.length) { sentences = [content]; } else { sentences = sentences.map(s => s.trim()).filter(Boolean); }
                     
                     return sentences.map((s, idx) => (
                       <span key={idx} id={`tts-sentence-${idx}`}>

@@ -198,8 +198,17 @@ export default function App() {
       setIsCurriculumLoading(true);
       fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`)
         .then(res => {
-          if (res.ok) return res.json();
-          throw new Error('Not found');
+          if (res.ok) {
+            return res.text().then(text => {
+              try {
+                return JSON.parse(text);
+              } catch (e) {
+                console.error("JSON parsing error:", e, "Raw text:", text.substring(0, 500));
+                throw new Error('MalformedJSON');
+              }
+            });
+          }
+          throw new Error('FetchFailed');
         })
         .then(data => {
           if (data) {
@@ -221,12 +230,16 @@ export default function App() {
                  }
              }
           } else {
-             setCurriculumError("Curriculum content not yet available for this grade and subject.");
+             setCurriculumError("Failed to fetch curriculum content.");
           }
         })
         .catch(err => {
            console.error(err);
-           setCurriculumError("Curriculum content not yet available for this grade and subject.");
+           if (err.message === 'MalformedJSON') {
+             setCurriculumError("Curriculum data is malformed. Please contact support.");
+           } else {
+             setCurriculumError("Failed to fetch curriculum content.");
+           }
         })
         .finally(() => setIsCurriculumLoading(false));
       return;
@@ -298,7 +311,16 @@ export default function App() {
               try {
                 const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`);
                 if (currRes.ok) {
-                  const currDoc = await currRes.json();
+                  const rawText = await currRes.text();
+                  let currDoc;
+                  try {
+                    currDoc = JSON.parse(rawText);
+                  } catch (e) {
+                    console.error("JSON parsing error:", e, "Raw text:", rawText.substring(0, 500));
+                    setCurriculumError("Curriculum data is malformed. Please contact support.");
+                    setIsCurriculumLoading(false);
+                    return;
+                  }
                   if (currDoc) {
                     docs = [currDoc, ...docs];
                     setSelectedDocId(currDoc.id);
@@ -330,19 +352,19 @@ export default function App() {
                       }
                     }
                   } else {
-                    setCurriculumError("Curriculum content not yet available for this grade and subject.");
+                    setCurriculumError("Failed to fetch curriculum content.");
                   }
                 } else {
                    try {
                      const errData = await currRes.json();
-                     setCurriculumError("Curriculum content not yet available.");
+                     setCurriculumError("Failed to fetch curriculum content.");
                    } catch(e) {
-                     setCurriculumError("Curriculum content not yet available.");
+                     setCurriculumError("Failed to fetch curriculum content.");
                    }
                 }
               } catch (err) {
                  console.error("Failed to fetch curriculum:", err);
-                 setCurriculumError("Curriculum content not yet available.");
+                 setCurriculumError("Failed to fetch curriculum content.");
               } finally {
                  setIsCurriculumLoading(false);
               }

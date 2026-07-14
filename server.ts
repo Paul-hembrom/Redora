@@ -1703,7 +1703,7 @@ Content Summary: ${summary ? summary.substring(0, 2000) : ''}`;
 Topic: ${title} (${conceptsStr})`;
         
         const rawKroki = await callLLM(krokiPrompt);
-        const cleanedMermaid = rawKroki.replace(/\`\`\`mermaid\s*/gi, '').replace(/\`\`\`\s*/gi, '').trim();
+        const cleanedMermaid = rawKroki.replace(/```mermaid\s*/gi, '').replace(/```\s*/gi, '').trim();
         
         if (cleanedMermaid) {
            const krokiUrl = `https://kroki.io/mermaid/svg/${encodeURIComponent(cleanedMermaid)}`;
@@ -2507,7 +2507,6 @@ Generate 3 multiple-choice questions for ${grade} ${subject}. Return JSON exactl
 });
 
 console.log('=== END ROUTES ===');
-
 async function startServer() {
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -2516,33 +2515,45 @@ async function startServer() {
   app.get("/api/curriculum", async (req: any, res) => {
   try {
     let { grade, subject } = req.query;
-
-
+    console.log(`[Curriculum API] Received request - raw grade: "${grade}", raw subject: "${subject}"`);
+    
     if (!grade || !subject) {
       return res.status(400).json({ error: 'grade and subject are required' });
     }
     const rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY title, subtopic`;
-    console.log(`/api/curriculum requested for grade: ${grade}, subject: ${subject}. Found ${rows.length} rows.`);
+    
+    console.log(`[Curriculum API] Query complete. Found ${rows.length} rows for grade: "${grade}", subject: "${subject}".`);
+    if (rows.length > 0) {
+       console.log(`[Curriculum API] First row subtopic: "${rows[0].subtopic}", images type: "${typeof rows[0].images}"`);
+    }
 
     if (rows.length === 0) {
       const docId = `curr_${grade}_${subject}`.replace(/\s+/g, '_');
-      const doc = { 
-         id: docId, 
-         name: `${grade} - ${subject} Curriculum`, 
-         uploadDate: new Date().toISOString(), 
-         chapters: [] as any[], 
-         isPublic: true
+      const doc = {
+          id: docId,
+          name: `${grade} - ${subject} Curriculum`,
+          uploadDate: new Date().toISOString(),
+          chapters: [] as any[],
+          isPublic: true
       };
       return res.json(doc);
     }
     
+    const safeArray = (val: any) => {
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'string') {
+        try { const parsed = JSON.parse(val); if (Array.isArray(parsed)) return parsed; } catch (e) {}
+      }
+      return [];
+    };
+
     // Group by title
     const docId = `curr_${grade}_${subject}`.replace(/\s+/g, '_');
-    const doc = {
-       id: docId,
-       name: `${grade} - ${subject} Curriculum`,
-       uploadDate: new Date().toISOString(),
-       chapters: [] as any[],
+    const doc = { 
+       id: docId, 
+       name: `${grade} - ${subject} Curriculum`, 
+       uploadDate: new Date().toISOString(), 
+       chapters: [] as any[], 
        isPublic: true
     };
     
@@ -2570,32 +2581,29 @@ async function startServer() {
        
        let fullContent = row.content || '';
        
-       let imgs = row.images;
-       if (typeof imgs === 'string') try { imgs = JSON.parse(imgs); } catch(e) {}
-       if (imgs && Array.isArray(imgs) && imgs.length > 0) {
+       let imgs = safeArray(row.images);
+       if (imgs.length > 0) {
           fullContent += '\n\n### Related Images\n\n';
           imgs.forEach((img: any) => {
              fullContent += `![${img.alt || 'image'}](${img.url})\n\n`;
           });
        }
        
-       let vids = row.videos;
-       if (typeof vids === 'string') try { vids = JSON.parse(vids); } catch(e) {}
-       if (vids && Array.isArray(vids) && vids.length > 0) {
+       let vids = safeArray(row.videos);
+       if (vids.length > 0) {
           fullContent += '\n\n### Related Videos\n';
           vids.forEach((vid: any) => {
              fullContent += `- [${vid.title}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
           });
        }
        
-       let qsts = row.questions;
-       if (typeof qsts === 'string') try { qsts = JSON.parse(qsts); } catch(e) {}
-       if (qsts && Array.isArray(qsts) && qsts.length > 0) {
+       let qsts = safeArray(row.questions);
+       if (qsts.length > 0) {
           fullContent += '\n\n### Practice Questions\n';
           qsts.forEach((q: any, i: number) => {
              fullContent += `**Q${i+1}: ${q.question}**\n`;
              if (q.options) {
-                q.options.forEach((opt: string) => {
+                safeArray(q.options).forEach((opt: string) => {
                    fullContent += `- ${opt}\n`;
                 });
              }
@@ -2623,13 +2631,15 @@ async function startServer() {
     // Sort all by sortOrder
     doc.chapters.sort((a, b) => a.sortOrder - b.sortOrder);
     
+    const jsonStr = JSON.stringify(doc);
+    console.log(`[Curriculum API] Response JSON (truncated): ${jsonStr.substring(0, 500)}...`);
+    
     res.json(doc);
   } catch(err: any) {
-    console.error(err);
+    console.error('[Curriculum API] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
-
 
 
   if (process.env.NODE_ENV !== 'production') {

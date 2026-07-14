@@ -116,12 +116,8 @@ export default function DocumentReader({ document, initialScrollChapterId }: Pro
       textContent += `## ${index + 1}. ${title}\n\n`;
       textContent += `${(() => {
                     const content = typeof chapter.content === 'string' ? chapter.content : '';
-                    let sentences = content.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
-                    if (!sentences) {
-                      sentences = [content];
-                    } else {
-                      sentences = sentences.map(s => s.trim()).filter(Boolean);
-                    }
+                    let sentences: string[] = content.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [];
+                    if (!sentences.length) { sentences = [content]; } else { sentences = sentences.map(s => s.trim()).filter(Boolean); }
                     
                     return sentences.map((s, idx) => (
                       <span key={idx} id={`tts-sentence-${idx}`}>
