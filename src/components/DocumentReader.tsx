@@ -114,7 +114,29 @@ export default function DocumentReader({ document, initialScrollChapterId }: Pro
       const title = parentChapter ? `${parentChapter.title} - ${chapter.title}` : chapter.title;
       
       textContent += `## ${index + 1}. ${title}\n\n`;
-      textContent += `${chapter.content}\n\n`;
+      textContent += `${(() => {
+                    const content = typeof chapter.content === 'string' ? chapter.content : '';
+                    let sentences = content.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
+                    if (!sentences) {
+                      sentences = [content];
+                    } else {
+                      sentences = sentences.map(s => s.trim()).filter(Boolean);
+                    }
+                    
+                    return sentences.map((s, idx) => (
+                      <span key={idx} id={`tts-sentence-${idx}`}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            ...markdownComponents,
+                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
+                          }}
+                        >
+                          {s}
+                        </ReactMarkdown>
+                      </span>
+                    ));
+                  })()}\n\n`;
       textContent += `---\n\n`;
     });
 

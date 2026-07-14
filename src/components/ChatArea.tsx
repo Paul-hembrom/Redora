@@ -952,7 +952,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         </div>
         <ScrollableActionBar className="w-full lg:w-auto pb-1 lg:pb-0 min-w-0" innerClassName="gap-2">
           <ReadAloudButton 
-            text={typeof chapter.content === 'string' ? chapter.content : (chapter.summary || '')} 
+            text={smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : (chapter.summary || ''))} 
             className="flex items-center shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-black/40 text-white/80 border-white/5 hover:bg-white/5 hover:text-white"
             iconSizeClasses="w-4 h-4"
           />
@@ -1120,12 +1120,29 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       : (chapter.title || 'Chapter Content')}
                 </div>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
-                    {smartNormalizeText(chapter.content)}
-                  </ReactMarkdown>
+                  {(() => {
+                    const content = smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : '');
+                    let sentences = content.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
+                    if (!sentences) {
+                      sentences = [content];
+                    } else {
+                      sentences = sentences.map(s => s.trim()).filter(Boolean);
+                    }
+                    
+                    return sentences.map((s, idx) => (
+                      <span key={idx} id={`tts-sentence-${idx}`}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            ...markdownComponents,
+                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
+                          }}
+                        >
+                          {s}
+                        </ReactMarkdown>
+                      </span>
+                    ));
+                  })()}
                 </div>
               </div>
             )}

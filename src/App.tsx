@@ -330,19 +330,19 @@ export default function App() {
                       }
                     }
                   } else {
-                    setUploadError("Curriculum content not yet available for this grade and subject.");
+                    setCurriculumError("Curriculum content not yet available for this grade and subject.");
                   }
                 } else {
                    try {
                      const errData = await currRes.json();
-                     setUploadError(errData.error || "Failed to fetch curriculum content.");
+                     setCurriculumError("Curriculum content not yet available.");
                    } catch(e) {
-                     setUploadError("Failed to fetch curriculum content.");
+                     setCurriculumError("Curriculum content not yet available.");
                    }
                 }
               } catch (err) {
                  console.error("Failed to fetch curriculum:", err);
-                 setUploadError("Failed to fetch curriculum content.");
+                 setCurriculumError("Curriculum content not yet available.");
               } finally {
                  setIsCurriculumLoading(false);
               }
@@ -423,7 +423,7 @@ export default function App() {
     );
   }
 
-  if (curriculumError && !user) {
+  if (curriculumError) {
     return (
       <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white">
         <div className="max-w-md text-center">
