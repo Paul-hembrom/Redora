@@ -2054,6 +2054,9 @@ function safeParse(val: any) {
 // --- Chat Routes ---
 app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
+    if (req.params.chapterId.startsWith('topic_chap_') || req.query.source === 'curriculum') {
+      return res.json([]);
+    }
     try {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
@@ -2582,26 +2585,26 @@ app.get('/api/curriculum-test', (req, res) => {
        
        let fullContent = row.content || '';
        
-       let imgs = safeArray(row.images);
-       if (imgs.length > 0) {
+       const images = safeArray(row.images);
+       if (images.length > 0) {
           fullContent += '\n\n### Related Images\n\n';
-          imgs.forEach((img: any) => {
-             fullContent += `![${img.alt || 'image'}](${img.url})\n\n`;
+          images.forEach((img: any) => {
+             fullContent += `![${img.alt || 'Image'}](${img.url})\n\n`;
           });
        }
        
-       let vids = safeArray(row.videos);
-       if (vids.length > 0) {
-          fullContent += '\n\n### Related Videos\n';
-          vids.forEach((vid: any) => {
+       const videos = safeArray(row.videos);
+       if (videos.length > 0) {
+          fullContent += '\n\n### Related Videos\n\n';
+          videos.forEach((vid: any) => {
              fullContent += `- [${vid.title}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
           });
        }
        
-       let qsts = safeArray(row.questions);
-       if (qsts.length > 0) {
-          fullContent += '\n\n### Practice Questions\n';
-          qsts.forEach((q: any, i: number) => {
+       const questions = safeArray(row.questions);
+       if (questions.length > 0) {
+          fullContent += '\n\n### Practice Questions\n\n';
+          questions.forEach((q: any, i: number) => {
              fullContent += `**Q${i+1}: ${q.question}**\n`;
              if (q.options) {
                 safeArray(q.options).forEach((opt: string) => {
