@@ -2507,11 +2507,10 @@ Generate 3 multiple-choice questions for ${grade} ${subject}. Return JSON exactl
 });
 
 console.log('=== END ROUTES ===');
-async function startServer() {
-  const PORT = parseInt(process.env.PORT || '3000', 10);
 
-  // --- Vite Middleware ---
-  app.use(express.static(path.join(process.cwd(), 'public')));
+app.get('/api/curriculum-test', (req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
   app.get("/api/curriculum", async (req: any, res) => {
   console.log('>>> /api/curriculum HIT – query:', req.query);
   try {
@@ -2642,6 +2641,13 @@ async function startServer() {
     res.status(500).json({ error: err.message });
   }
 });
+
+async function startServer() {
+  const PORT = parseInt(process.env.PORT || '3000', 10);
+
+  // --- Vite Middleware ---
+  app.use(express.static(path.join(process.cwd(), 'public')));
+
 
 
   if (process.env.NODE_ENV !== 'production') {
