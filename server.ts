@@ -2490,6 +2490,15 @@ Generate 3 multiple-choice questions for ${grade} ${subject}. Return JSON exactl
             const parsedQ = JSON.parse(rawQ.replace(/^\s*```json/, '').replace(/```\s*$/, '').trim());
             questions = Array.isArray(parsedQ) ? parsedQ : (parsedQ.questions || []);
           } catch(e) {}
+          
+          if (!Array.isArray(questions) || questions.length === 0) {
+            const firstSentence = generatedContent.split(/[.!?] /)[0] + '.';
+            questions = [{
+              question: `True or False: ${firstSentence}`,
+              options: ['True', 'False'],
+              answer: 'True'
+            }];
+          }
         }
 
         // 5. Insert into DB
