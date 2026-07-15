@@ -490,7 +490,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
       }).catch(console.error);
     }
 
@@ -513,7 +513,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         fetch('/api/chats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
         }).catch(console.error);
       }
 
@@ -537,7 +537,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
       }).catch(console.error);
     }
 
@@ -594,7 +594,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         fetch('/api/chats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
         }).catch(console.error);
       }
 
@@ -646,7 +646,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
       }).catch(console.error);
     }
 
@@ -699,7 +699,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         fetch('/api/chats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
         }).catch(console.error);
       }
 
@@ -758,7 +758,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
       }).catch(console.error);
     }
 
@@ -780,7 +780,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         fetch('/api/chats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
         }).catch(console.error);
       }
 
@@ -808,7 +808,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id })
+        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
       }).catch(console.error);
     }
 
@@ -827,7 +827,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         fetch('/api/chats', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id })
+          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
         }).catch(console.error);
       }
     } catch (err: any) {
