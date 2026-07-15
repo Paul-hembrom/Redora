@@ -2060,6 +2060,7 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
     try {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
+      await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
     } catch(e) {}
     const chats = await sql`SELECT * FROM chats WHERE chapter_id = ${req.params.chapterId} AND user_id = ${req.userId} ORDER BY created_at ASC`;
     const result = chats.map((c: any) => ({
@@ -2118,6 +2119,9 @@ app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
 app.post('/api/chats', authenticate, async (req: any, res) => {
   const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos, images } = req.body;
   try {
+    try {
+      await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
+    } catch (e) {}
     await sql`
       INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos, images) 
       VALUES (
