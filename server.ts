@@ -2054,9 +2054,7 @@ function safeParse(val: any) {
 // --- Chat Routes ---
 app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
-    if (req.params.chapterId.startsWith('topic_chap_') || req.query.source === 'curriculum') {
-      return res.json([]);
-    }
+
     try {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
@@ -2628,6 +2626,7 @@ app.get('/api/curriculum-test', (req, res) => {
           });
        }
        
+       console.log('>>> [Curriculum API] fullContent snippet:', fullContent.substring(0, 500));
        const topic = {
           id: `topic_${chap.id}_${topicNumber}`,
           chapterNumber: topicNumber,
