@@ -111,5 +111,21 @@ export const markdownComponents = {
     <td style={{ borderRight: '1px solid rgba(255, 255, 255, 0.05)', padding: '0.75rem 1rem', color: 'rgba(255, 255, 255, 0.7)' }} {...props}>
       {children}
     </td>
-  )
+  ),
+  a: ({node, children, href, ...props}: any) => {
+    if (href && (href.includes('youtube.com/watch?v=') || href.includes('youtu.be/'))) {
+      const videoId = href.includes('v=') ? href.split('v=')[1].split('&')[0] : href.split('youtu.be/')[1].split('?')[0];
+      return (
+        <div className="my-6 aspect-video rounded-xl overflow-hidden border border-white/10 shadow-2xl relative bg-black/50 w-full max-w-2xl">
+          <iframe 
+            src={`https://www.youtube.com/embed/${videoId}`} 
+            title="YouTube video player" 
+            className="w-full h-full absolute inset-0 border-0"
+            allowFullScreen
+          />
+        </div>
+      );
+    }
+    return <a href={href} className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+  }
 };

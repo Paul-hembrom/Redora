@@ -370,9 +370,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   };
 
   useEffect(() => {
+    let isActive = true;
     setMessages([]);
     setError(null);
     setIsTyping(false);
+    setActiveTab('chat');
     
     if (chapter.id.startsWith('lib_')) {
       return; // It's a virtual cross-document chapter, do not load from DB
@@ -384,19 +386,25 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         return res.json();
       })
       .then(data => {
-        if (Array.isArray(data)) {
+        if (isActive && Array.isArray(data)) {
           setMessages(data);
         }
       })
       .catch(async err => {
         console.error(err);
         const cachedChats = await getCachedTopicChats(chapter.id);
-        if (cachedChats && cachedChats.length > 0) {
-          setMessages(cachedChats);
-        } else {
-          setError('Failed to load chat history.');
+        if (isActive) {
+          if (cachedChats && cachedChats.length > 0) {
+            setMessages(cachedChats);
+          } else {
+            setError('Failed to load chat history.');
+          }
         }
       });
+      
+    return () => {
+      isActive = false;
+    };
   }, [chapter.id]);
 
   useEffect(() => {

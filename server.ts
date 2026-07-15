@@ -2579,7 +2579,7 @@ app.get('/api/curriculum-test', (req, res) => {
     for (const row of rows) {
        if (!chaptersMap.has(row.title)) {
           chaptersMap.set(row.title, {
-             id: `chap_${chapterNumber}`,
+             id: `chap_${docId}_${chapterNumber}`,
              chapterNumber,
              title: row.title,
              summary: '',
@@ -2608,7 +2608,7 @@ app.get('/api/curriculum-test', (req, res) => {
        if (videos.length > 0) {
           fullContent += '\n\n### Related Videos\n\n';
           videos.forEach((vid: any) => {
-             fullContent += `- [${vid.title}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
+             fullContent += `[${vid.title}](https://www.youtube.com/watch?v=${vid.video_id})\n\n`;
           });
        }
        
@@ -2628,7 +2628,7 @@ app.get('/api/curriculum-test', (req, res) => {
        
        console.log('>>> [Curriculum API] fullContent snippet:', fullContent.substring(0, 500));
        const topic = {
-          id: `topic_${chap.id}_${topicNumber}`,
+          id: `topic_${docId}_${chap.id}_${topicNumber}`,
           chapterNumber: topicNumber,
           title: row.subtopic,
           summary: '',
