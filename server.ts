@@ -2059,6 +2059,7 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
       await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
+      await sql`ALTER TABLE chats ALTER COLUMN chapter_id TYPE TEXT`;
     } catch(e) {}
     const chats = await sql`SELECT * FROM chats WHERE chapter_id = ${req.params.chapterId} AND user_id = ${req.userId} ORDER BY created_at ASC`;
     const result = chats.map((c: any) => ({
@@ -2110,6 +2111,7 @@ app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
     await sql`UPDATE chats SET reactions = ${reactions} WHERE id = ${messageId}`;
     res.json({ success: true, reactions });
   } catch (err: any) {
+    console.error('GET /api/chats/:chapterId error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2117,6 +2119,10 @@ app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
 app.post('/api/chats', authenticate, async (req: any, res) => {
   const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos, images } = req.body;
   try {
+    try {
+      await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
+      await sql`ALTER TABLE chats ALTER COLUMN chapter_id TYPE TEXT`;
+    } catch(e) {}
     await sql`
       INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos, images) 
       VALUES (
@@ -2135,6 +2141,7 @@ app.post('/api/chats', authenticate, async (req: any, res) => {
     `;
     res.json({ success: true });
   } catch (err: any) {
+    console.error('POST /api/chats error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2553,14 +2560,27 @@ app.get('/api/curriculum-test', (req, res) => {
     
     // Safe helper – parses stringified JSON if necessary
     const safeArray = (val: any): any[] => {
-      if (Array.isArray(val)) return val;
-      if (typeof val === 'string') {
+      let result = [];
+      if (Array.isArray(val)) result = val;
+      else if (typeof val === 'string') {
         try {
           const parsed = JSON.parse(val);
-          return Array.isArray(parsed) ? parsed : [];
+          result = Array.isArray(parsed) ? parsed : [];
         } catch (e) { /* ignore */ }
       }
-      return [];
+      
+      // Handle double-stringified JSON items
+      result = result.map(item => {
+        if (typeof item === 'string') {
+          try {
+            return JSON.parse(item);
+          } catch(e) {
+            return item;
+          }
+        }
+        return item;
+      });
+      return result.filter(item => item !== null && typeof item === 'object');
     };
 
     // Group by title
@@ -2624,6 +2644,9 @@ app.get('/api/curriculum-test', (req, res) => {
            }
            fullContent += `*Answer: ${q.answer}*\n\n`;
          });
+       } else {
+         fullContent += '\n\n### Practice Questions\n\n';
+         fullContent += `**Q1: What is the main idea of this section?**\n*Answer: Review the content above to formulate your own answer.*\n\n`;
        }
 
        console.log('>>> [Curriculum API] fullContent snippet:', fullContent.substring(0, 300));

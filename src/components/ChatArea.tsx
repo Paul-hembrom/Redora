@@ -241,6 +241,10 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   const [isGeneratingFollowUps, setIsGeneratingFollowUps] = useState(false);
   const [showInteractiveLesson, setShowInteractiveLesson] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentChapterIdRef = useRef(chapter.id);
+  useEffect(() => {
+    currentChapterIdRef.current = chapter.id;
+  }, [chapter.id]);
 
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -389,7 +393,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       return; // It's a virtual cross-document chapter, do not load from DB
     }
 
-    fetch(`/api/chats/${chapter.id}`)
+    fetch(`/api/chats/${encodeURIComponent(chapter.id)}`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to load chat history');
         return res.json();
@@ -505,7 +509,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         followUps: aiResult.followUpQuestions
       };
 
-      if (chapter.id !== currentChapterId) return;
+      if (currentChapterIdRef.current !== chapter.id) return;
       setMessages(prev => [...prev, aiMsg]);
 
       // Save AI message to DB
@@ -527,6 +531,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
   const handleFetchImages = async () => {
     if (isTyping) return;
+    const currentChapterId = chapter.id;
     
     const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: "Find educational images for this chapter." };
     setMessages(prev => [...prev, userMsg]);
@@ -635,6 +640,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
   const handleFetchVideos = async () => {
     if (isTyping) return;
+    const currentChapterId = chapter.id;
     
     const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: "Find educational videos for this chapter." };
     setMessages(prev => [...prev, userMsg]);
@@ -693,7 +699,9 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         recommended_videos: data.recommended_videos || []
       };
 
-      setMessages(prev => [...prev, aiMsg]);
+      if (currentChapterIdRef.current === chapter.id) {
+        setMessages(prev => [...prev, aiMsg]);
+      }
 
       if (!chapter.id.startsWith('lib_')) {
         fetch('/api/chats', {
@@ -773,7 +781,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         actionData: aiResult
       };
 
-      if (chapter.id !== currentChapterId) return;
+      if (currentChapterIdRef.current !== chapter.id) return;
       setMessages(prev => [...prev, aiMsg]);
 
       if (!chapter.id.startsWith('lib_')) {
@@ -820,7 +828,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         text: answer,
       };
 
-      if (chapter.id !== currentChapterId) return;
+      if (currentChapterIdRef.current !== chapter.id) return;
       setMessages(prev => [...prev, aiMsg]);
 
       if (!chapter.id.startsWith('lib_')) {
