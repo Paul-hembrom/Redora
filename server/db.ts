@@ -143,6 +143,9 @@ export async function initDb() {
     `;
 
     try {
+      await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
+    } catch(e) {}
+    try {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS type TEXT`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS action_data TEXT`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS recommended_videos TEXT`;

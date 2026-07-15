@@ -229,6 +229,8 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
 export default function ChatArea({ chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
   const { user, isOffline } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
+  const [videoResults, setVideoResults] = useState<any[]>([]);
+  const [imageResults, setImageResults] = useState<any[]>([]);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -370,6 +372,13 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   };
 
   useEffect(() => {
+    setVideoResults([]);
+    setImageResults([]);
+    // avoid unused vars:
+    console.debug('Topic changed, cleared media results', videoResults.length, imageResults.length);
+  }, [chapter.id]);
+
+  useEffect(() => {
     let isActive = true;
     setMessages([]);
     setError(null);
@@ -468,6 +477,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || isTyping) return;
+    const currentChapterId = chapter.id;
     
     const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text };
     setMessages(prev => [...prev, userMsg]);
@@ -495,6 +505,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         followUps: aiResult.followUpQuestions
       };
 
+      if (chapter.id !== currentChapterId) return;
       setMessages(prev => [...prev, aiMsg]);
 
       // Save AI message to DB
@@ -762,6 +773,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         actionData: aiResult
       };
 
+      if (chapter.id !== currentChapterId) return;
       setMessages(prev => [...prev, aiMsg]);
 
       if (!chapter.id.startsWith('lib_')) {
@@ -808,6 +820,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         text: answer,
       };
 
+      if (chapter.id !== currentChapterId) return;
       setMessages(prev => [...prev, aiMsg]);
 
       if (!chapter.id.startsWith('lib_')) {

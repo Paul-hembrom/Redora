@@ -2117,9 +2117,6 @@ app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
 app.post('/api/chats', authenticate, async (req: any, res) => {
   const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos, images } = req.body;
   try {
-    try {
-      await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
-    } catch (e) {}
     await sql`
       INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos, images) 
       VALUES (
@@ -2554,10 +2551,14 @@ app.get('/api/curriculum-test', (req, res) => {
       return res.json(doc);
     }
     
-    const safeArray = (val: any) => {
+    // Safe helper – parses stringified JSON if necessary
+    const safeArray = (val: any): any[] => {
       if (Array.isArray(val)) return val;
       if (typeof val === 'string') {
-        try { const parsed = JSON.parse(val); if (Array.isArray(parsed)) return parsed; } catch (e) {}
+        try {
+          const parsed = JSON.parse(val);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) { /* ignore */ }
       }
       return [];
     };
@@ -2594,39 +2595,39 @@ app.get('/api/curriculum-test', (req, res) => {
        
        const chap = chaptersMap.get(row.title);
        
-       let fullContent = row.content || '';
-       
        const images = safeArray(row.images);
-       if (images.length > 0) {
-          fullContent += '\n\n### Related Images\n\n';
-          images.forEach((img: any) => {
-             fullContent += `![${img.alt || 'Image'}](${img.url})\n\n`;
-          });
-       }
-       
        const videos = safeArray(row.videos);
-       if (videos.length > 0) {
-          fullContent += '\n\n### Related Videos\n\n';
-          videos.forEach((vid: any) => {
-             fullContent += `[${vid.title}](https://www.youtube.com/watch?v=${vid.video_id})\n\n`;
-          });
-       }
-       
        const questions = safeArray(row.questions);
-       if (questions.length > 0) {
-          fullContent += '\n\n### Practice Questions\n\n';
-          questions.forEach((q: any, i: number) => {
-             fullContent += `**Q${i+1}: ${q.question}**\n`;
-             if (q.options) {
-                safeArray(q.options).forEach((opt: string) => {
-                   fullContent += `- ${opt}\n`;
-                });
-             }
-             fullContent += `*Answer: ${q.answer}*\n\n`;
-          });
+
+       let fullContent = row.content || '';
+
+       if (images.length > 0) {
+         fullContent += '\n\n### Related Images\n\n';
+         images.forEach((img: any) => {
+           fullContent += `![${img.alt || 'Image'}](${img.url})\n\n`;
+         });
        }
-       
-       console.log('>>> [Curriculum API] fullContent snippet:', fullContent.substring(0, 500));
+
+       if (videos.length > 0) {
+         fullContent += '\n\n### Related Videos\n\n';
+         videos.forEach((vid: any) => {
+           fullContent += `- [${vid.title}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
+         });
+       }
+
+       if (questions.length > 0) {
+         fullContent += '\n\n### Practice Questions\n\n';
+         questions.forEach((q: any, i: number) => {
+           fullContent += `**Q${i+1}: ${q.question}**\n`;
+           if (q.options) {
+             q.options.forEach((opt: string) => { fullContent += `- ${opt}\n`; });
+           }
+           fullContent += `*Answer: ${q.answer}*\n\n`;
+         });
+       }
+
+       console.log('>>> [Curriculum API] fullContent snippet:', fullContent.substring(0, 300));
+
        const topic = {
           id: `topic_${docId}_${chap.id}_${topicNumber}`,
           chapterNumber: topicNumber,
