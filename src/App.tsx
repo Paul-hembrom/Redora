@@ -11,7 +11,7 @@ import TerminologyExtractorModal from './components/TerminologyExtractorModal';
 import QuizDashboardModal from './components/QuizDashboardModal';
 import { useAuth } from './contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
-import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw, Loader2 } from 'lucide-react';
+import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw, Loader2, Maximize, Minimize, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -81,6 +81,29 @@ export default function App() {
 
   const [showLogin, setShowLogin] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', isDesktopSidebarCollapsed.toString());
+  }, [isDesktopSidebarCollapsed]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen().catch(err => console.error(err));
+      setIsDesktopSidebarCollapsed(true);
+    } else {
+      await document.exitFullscreen().catch(err => console.error(err));
+    }
+  };
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isTerminologyModalOpen, setIsTerminologyModalOpen] = useState(false);
   const [terminologyDoc, setTerminologyDoc] = useState<Document | null>(null);
@@ -785,6 +808,13 @@ export default function App() {
           >
             {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
+          <button 
+            className="hidden md:flex p-2 -ml-2 text-white/70 hover:text-white transition-colors"
+            onClick={() => setIsDesktopSidebarCollapsed(!isDesktopSidebarCollapsed)}
+            title={isDesktopSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {isDesktopSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+          </button>
           <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hidden sm:flex">
             <BookOpen className="w-4 h-4 text-cyan-400" />
           </div>
@@ -926,7 +956,24 @@ export default function App() {
           />
         </div>
         
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-0">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-0 group/main">
+          {isFullscreen ? (
+            <button
+              onClick={toggleFullscreen}
+              className="absolute top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 bg-black/60 hover:bg-black/80 backdrop-blur-md text-white/70 hover:text-white border border-white/10 px-4 py-2 rounded-full shadow-lg transition-all"
+            >
+              <Minimize className="w-4 h-4" />
+              <span className="text-sm font-medium">Exit Full Screen</span>
+            </button>
+          ) : (
+            <button
+              onClick={toggleFullscreen}
+              className="absolute top-3 right-4 z-50 p-2 bg-black/40 hover:bg-black/60 backdrop-blur text-white/70 hover:text-white border border-white/5 rounded-lg shadow-lg opacity-0 group-hover/main:opacity-100 focus:opacity-100 transition-all pointer-events-none group-hover/main:pointer-events-auto focus:pointer-events-auto"
+              title="Full Screen"
+            >
+              <Maximize className="w-4 h-4" />
+            </button>
+          )}
           {(() => {
             let activeChapter = selectedChapter;
 
