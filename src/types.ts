@@ -39,7 +39,7 @@ export interface ChatMessage {
   type?: 'text' | 'quiz' | 'glossary' | 'brief' | 'videos' | 'images' | 'image_fallback';
   actionData?: any;
   recommended_videos?: any[];
-  images?: { url: string, thumbnail: string, alt: string, source: 'real' | 'generated' | 'google' }[];
+  images?: { url: string, thumbnail: string, alt: string, source: 'real' | 'generated' }[];
   reactions?: Record<string, string[]>;
   pinned?: boolean;
 }
