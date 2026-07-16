@@ -16,7 +16,7 @@ export function smartNormalizeText(text: string): string {
 
   // 2. Remove hard wraps (lines ending with a letter/number but NOT a period)
   // We use a negative lookahead to preserve intentional markdown structures like tables, lists, headers, etc.
-  const unwrapped = fixedLiteralBullets.replace(/([^\s\.])\n(?!\s*\n|[-*+]\s|\d+\.\s|\||>|#|```)/g, '$1 ');
+  const unwrapped = fixedLiteralBullets.replace(/([a-zA-Z0-9_,;:])\n(?!\s*\n|[-*+]\s|\d+\.\s|\||>|#|```|\[|!\[|\*)/g, '$1 ');
 
   // 3. Ensure captions have space, but DO NOT mess with lists to avoid extra spacing breaking the flow
   const spaced = unwrapped

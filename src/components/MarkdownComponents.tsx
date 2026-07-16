@@ -112,6 +112,9 @@ export const markdownComponents = {
       {children}
     </td>
   ),
+  img: ({node, src, alt, ...props}: any) => (
+    <img src={src} alt={alt || 'Image'} className="max-w-full h-auto rounded-xl shadow-lg my-6 border border-white/10" loading="lazy" {...props} />
+  ),
   a: ({node, children, href, ...props}: any) => {
     if (href && (href.includes('youtube.com/watch?v=') || href.includes('youtu.be/'))) {
       const videoId = href.includes('v=') ? href.split('v=')[1].split('&')[0] : href.split('youtu.be/')[1].split('?')[0];

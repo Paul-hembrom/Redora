@@ -390,7 +390,13 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     setActiveTab('chat');
     
     if (chapter.id.startsWith('lib_')) {
-      return; // It's a virtual cross-document chapter, do not load from DB
+      // It's a virtual cross-document chapter, load from local cache only
+      getCachedTopicChats(chapter.id).then(cachedChats => {
+        if (isActive && cachedChats && cachedChats.length > 0) {
+          setMessages(cachedChats);
+        }
+      });
+      return; 
     }
 
     fetch(`/api/chats/${encodeURIComponent(chapter.id)}`)
@@ -421,7 +427,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   }, [chapter.id]);
 
   useEffect(() => {
-    if (messages.length > 0 && !chapter.id.startsWith('lib_') && !isOffline) {
+    if (messages.length > 0 && !chapter.id.startsWith('lib_')) {
       cacheTopicChats(chapter.id, messages).catch(console.error);
       const videos = messages.flatMap(m => Array.isArray(m.recommended_videos) ? m.recommended_videos : []);
       if (videos.length > 0) cacheTopicVideos(chapter.id, videos).catch(console.error);

@@ -2624,14 +2624,14 @@ app.get('/api/curriculum-test', (req, res) => {
        if (images.length > 0) {
          fullContent += '\n\n### Related Images\n\n';
          images.forEach((img: any) => {
-           fullContent += `![${img.alt || 'Image'}](${img.url})\n\n`;
+           fullContent += `![${(img.alt || 'Image').replace(/\[|\]/g, '')}](${img.url})\n\n`;
          });
        }
 
        if (videos.length > 0) {
          fullContent += '\n\n### Related Videos\n\n';
          videos.forEach((vid: any) => {
-           fullContent += `- [${vid.title}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
+           fullContent += `[${(vid.title || 'Video').replace(/\[|\]/g, '')}](https://www.youtube.com/watch?v=${vid.video_id})\n*Channel: ${vid.channel}*\n\n`;
          });
        }
 
@@ -2646,7 +2646,12 @@ app.get('/api/curriculum-test', (req, res) => {
          });
        } else {
          fullContent += '\n\n### Practice Questions\n\n';
-         fullContent += `**Q1: What is the main idea of this section?**\n*Answer: Review the content above to formulate your own answer.*\n\n`;
+         const firstSentence = (row.content || '').split(/[.?!]/)[0].trim();
+         if (firstSentence) {
+           fullContent += `**Q1: True or False: ${firstSentence}?**\n*Answer: True*\n\n`;
+         } else {
+           fullContent += `**Q1: What is the main idea of this section?**\n*Answer: Review the content above to formulate your own answer.*\n\n`;
+         }
        }
 
        console.log('>>> [Curriculum API] fullContent snippet:', fullContent.substring(0, 300));
