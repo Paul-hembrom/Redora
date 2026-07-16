@@ -2771,13 +2771,6 @@ app.get('/api/curriculum-test', (req, res) => {
 
        let fullContent = row.content || '';
 
-       if (images.length > 0) {
-         fullContent += '\n\n### Related Images\n\n';
-         images.forEach((img: any) => {
-           fullContent += `![${(img.alt || 'Image').replace(/\[|\]/g, '')}](${img.url})\n\n`;
-         });
-       }
-
        if (videos.length > 0) {
          fullContent += '\n\n### Related Videos\n\n';
          videos.forEach((vid: any) => {
