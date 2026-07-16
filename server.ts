@@ -2597,6 +2597,7 @@ app.get('/api/curriculum-test', (req, res) => {
        const images = safeParseJSON(row.images);
        const videos = safeParseJSON(row.videos);
        const questions = safeParseJSON(row.questions);
+       console.log(`Topic: ${row.subtopic}, images count: ${images.length}`);
 
        let fullContent = row.content || '';
 
