@@ -248,6 +248,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   }, [chapter.id]);
 
   const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [selectedImage, setSelectedImage] = useState<any | null>(null);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [canGenerateVideo, setCanGenerateVideo] = useState(true);
   const formRef = useRef<HTMLFormElement>(null);
@@ -1390,9 +1391,25 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2 mb-4">
                       Images & Diagrams
                     </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                       {Array.isArray(msg.images) && msg.images.map((img, iIdx) => (
-                        <ImageCard key={iIdx} image={img} />
+                        <div 
+                          key={iIdx} 
+                          className="relative group rounded-md overflow-hidden bg-black/20 border border-white/10 cursor-pointer aspect-square"
+                          onClick={() => setSelectedImage(img)}
+                        >
+                          <img 
+                            src={img.thumbnail || img.url} 
+                            alt={img.alt} 
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300" />
+                          {img.source === 'generated' && (
+                            <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] uppercase font-bold text-cyan-400 border border-white/10">
+                              AI Generated
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </motion.div>
@@ -1572,6 +1589,33 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 )}
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {selectedImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+            onClick={() => setSelectedImage(null)}
+          >
+            <button 
+              className="absolute top-6 right-6 p-3 text-white/70 hover:text-white transition-colors z-[60] bg-black/40 hover:bg-black/60 rounded-full border border-white/10"
+              onClick={(e) => { e.stopPropagation(); setSelectedImage(null); }}
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <div className="relative max-w-7xl max-h-[90vh] w-full h-full flex items-center justify-center">
+              <img 
+                src={selectedImage.url} 
+                alt={selectedImage.alt || 'Full-size image'} 
+                className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
