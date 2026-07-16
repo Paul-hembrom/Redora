@@ -7,7 +7,7 @@ interface ImageCardProps {
     url: string;
     thumbnail: string;
     alt: string;
-    source: 'real' | 'generated';
+    source: 'real' | 'generated' | 'google';
   };
 }
 
