@@ -2311,6 +2311,45 @@ app.post('/api/upgrade', authenticate, async (req: any, res) => {
   }
 });
 
+app.post('/api/search-images', authenticate, async (req: any, res) => {
+  try {
+    const { query } = req.body;
+    if (!query) {
+      return res.status(400).json({ error: 'Query is required' });
+    }
+
+    const apiKey = process.env.SERPER_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'SERPER_API_KEY is not configured' });
+    }
+
+    const response = await fetch(`https://google.serper.dev/images?q=${encodeURIComponent(query)}&apiKey=${apiKey}`);
+    if (!response.ok) {
+      console.error('Serper API error:', await response.text());
+      return res.json([]);
+    }
+
+    const data = await response.json();
+    const images = [];
+
+    if (data.images && Array.isArray(data.images)) {
+      for (const img of data.images) {
+        images.push({
+          url: img.imageUrl,
+          thumbnail: img.thumbnailUrl || img.imageUrl,
+          alt: img.title || query,
+          source: 'google'
+        });
+      }
+    }
+
+    res.json(images.slice(0, 10)); // return top 10 images
+  } catch (err: any) {
+    console.error('Error in /api/search-images:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DEBUG: Log all registered routes
 console.log('=== REGISTERED ROUTES ===');
 app._router.stack.forEach((middleware: any) => {

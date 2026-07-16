@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool, generateExerciseAnswer, generateSearchQueries } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
+import { SerperImageSearch } from './SerperImageSearch';
 import { ScrollableActionBar } from './ScrollableActionBar';
 import { ImageCard } from './ImageCard';
 import { InteractiveLesson } from './InteractiveLesson';
@@ -526,6 +527,59 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     }
   };
 
+  const handleGoogleImageSearch = async (query: string) => {
+    if (isTyping) return;
+    
+    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: `Search Google Images for: "${query}"` };
+    setMessages(prev => [...prev, userMsg]);
+    setIsTyping(true);
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/search-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ query })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to search Google Images');
+      }
+
+      const imagesArray = await response.json();
+      let aiMsg: ChatMessage;
+
+      if (!imagesArray || imagesArray.length === 0) {
+        aiMsg = {
+          id: uuidv4(),
+          role: 'model',
+          text: `I couldn't find any Google Images for "${query}".`,
+          type: 'text'
+        };
+      } else {
+        aiMsg = {
+          id: uuidv4(),
+          role: 'model',
+          text: `Here are some Google Images for "${query}".`,
+          type: 'images',
+          images: imagesArray
+        };
+      }
+
+      setMessages(prev => [...prev, aiMsg]);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Could not search images. Please try again later.');
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   const handleFetchImages = async () => {
     if (isTyping) return;
     const currentChapterId = chapter.id;
@@ -1013,6 +1067,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     <Wand2 className="w-3.5 h-3.5" /> Generate Video <BetaBadge />
                   </button>
                 )}
+                <SerperImageSearch onSearch={handleGoogleImageSearch} isLoading={isTyping} />
                 <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
                 <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
                   <Target className="w-3.5 h-3.5" /> Quiz
