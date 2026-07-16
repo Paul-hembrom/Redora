@@ -2329,15 +2329,16 @@ RULES:
         const generatedContent = await callLLM(contentPrompt);
 
         // 2. Fetch Images
-        const keywordPrompt = `You are an Educational Search Assistant. Based on the chapter title, key concepts, and a detailed content summary, generate a single, precise search keyword that can be used on a photo/diagram search engine to find a relevant educational image. 
-- If the subject is Mathematics, the search keyword must include the word "mathematics" or "math" and be appropriate for a classroom diagram (e.g., "set theory diagram math").
-- Avoid generic keywords that could return irrelevant results (e.g., jewellery, fashion).
+        const keywordPrompt = `You are a safe educational image search assistant. Given the following textbook explanation for a subtopic, generate a single, highly specific search keyword that would find a relevant, classroom‑appropriate educational diagram or illustration on Pexels/Unsplash.
+
+The image must be suitable for students of ${grade}.
+
+Avoid any keyword that could return fashion, celebrity, or adult content.
+
 Return ONLY a JSON object: {"keyword": "string"}
 
-Subject: ${subject}
-Chapter Title: ${subtopic}
-Key Concepts: ${title}
-Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`;
+Subtopic: ${subtopic}
+Full explanation: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`;
         
         let searchQuery = subtopic;
         try {
@@ -2428,6 +2429,23 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
 
         images = await fetchImagesForQuery(searchQuery);
 
+        // Safety filter
+        const unsafeWords = ["woman", "model", "fashion", "lingerie", "sexy", "bikini", "girl", "boy", "man", "attractive", "beautiful", "handsome"];
+        images = images.filter(img => {
+            const alt = (img.alt || "").toLowerCase();
+            return !unsafeWords.some(w => alt.includes(w));
+        });
+
+        if (images.length === 0) {
+           console.log("Images filtered or empty. Retrying with educational diagram keyword.");
+           const safeQuery = `${subtopic} educational diagram`;
+           images = await fetchImagesForQuery(safeQuery);
+           images = images.filter(img => {
+               const alt = (img.alt || "").toLowerCase();
+               return !unsafeWords.some(w => alt.includes(w));
+           });
+        }
+
         // Relevance check
         if (images.length > 0) {
            const firstAlt = (images[0].alt || "").toLowerCase();
@@ -2436,7 +2454,11 @@ Content Summary: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`
            const isRelevant = checkWords.length === 0 || checkWords.some(w => firstAlt.includes(w));
            if (!isRelevant) {
               const broaderQuery = `${subject} ${title}`.trim();
-              const retryImages = await fetchImagesForQuery(broaderQuery);
+              let retryImages = await fetchImagesForQuery(broaderQuery);
+              retryImages = retryImages.filter(img => {
+                  const alt = (img.alt || "").toLowerCase();
+                  return !unsafeWords.some(w => alt.includes(w));
+              });
               if (retryImages.length > 0) {
                  images = retryImages;
               }
