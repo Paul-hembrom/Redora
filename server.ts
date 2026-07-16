@@ -1672,8 +1672,53 @@ Content Summary: ${summary ? summary.substring(0, 2000) : ''}`;
       return imgs;
     }
 
-    let images = await fetchImagesForQuery(searchQuery);
+    let images: any[] = [];
     let message = undefined;
+    
+    const isSTEMGuess = /math|science|computer|physics|chemistry|biology|algebra|geometry|calculus|programming|algorithm/i.test(title + ' ' + conceptsStr);
+    
+    if (isSTEMGuess && process.env.WOLFRAM_APP_ID) {
+        const wolframPrompt = `You are a query generator for Wolfram|Alpha. Given the topic title and concepts, generate a concise query (max 50 characters) to find a relevant diagram or mathematical plot. Return ONLY a JSON object: {"query": "string"}
+Topic: ${title}
+Concepts: ${conceptsStr}`;
+        try {
+          const rawWolf = await callLLM(wolframPrompt, undefined, 'json_object');
+          const parsedWolf = JSON.parse(rawWolf.replace(/^\s*```json/, '').replace(/```\s*$/, '').trim());
+          if (parsedWolf.query) {
+            const wolframUrls = await fetchWolframImages(parsedWolf.query.trim(), process.env.WOLFRAM_APP_ID);
+            images = wolframUrls.map(url => ({
+                url: url,
+                thumbnail: url,
+                alt: `Wolfram|Alpha plot for ${parsedWolf.query}`,
+                source: 'wolfram'
+            }));
+          }
+        } catch(e) {
+          console.error("Wolfram query generation failed", e);
+        }
+    }
+
+    if (images.length === 0) {
+        images = await fetchImagesForQuery(searchQuery);
+    }
+
+    // Safety Filter (skip wolfram images as they are safe)
+    if (images.length > 0 && images[0]?.source !== 'wolfram') {
+       const unsafeWords = ["woman", "model", "fashion", "lingerie", "sexy", "bikini", "girl", "boy", "man", "attractive", "beautiful", "handsome"];
+       images = images.filter(img => {
+           const alt = (img.alt || "").toLowerCase();
+           return !unsafeWords.some(w => alt.includes(w));
+       });
+       if (images.length === 0) {
+           console.log("Images filtered or empty. Retrying with educational diagram keyword.");
+           const safeQuery = `${title} educational diagram`;
+           images = await fetchImagesForQuery(safeQuery);
+           images = images.filter(img => {
+               const alt = (img.alt || "").toLowerCase();
+               return !unsafeWords.some(w => alt.includes(w));
+           });
+       }
+    }
 
     // Relevance Check
     if (images.length > 0) {
@@ -2280,6 +2325,41 @@ app._router.stack.forEach((middleware: any) => {
   }
 });
 
+
+async function fetchWolframImages(query: string, appId: string): Promise<string[]> {
+  if (!appId) return [];
+  
+  // The Simple API returns an image directly. For multiple images, use the Full Results API.
+  // We'll use the Simple API for a single diagram, and the Full Results API for multiple images.
+  
+  // Full Results API approach:
+  const fullUrl = `https://api.wolframalpha.com/v2/query?appid=${appId}&input=${encodeURIComponent(query)}&format=image&output=json`;
+  
+  try {
+    const response = await fetch(fullUrl);
+    if (!response.ok) return [];
+    const data = await response.json();
+    
+    // Extract image URLs from the pods
+    const imageUrls: string[] = [];
+    if (data.queryresult?.pods) {
+      for (const pod of data.queryresult.pods) {
+        if (pod.subpods) {
+          for (const subpod of pod.subpods) {
+            if (subpod.img?.src) {
+              imageUrls.push(subpod.img.src);
+            }
+          }
+        }
+      }
+    }
+    return imageUrls.slice(0, 3); // max 3 images
+  } catch (err) {
+    console.warn('[Wolfram] Error fetching images:', err);
+    return [];
+  }
+}
+
 console.log('>>> REGISTERING CURRICULUM GENERATE ROUTE <<<');
 app.post('/api/curriculum/generate', authenticate, async (req: any, res) => {
   console.log('>>> CURRICULUM GENERATE HANDLER CALLED <<<');
@@ -2427,7 +2507,36 @@ Full explanation: ${generatedContent ? generatedContent.substring(0, 2000) : ''}
           return imgs;
         }
 
-        images = await fetchImagesForQuery(searchQuery);
+        let isSTEM = false;
+        if (subject) {
+            const subjectLower = subject.toLowerCase();
+            isSTEM = subjectLower.includes('math') || subjectLower.includes('science') || subjectLower.includes('computer');
+        }
+
+        if (isSTEM && process.env.WOLFRAM_APP_ID) {
+            const wolframPrompt = `You are a query generator for Wolfram|Alpha. Given the subtopic and content, generate a concise query (max 50 characters) to find a relevant diagram or mathematical plot. Return ONLY a JSON object: {"query": "string"}
+Subtopic: ${subtopic}
+Content: ${generatedContent ? generatedContent.substring(0, 500) : ''}`;
+            try {
+              const rawWolf = await callLLM(wolframPrompt, undefined, 'json_object');
+              const parsedWolf = JSON.parse(rawWolf.replace(/^\s*```json/, '').replace(/```\s*$/, '').trim());
+              if (parsedWolf.query) {
+                const wolframUrls = await fetchWolframImages(parsedWolf.query.trim(), process.env.WOLFRAM_APP_ID);
+                images = wolframUrls.map(url => ({
+                    url: url,
+                    thumbnail: url,
+                    alt: `Wolfram|Alpha plot for ${parsedWolf.query}`,
+                    source: 'wolfram'
+                }));
+              }
+            } catch(e) {
+              console.error("Wolfram query generation failed", e);
+            }
+        }
+
+        if (images.length === 0) {
+            images = await fetchImagesForQuery(searchQuery);
+        }
 
         // Safety filter
         const unsafeWords = ["woman", "model", "fashion", "lingerie", "sexy", "bikini", "girl", "boy", "man", "attractive", "beautiful", "handsome"];
