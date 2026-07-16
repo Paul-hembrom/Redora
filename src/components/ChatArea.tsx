@@ -399,7 +399,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       return; 
     }
 
-    fetch(`/api/chats/${encodeURIComponent(chapter.id)}`)
+    fetch(`/api/chats/${encodeURIComponent(chapter.id)}`, {
+      headers: {
+        ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
+      }
+    })
       .then(res => {
         if (!res.ok) throw new Error('Failed to load chat history');
         return res.json();
@@ -495,14 +499,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     setIsTyping(true);
     setError(null);
 
-    // Save user message to DB
-    if (!chapter.id.startsWith('lib_')) {
-      fetch('/api/chats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
-      }).catch(console.error);
-    }
+    // Ephemeral media message, don't save to DB
 
     try {
       const aiResult = await generateChatResponse(text, chapter.content, messages, persona);
@@ -519,13 +516,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       setMessages(prev => [...prev, aiMsg]);
 
       // Save AI message to DB
-      if (!chapter.id.startsWith('lib_')) {
-        fetch('/api/chats', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
-        }).catch(console.error);
-      }
+      // Ephemeral media message, don't save to DB
 
     } catch (err: any) {
       console.error(err);
@@ -544,13 +535,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     setIsTyping(true);
     setError(null);
 
-    if (!chapter.id.startsWith('lib_')) {
-      fetch('/api/chats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
-      }).catch(console.error);
-    }
+    // Ephemeral media message, don't save to DB
 
     try {
       const response = await fetch(`/api/topics/${chapter.id}/images`, {
@@ -601,13 +586,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
       setMessages(prev => [...prev, aiMsg]);
 
-      if (!chapter.id.startsWith('lib_')) {
-        fetch('/api/chats', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
-        }).catch(console.error);
-      }
+      // Ephemeral media message, don't save to DB
 
     } catch (err: any) {
       console.error(err);
@@ -653,14 +632,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     setIsTyping(true);
     setError(null);
 
-    // Save user message to DB
-    if (!chapter.id.startsWith('lib_')) {
-      fetch('/api/chats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
-      }).catch(console.error);
-    }
+    // Ephemeral media message, don't save to DB
 
     try {
       const classContext = (document.cookie.includes('sb-org-id=') && orgName) ? orgName : "";
@@ -709,13 +681,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
         setMessages(prev => [...prev, aiMsg]);
       }
 
-      if (!chapter.id.startsWith('lib_')) {
-        fetch('/api/chats', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
-        }).catch(console.error);
-      }
+      // Ephemeral media message, don't save to DB
 
     } catch (err: any) {
       console.error(err);
@@ -771,7 +737,10 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     if (!chapter.id.startsWith('lib_')) {
       fetch('/api/chats', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
+        },
         body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
       }).catch(console.error);
     }
@@ -790,13 +759,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       if (currentChapterIdRef.current !== chapter.id) return;
       setMessages(prev => [...prev, aiMsg]);
 
-      if (!chapter.id.startsWith('lib_')) {
-        fetch('/api/chats', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
-        }).catch(console.error);
-      }
+      // Ephemeral media message, don't save to DB
 
     } catch (err: any) {
       console.error(err);
@@ -821,7 +784,10 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     if (!chapter.id.startsWith('lib_')) {
       fetch('/api/chats', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
+        },
         body: JSON.stringify({ ...userMsg, chapterId: chapter.id, chapterContent: chapter.content })
       }).catch(console.error);
     }
@@ -837,13 +803,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
       if (currentChapterIdRef.current !== chapter.id) return;
       setMessages(prev => [...prev, aiMsg]);
 
-      if (!chapter.id.startsWith('lib_')) {
-        fetch('/api/chats', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...aiMsg, chapterId: chapter.id, chapterContent: chapter.content })
-        }).catch(console.error);
-      }
+      // Ephemeral media message, don't save to DB
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Failed to generate answer.');
@@ -1155,25 +1115,12 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       : (chapter.title || 'Chapter Content')}
                 </div>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
-                  {(() => {
-                    const content = smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : '');
-                    let sentences: string[] = content.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [];
-                    if (!sentences.length) { sentences = [content]; } else { sentences = sentences.map(s => s.trim()).filter(Boolean); }
-                    
-                    return sentences.map((s, idx) => (
-                      <span key={idx} id={`tts-sentence-${idx}`}>
-                        <ReactMarkdown 
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            ...markdownComponents,
-                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
-                          }}
-                        >
-                          {s}
-                        </ReactMarkdown>
-                      </span>
-                    ));
-                  })()}
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={markdownComponents}
+                  >
+                    {smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : '')}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}
