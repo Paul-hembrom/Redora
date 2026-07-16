@@ -808,13 +808,7 @@ export default function App() {
           >
             {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
-          <button 
-            className="hidden md:flex p-2 -ml-2 text-white/70 hover:text-white transition-colors"
-            onClick={() => setIsDesktopSidebarCollapsed(!isDesktopSidebarCollapsed)}
-            title={isDesktopSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {isDesktopSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
-          </button>
+          
           <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hidden sm:flex">
             <BookOpen className="w-4 h-4 text-cyan-400" />
           </div>
@@ -926,8 +920,16 @@ export default function App() {
           />
         )}
         
-        <div className={`absolute md:static inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out flex ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
-          <Sidebar 
+                <button
+          onClick={() => setIsDesktopSidebarCollapsed(!isDesktopSidebarCollapsed)}
+          className={`hidden md:flex absolute top-1/2 -translate-y-1/2 z-[60] items-center justify-center w-6 h-12 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 shadow-xl transition-all duration-300 ${isDesktopSidebarCollapsed ? 'left-0 rounded-r-md border-l-0' : 'left-80 rounded-l-md border-r-0'}`}
+          title={isDesktopSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isDesktopSidebarCollapsed ? <PanelLeftOpen className="w-4 h-4 text-white" /> : <PanelLeftClose className="w-4 h-4 text-white" />}
+        </button>
+        <div className={`absolute md:static inset-y-0 left-0 z-50 transform transition-all duration-300 ease-in-out flex shrink-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDesktopSidebarCollapsed ? 'md:w-0 overflow-hidden md:opacity-0 md:pointer-events-none' : 'md:w-80 md:opacity-100'}`}>
+          <div className="w-80 shrink-0 flex">
+            <Sidebar 
             documents={safeDocuments}
             isCurriculum={isCurriculum}
             selectedDocId={selectedDocId}
@@ -954,6 +956,7 @@ export default function App() {
               setIsTerminologyModalOpen(true);
             }}
           />
+          </div>
         </div>
         
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative z-0 group/main">
