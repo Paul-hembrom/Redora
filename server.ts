@@ -14,6 +14,8 @@ import { synthesizeSpeech } from './server/synthesizeSpeech.js';
 import { getUserRoleInOrg } from './server/roles.js';
 import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';
 import { createConcurrencyLimit } from './src/lib/documentProcessor.js';
+import { safeParseJSON } from './src/lib/utils.js';
+
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
@@ -2558,30 +2560,7 @@ app.get('/api/curriculum-test', (req, res) => {
       return res.json(doc);
     }
     
-    // Safe helper – parses stringified JSON if necessary
-    const safeArray = (val: any): any[] => {
-      let result = [];
-      if (Array.isArray(val)) result = val;
-      else if (typeof val === 'string') {
-        try {
-          const parsed = JSON.parse(val);
-          result = Array.isArray(parsed) ? parsed : [];
-        } catch (e) { /* ignore */ }
-      }
-      
-      // Handle double-stringified JSON items
-      result = result.map(item => {
-        if (typeof item === 'string') {
-          try {
-            return JSON.parse(item);
-          } catch(e) {
-            return item;
-          }
-        }
-        return item;
-      });
-      return result.filter(item => item !== null && typeof item === 'object');
-    };
+
 
     // Group by title
     const docId = `curr_${grade}_${subject}`.replace(/\s+/g, '_');
@@ -2615,9 +2594,9 @@ app.get('/api/curriculum-test', (req, res) => {
        
        const chap = chaptersMap.get(row.title);
        
-       const images = safeArray(row.images);
-       const videos = safeArray(row.videos);
-       const questions = safeArray(row.questions);
+       const images = safeParseJSON(row.images);
+       const videos = safeParseJSON(row.videos);
+       const questions = safeParseJSON(row.questions);
 
        let fullContent = row.content || '';
 

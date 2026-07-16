@@ -24,3 +24,34 @@ export function smartNormalizeText(text: string): string {
 
   return spaced.trim();
 }
+
+export function safeParseJSON(val: any): any[] {
+  let result: any[] = [];
+  if (Array.isArray(val)) result = val;
+  else if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      result = Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  // Handle double-stringified JSON items
+  result = result.map((item) => {
+    if (typeof item === 'string') {
+      try {
+        const parsed = JSON.parse(item);
+        // It could be stringified object or array
+        if (typeof parsed === 'object' && parsed !== null) {
+           return parsed;
+        }
+      } catch (e) {
+        return item;
+      }
+    }
+    return item;
+  });
+
+  return result.filter((item) => item !== null && typeof item === 'object');
+}
