@@ -1148,7 +1148,29 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
               <div className="space-y-3">
                 <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
                 <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
+                  {(() => {
+                    const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
+                    let sentences: string[] = content.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [];
+                    if (!sentences.length) { 
+                      sentences = [content]; 
+                    } else { 
+                      sentences = sentences.map(s => s.trim()).filter(Boolean); 
+                    }
+                    
+                    return sentences.map((s, idx) => (
+                      <span key={idx} id={`tts-sentence-${idx}`}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            ...markdownComponents,
+                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
+                          }}
+                        >
+                          {s}
+                        </ReactMarkdown>
+                      </span>
+                    ));
+                  })()}
                 </div>
               </div>
             )}
@@ -1170,12 +1192,29 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       : (chapter.title || 'Chapter Content')}
                 </div>
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={markdownComponents}
-                  >
-                    {smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : '')}
-                  </ReactMarkdown>
+                  {(() => {
+                    const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
+                    let sentences: string[] = content.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [];
+                    if (!sentences.length) { 
+                      sentences = [content]; 
+                    } else { 
+                      sentences = sentences.map(s => s.trim()).filter(Boolean); 
+                    }
+                    
+                    return sentences.map((s, idx) => (
+                      <span key={idx} id={`tts-sentence-${idx}`}>
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            ...markdownComponents,
+                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
+                          }}
+                        >
+                          {s}
+                        </ReactMarkdown>
+                      </span>
+                    ));
+                  })()}
                 </div>
               </div>
             )}
