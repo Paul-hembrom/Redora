@@ -1776,9 +1776,32 @@ Topic: ${title} (${conceptsStr})`;
     res.status(500).json({ error: err.message });
   }
 });
+async function normalizeTextForTTS(text: string): Promise<string> {
+  const prompt = `You are a text normalizer for a classroom text-to-speech system.
+Rewrite the following passage so it can be spoken naturally by a voice engine.
+
+Rules:
+- Convert all LaTeX and mathematical symbols into spoken English (e.g., "x^2" → "x squared", "\\frac{a}{b}" → "a over b", "\\sqrt{4}" → "the square root of 4").
+- Spell out abbreviations and technical terms the first time they appear.
+- Insert commas and periods where natural pauses should occur (the voice engine will pause at punctuation).
+- Keep the original meaning exactly. Do not summarize or omit anything.
+- Return ONLY the rewritten text, no other text.
+
+Text to normalize:
+${text}`;
+
+  try {
+    const normalized = await callLLM(prompt);
+    return normalized.trim();
+  } catch (err) {
+    console.error("normalizeTextForTTS failed:", err);
+    return text;
+  }
+}
+
 app.post('/api/tts/elevenlabs', async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, highQuality } = req.body;
     if (!text) {
       return res.status(400).json({ error: 'Missing text' });
     }
@@ -1790,15 +1813,44 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
     }
 
     const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
-    const modelId = 'eleven_flash_v2_5';
+    const modelId = highQuality ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`;
 
-    // Basic sentence splitting (split on . ! ? followed by whitespace or end)
-    let sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g);
-    if (!sentences) {
-       sentences = [text.trim()];
-    } else {
-       sentences = sentences.map((s: string) => s.trim()).filter(Boolean);
+    // 1. Normalize Math & Science Notation
+    let processedText = await normalizeTextForTTS(text);
+
+    // 2. Insert Explicit Pauses (blank line between paragraphs)
+    processedText = processedText.replace(/\n+/g, '\n\n');
+
+    let sentences: string[] = [];
+    const rawSentences = processedText.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [processedText.trim()];
+    
+    for (let s of rawSentences) {
+       s = s.trim();
+       if (!s) continue;
+       
+       const words = s.split(/\s+/);
+       if (words.length > 20) {
+          const middle = Math.floor(words.length / 2);
+          let splitIdx = -1;
+          for (let i = middle - 5; i <= middle + 5; i++) {
+             if (i > 0 && i < words.length) {
+                if (words[i].endsWith(',') || ['and', 'or', 'but'].includes(words[i].toLowerCase())) {
+                   splitIdx = words[i].endsWith(',') ? i : i - 1;
+                   break;
+                }
+             }
+          }
+          if (splitIdx !== -1) {
+             const firstPart = words.slice(0, splitIdx + 1).join(' ').replace(/,$/, '') + '.';
+             const secondPart = words.slice(splitIdx + 1).join(' ');
+             sentences.push(firstPart + ' ', secondPart + '. ');
+          } else {
+             sentences.push(s + '. ');
+          }
+       } else {
+          sentences.push(s + '. ');
+       }
     }
 
     const ttsLimiter = createConcurrencyLimit(3);
@@ -1833,18 +1885,31 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
                 continue;
              }
              console.error(`ElevenLabs TTS chunk ${index} error: ${response.status}`);
-             return null;
+             if (retries >= 3) return { index, text: sentence, audioUrl: null };
+             retries++;
+             continue;
            }
            
            const audioBuffer = await response.arrayBuffer();
+           if (audioBuffer.byteLength < 500) {
+              if (retries < 2) {
+                 console.warn(`ElevenLabs TTS chunk ${index} returned tiny audio (${audioBuffer.byteLength} bytes), retrying...`);
+                 retries++;
+                 delay *= 2;
+                 continue;
+              } else {
+                 console.error(`ElevenLabs TTS chunk ${index} returned tiny audio even after retries, falling back.`);
+                 return { index, text: sentence, audioUrl: null };
+              }
+           }
+
            const base64 = Buffer.from(audioBuffer).toString('base64');
-           return { index, audioUrl: `data:audio/mpeg;base64,${base64}` };
+           return { index, text: sentence, audioUrl: `data:audio/mpeg;base64,${base64}` };
         }
-        return null;
+        return { index, text: sentence, audioUrl: null };
       });
     }));
 
-    // Filter out any failed chunks
     const validChunks = chunks.filter(c => c !== null);
 
     if (validChunks.length === 0) {
@@ -2418,10 +2483,25 @@ app.post('/api/curriculum/generate', authenticate, async (req: any, res) => {
       return res.status(400).json({ error: 'Expected an array' });
     }
 
+    try {
+      await sql`ALTER TABLE curriculum_library ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0`;
+    } catch(e) {}
+
     const results = [];
+    let currentChapter = "";
+    let chapterIndex = 0;
+    let subtopicIndex = 0;
     
     for (const item of items) {
       const { grade, subject, title, subtopic, generateQuestions } = item;
+      
+      if (title !== currentChapter) {
+        currentChapter = title;
+        chapterIndex++;
+        subtopicIndex = 1;
+      } else {
+        subtopicIndex++;
+      }
       
       try {
         // 1. Generate Content
@@ -2675,10 +2755,12 @@ Generate 3 multiple-choice questions for ${grade} ${subject}. Return JSON exactl
           }
         }
 
+        const orderIndex = (chapterIndex * 1000) + subtopicIndex;
+
         // 5. Insert into DB
         await sql`
-          INSERT INTO curriculum_library (grade, subject, title, subtopic, content, images, videos, questions)
-          VALUES (${grade}, ${subject}, ${title}, ${subtopic}, ${generatedContent}, ${sql.json(images)}, ${sql.json(videos)}, ${sql.json(questions)})
+          INSERT INTO curriculum_library (grade, subject, title, subtopic, content, images, videos, questions, order_index)
+          VALUES (${grade}, ${subject}, ${title}, ${subtopic}, ${generatedContent}, ${sql.json(images)}, ${sql.json(videos)}, ${sql.json(questions)}, ${orderIndex})
         `;
 
         results.push({ subtopic, status: "success" });
@@ -2710,7 +2792,7 @@ app.get('/api/curriculum-test', (req, res) => {
     if (!grade || !subject) {
       return res.status(400).json({ error: 'grade and subject are required' });
     }
-    const rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY title, subtopic`;
+    const rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY order_index ASC`;
     
     console.log(`[Curriculum API] Query complete. Found ${rows.length} rows for grade: "${grade}", subject: "${subject}".`);
     if (rows.length > 0) {

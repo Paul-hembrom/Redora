@@ -11,6 +11,9 @@ ALTER TABLE chats
   ADD COLUMN IF NOT EXISTS recommended_videos TEXT,
   ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
 
+ALTER TABLE curriculum_library 
+  ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0;
+
 -- 2. Create Video Generation Tables
 CREATE TABLE IF NOT EXISTS generation_jobs (
     id TEXT PRIMARY KEY,

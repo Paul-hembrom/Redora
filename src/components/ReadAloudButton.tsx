@@ -33,6 +33,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const [errorMsg, setErrorMsg] = useState('');
   const [voicesAvailable, setVoicesAvailable] = useState(true);
   const [showPermissionWarning, setShowPermissionWarning] = useState(false);
+  const [highQuality, setHighQuality] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -125,7 +126,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const res = await fetch('/api/tts/elevenlabs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text, highQuality })
       });
       if (!res.ok) {
         throw new Error(`API returned ${res.status}`);
@@ -165,15 +166,37 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           return;
         }
         
-        const audio = new Audio(chunks[i].audioUrl);
-        audioRef.current = audio;
+        const chunk = chunks[i];
         
         const sentenceEl = document.getElementById(`tts-sentence-${i}`);
         if (sentenceEl) {
            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
+
+        if (!chunk.audioUrl) {
+          logWarning(`Chunk ${i} missing audioUrl, using browser TTS for this sentence.`);
+          const utterance = new SpeechSynthesisUtterance(chunk.text);
+          const voices = window.speechSynthesis.getVoices();
+          const englishVoice = voices.find(v => v.lang.toLowerCase().includes('en') && v.localService) || voices[0];
+          if (englishVoice) {
+            utterance.voice = englishVoice;
+          }
+          utterance.onend = () => {
+            i++;
+            playNextChunk();
+          };
+          utterance.onerror = () => {
+            i++;
+            playNextChunk(); // skip this chunk if browser tts fails
+          };
+          window.speechSynthesis.speak(utterance);
+          return;
+        }
         
-        if (i + 1 < chunks.length) {
+        const audio = new Audio(chunk.audioUrl);
+        audioRef.current = audio;
+        
+        if (i + 1 < chunks.length && chunks[i+1].audioUrl) {
           const nextAudio = new Audio(chunks[i+1].audioUrl);
           nextAudio.preload = "auto";
         }
@@ -319,7 +342,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   return (
-    <div className="relative inline-flex items-center gap-0.5">
+    <div className="relative inline-flex items-center gap-1">
       <button 
         ref={buttonRef}
         className={cn(
@@ -342,6 +365,22 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           <Volume2 className={iconSizeClasses} />
         )}
       </button>
+      
+      {!isPlaying && !isLoading && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setHighQuality(!highQuality);
+          }}
+          className={cn(
+            "text-[10px] font-mono px-1 rounded transition-colors z-10 hidden sm:block",
+            highQuality ? "bg-cyan-900/50 text-cyan-400" : "bg-black/20 text-white/30 hover:text-white/50"
+          )}
+          title="Toggle High Quality (Slower)"
+        >
+          HQ
+        </button>
+      )}
 
       {errorMsg && (
         <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 whitespace-nowrap bg-red-500 text-white text-xs px-2 py-1 rounded select-none pointer-events-none z-50 shadow-xl border border-red-400/30">
