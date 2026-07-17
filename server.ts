@@ -1816,46 +1816,20 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
     const modelId = highQuality ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`;
 
-    // 1. Normalize Math & Science Notation
-    let processedText = await normalizeTextForTTS(text);
-
-    // 2. Insert Explicit Pauses (blank line between paragraphs)
-    processedText = processedText.replace(/\n+/g, '\n\n');
-
-    let sentences: string[] = [];
-    const rawSentences = processedText.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [processedText.trim()];
+    // Chunk by Markdown blocks (paragraphs, lists, etc) separated by double newlines.
+    // This perfectly matches the frontend ReactMarkdown block splitting so IDs align perfectly.
+    const rawBlocks = text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
     
-    for (let s of rawSentences) {
-       s = s.trim();
-       if (!s) continue;
-       
-       const words = s.split(/\s+/);
-       if (words.length > 20) {
-          const middle = Math.floor(words.length / 2);
-          let splitIdx = -1;
-          for (let i = middle - 5; i <= middle + 5; i++) {
-             if (i > 0 && i < words.length) {
-                if (words[i].endsWith(',') || ['and', 'or', 'but'].includes(words[i].toLowerCase())) {
-                   splitIdx = words[i].endsWith(',') ? i : i - 1;
-                   break;
-                }
-             }
-          }
-          if (splitIdx !== -1) {
-             const firstPart = words.slice(0, splitIdx + 1).join(' ').replace(/,$/, '') + '.';
-             const secondPart = words.slice(splitIdx + 1).join(' ');
-             sentences.push(firstPart + ' ', secondPart + '. ');
-          } else {
-             sentences.push(s + '. ');
-          }
-       } else {
-          sentences.push(s + '. ');
-       }
-    }
-
     const ttsLimiter = createConcurrencyLimit(3);
-    const chunks = await Promise.all(sentences.map(async (sentence: string, index: number) => {
+    const chunks = await Promise.all(rawBlocks.map(async (block: string, index: number) => {
       return ttsLimiter(async () => {
+        // Optional: Normalize Math per-block if it looks like there might be math or it's long enough.
+        // We skip very short lines or headings to speed up processing.
+        let sentence = block;
+        if (sentence.length > 20 && !sentence.startsWith('#')) {
+            sentence = await normalizeTextForTTS(sentence);
+        }
+
         let retries = 0;
         let delay = 1000;
         
@@ -2862,7 +2836,7 @@ app.get('/api/curriculum-test', (req, res) => {
        if (videos.length > 0) {
          fullContent += '\n\n### Related Videos\n\n';
          videos.forEach((vid: any) => {
-           fullContent += `[${(vid.title || 'Video').replace(/\[|\]/g, '')}](https://www.youtube.com/watch?v=${vid.video_id})\n*Channel: ${vid.channel}*\n\n`;
+           fullContent += `- [${(vid.title || 'Video').replace(/\[|\]/g, '')}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
          });
        }
 

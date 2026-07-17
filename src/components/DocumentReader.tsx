@@ -221,30 +221,23 @@ export default function DocumentReader({ document, initialScrollChapterId }: Pro
                   <div className="bg-white/5 border-l-4 border-cyan-500/50 p-4 mb-8 rounded-r-lg relative group/summary">
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400">Summary</h4>
-                      <ReadAloudButton text={chapter.summary} className="bg-transparent" iconSizeClasses="w-4 h-4" />
+                      <ReadAloudButton text={chapter.summary} className="bg-transparent" iconSizeClasses="w-4 h-4" idPrefix="tts-summary-" />
                     </div>
                     <div className="prose prose-invert prose-sm max-w-none text-white/70 font-light">
                       {(() => {
                         const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
-                        let sentences: string[] = content.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [];
-                        if (!sentences.length) { 
-                          sentences = [content]; 
-                        } else { 
-                          sentences = sentences.map(s => s.trim()).filter(Boolean); 
-                        }
+                        let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+                        if (!blocks.length) blocks = [content];
                         
-                        return sentences.map((s, idx) => (
-                          <span key={idx} id={`tts-sentence-${idx}`}>
+                        return blocks.map((s, idx) => (
+                          <div key={idx} id={`tts-summary-${idx}`}>
                             <ReactMarkdown 
                               remarkPlugins={[remarkGfm]}
-                              components={{
-                                ...markdownComponents,
-                                p: ({node, children, ...props}) => <span {...props}>{children} </span>
-                              }}
+                              components={markdownComponents}
                             >
                               {s}
                             </ReactMarkdown>
-                          </span>
+                          </div>
                         ));
                       })()}
                     </div>
@@ -253,25 +246,18 @@ export default function DocumentReader({ document, initialScrollChapterId }: Pro
                 <div className="prose prose-invert max-w-none text-white/80 font-serif leading-relaxed markdown-body">
                   {(() => {
                     const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
-                    let sentences: string[] = content.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [];
-                    if (!sentences.length) { 
-                      sentences = [content]; 
-                    } else { 
-                      sentences = sentences.map(s => s.trim()).filter(Boolean); 
-                    }
+                    let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+                    if (!blocks.length) blocks = [content];
                     
-                    return sentences.map((s, idx) => (
-                      <span key={idx} id={`tts-sentence-${idx}`}>
+                    return blocks.map((s, idx) => (
+                      <div key={idx} id={`tts-chapter-${idx}`}>
                         <ReactMarkdown 
                           remarkPlugins={[remarkGfm]}
-                          components={{
-                            ...markdownComponents,
-                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
-                          }}
+                          components={markdownComponents}
                         >
                           {s}
                         </ReactMarkdown>
-                      </span>
+                      </div>
                     ));
                   })()}
                 </div>

@@ -1004,6 +1004,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             text={smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : (chapter.summary || ''))} 
             className="flex items-center shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-black/40 text-white/80 border-white/5 hover:bg-white/5 hover:text-white"
             iconSizeClasses="w-4 h-4"
+            idPrefix={chapter.content ? "tts-chapter-" : "tts-summary-"}
           />
           <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
              <Volume2 className="w-3.5 h-3.5 text-white/40 ml-1" />
@@ -1150,25 +1151,18 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
                   {(() => {
                     const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
-                    let sentences: string[] = content.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [];
-                    if (!sentences.length) { 
-                      sentences = [content]; 
-                    } else { 
-                      sentences = sentences.map(s => s.trim()).filter(Boolean); 
-                    }
+                    let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+                    if (!blocks.length) blocks = [content];
                     
-                    return sentences.map((s, idx) => (
-                      <span key={idx} id={`tts-sentence-${idx}`}>
+                    return blocks.map((s, idx) => (
+                      <div key={idx} id={`tts-summary-${idx}`}>
                         <ReactMarkdown 
                           remarkPlugins={[remarkGfm]}
-                          components={{
-                            ...markdownComponents,
-                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
-                          }}
+                          components={markdownComponents}
                         >
                           {s}
                         </ReactMarkdown>
-                      </span>
+                      </div>
                     ));
                   })()}
                 </div>
@@ -1194,25 +1188,18 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                 <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
                   {(() => {
                     const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
-                    let sentences: string[] = content.match(/[^.!?\n]+[.!?\n]+(\s|$)|[^.!?\n]+$/g) || [];
-                    if (!sentences.length) { 
-                      sentences = [content]; 
-                    } else { 
-                      sentences = sentences.map(s => s.trim()).filter(Boolean); 
-                    }
+                    let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+                    if (!blocks.length) blocks = [content];
                     
-                    return sentences.map((s, idx) => (
-                      <span key={idx} id={`tts-sentence-${idx}`}>
+                    return blocks.map((s, idx) => (
+                      <div key={idx} id={`tts-chapter-${idx}`}>
                         <ReactMarkdown 
                           remarkPlugins={[remarkGfm]}
-                          components={{
-                            ...markdownComponents,
-                            p: ({node, children, ...props}) => <span {...props}>{children} </span>
-                          }}
+                          components={markdownComponents}
                         >
                           {s}
                         </ReactMarkdown>
-                      </span>
+                      </div>
                     ));
                   })()}
                 </div>

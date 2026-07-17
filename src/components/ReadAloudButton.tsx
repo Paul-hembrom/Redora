@@ -7,6 +7,7 @@ interface Props {
   className?: string;
   iconSizeClasses?: string;
   containerRef?: React.RefObject<HTMLElement | null> | HTMLElement | null;
+  idPrefix?: string;
 }
 
 
@@ -27,7 +28,7 @@ const logError = (msg: string, data?: any) => {
 };
 
 
-export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef }: Props) {
+export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-" }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -168,9 +169,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         
         const chunk = chunks[i];
         
-        const sentenceEl = document.getElementById(`tts-sentence-${i}`);
+        const sentenceEl = document.getElementById(`${idPrefix}${i}`);
+        console.log(`Scrolling to ${idPrefix}${i}`, 'found:', !!sentenceEl);
         if (sentenceEl) {
            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+           console.warn(`Scroll target not found: ${idPrefix}${i}`);
         }
 
         if (!chunk.audioUrl) {
