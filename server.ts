@@ -2792,7 +2792,13 @@ app.get('/api/curriculum-test', (req, res) => {
     if (!grade || !subject) {
       return res.status(400).json({ error: 'grade and subject are required' });
     }
-    const rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY order_index ASC`;
+    let rows;
+    try {
+      rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY order_index ASC`;
+    } catch (e) {
+      console.log(`[Curriculum API] order_index might be missing, falling back to title, subtopic sort. Error: ${e}`);
+      rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY title ASC, subtopic ASC`;
+    }
     
     console.log(`[Curriculum API] Query complete. Found ${rows.length} rows for grade: "${grade}", subject: "${subject}".`);
     if (rows.length > 0) {
