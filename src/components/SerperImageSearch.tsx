@@ -35,7 +35,7 @@ export function SerperImageSearch({ onSearch, isLoading }: SerperImageSearchProp
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search Google Images..."
+            placeholder="Search high-quality images..."
             className="w-48 text-xs px-2.5 py-1.5 bg-black/40 border border-white/20 rounded-md text-white placeholder-white/40 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50"
             disabled={isLoading}
           />
@@ -63,9 +63,9 @@ export function SerperImageSearch({ onSearch, isLoading }: SerperImageSearchProp
       onClick={() => setIsOpen(true)}
       disabled={isLoading}
       className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-fuchsia-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0"
-      title="Search Google Images"
+      title="Search the web for educational images"
     >
-      <ImageIcon className="w-3.5 h-3.5" /> Google Images
+      <ImageIcon className="w-3.5 h-3.5" /> Image Search Pro
     </button>
   );
 }

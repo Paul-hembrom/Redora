@@ -530,7 +530,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
   const handleGoogleImageSearch = async (query: string) => {
     if (isTyping) return;
     
-    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: `Search Google Images for: "${query}"` };
+    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: `Search Image Search Pro for: "${query}"` };
     setMessages(prev => [...prev, userMsg]);
     setIsTyping(true);
     setError(null);
