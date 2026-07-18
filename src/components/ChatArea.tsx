@@ -1194,8 +1194,8 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     return blocks.map((s, idx) => (
                       <QuestionContext.Provider key={idx} value={{
                         blockText: s,
-                        grade: 'High School',
-                        subject: 'General Education',
+                        grade: undefined,
+                        subject: undefined,
                         topic: chapter.title
                       }}>
                         <div id={`tts-chapter-${idx}`}>

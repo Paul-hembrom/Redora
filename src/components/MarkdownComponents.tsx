@@ -89,16 +89,20 @@ const AnswerWrapper = ({ node, children, ...props }: any) => {
     setExplanationError(null);
     try {
       const qText = context.blockText ? context.blockText.split('*Answer:')[0] : '';
+      const { grade, subject, topic } = context;
+
       const exp = await generatePracticeQuestionExplanation(
         qText,
         textContent,
-        context.grade || '',
-        context.subject || '',
-        context.topic || ''
+        grade,
+        subject,
+        topic
       );
+      
       setExplanation(exp);
       setRevealed(true);
-    } catch (err) {
+    } catch (err: any) {
+      console.error('AI Explanation Error:', err.message);
       setExplanationError("Could not generate explanation right now.");
       setTimeout(() => setExplanationError(null), 3000);
     } finally {
