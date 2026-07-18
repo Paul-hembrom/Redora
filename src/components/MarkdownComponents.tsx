@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 const TableWrapper = ({ node, children, ...props }: any) => {
   const [copied, setCopied] = useState(false);
@@ -58,6 +59,52 @@ const TableWrapper = ({ node, children, ...props }: any) => {
   );
 };
 
+const AnswerWrapper = ({ node, children, ...props }: any) => {
+  const [revealed, setRevealed] = useState(false);
+  
+  const extractText = (n: any): string => {
+    if (n.type === 'text') return n.value || '';
+    if (n.children) return n.children.map(extractText).join('');
+    return '';
+  };
+
+  const textContent = extractText(node);
+  
+  if (textContent.trim().startsWith('Answer:')) {
+    return (
+      <div className="group relative bg-white/[0.02] border border-white/5 rounded-xl p-4 mt-4 transition-all hover:bg-white/[0.04] not-italic block my-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-display font-semibold text-white/50 tracking-widest uppercase m-0 p-0 !mb-0 border-none">Answer</p>
+          <button
+            onClick={() => setRevealed(!revealed)}
+            className="px-3 py-1.5 bg-black/40 hover:bg-white/10 text-white/60 hover:text-white text-xs font-medium rounded-lg backdrop-blur shadow-lg border border-white/10 transition-all flex items-center gap-2"
+          >
+            <span className="text-sm">🔄</span>
+            <span>{revealed ? 'Hide' : 'Reveal'}</span>
+          </button>
+        </div>
+        <AnimatePresence>
+          {revealed && (
+            <motion.div
+              initial={{ opacity: 0, height: 0, marginTop: 0 }}
+              animate={{ opacity: 1, height: 'auto', marginTop: 12 }}
+              exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              transition={{ duration: 0.3, ease: 'easeInOut' }}
+              className="overflow-hidden"
+            >
+              <div className="pt-3 border-t border-white/10 text-cyan-400">
+                <em {...props}>{children}</em>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+  
+  return <em {...props}>{children}</em>;
+};
+
 export const markdownComponents = {
   h1: ({node, ...props}: any) => <h1 style={{fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem'}} {...props} />,
   h2: ({node, ...props}: any) => <h2 style={{fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.8rem', marginBottom: '0.5rem'}} {...props} />,
@@ -78,6 +125,7 @@ export const markdownComponents = {
   p: ({node, children, ...props}: any) => {
     return <p style={{lineHeight: '1.7', marginTop: 0, marginBottom: '0.8rem', whiteSpace: 'pre-wrap'}} {...props}>{children}</p>;
   },
+  em: AnswerWrapper,
   table: TableWrapper,
   thead: ({node, children, ...props}: any) => (
     <thead style={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }} {...props}>
