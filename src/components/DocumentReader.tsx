@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Document } from '../types';
 import { BookOpen, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { markdownComponents } from './MarkdownComponents';
+import { markdownComponents, QuestionContext } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
 import { ReadAloudButton } from './ReadAloudButton';
 import { smartNormalizeText } from '../lib/utils';
@@ -250,14 +250,21 @@ export default function DocumentReader({ document, initialScrollChapterId }: Pro
                     if (!blocks.length) blocks = [content];
                     
                     return blocks.map((s, idx) => (
-                      <div key={idx} id={`tts-chapter-${idx}`}>
-                        <ReactMarkdown 
-                          remarkPlugins={[remarkGfm]}
-                          components={markdownComponents}
-                        >
-                          {s}
-                        </ReactMarkdown>
-                      </div>
+                      <QuestionContext.Provider key={idx} value={{
+                        blockText: s,
+                        grade: 'High School',
+                        subject: 'General Education',
+                        topic: chapter.title
+                      }}>
+                        <div id={`tts-chapter-${idx}`}>
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]}
+                            components={markdownComponents}
+                          >
+                            {s}
+                          </ReactMarkdown>
+                        </div>
+                      </QuestionContext.Provider>
                     ));
                   })()}
                 </div>

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
 import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward, Lock, Mic, MicOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { markdownComponents } from './MarkdownComponents';
+import { markdownComponents, QuestionContext } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
 import RelationshipGraph from './RelationshipGraph';
 import { clsx, type ClassValue } from 'clsx';
@@ -1192,14 +1192,21 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     if (!blocks.length) blocks = [content];
                     
                     return blocks.map((s, idx) => (
-                      <div key={idx} id={`tts-chapter-${idx}`}>
-                        <ReactMarkdown 
-                          remarkPlugins={[remarkGfm]}
-                          components={markdownComponents}
-                        >
-                          {s}
-                        </ReactMarkdown>
-                      </div>
+                      <QuestionContext.Provider key={idx} value={{
+                        blockText: s,
+                        grade: 'High School',
+                        subject: 'General Education',
+                        topic: chapter.title
+                      }}>
+                        <div id={`tts-chapter-${idx}`}>
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]}
+                            components={markdownComponents}
+                          >
+                            {s}
+                          </ReactMarkdown>
+                        </div>
+                      </QuestionContext.Provider>
                     ));
                   })()}
                 </div>
