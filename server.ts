@@ -1897,6 +1897,8 @@ function createFloat32WavHeader(dataLength: number, sampleRate: number): Buffer 
     return buffer;
 }
 
+const ttsNormalizationCache = new Map<string, string>();
+
 app.post('/api/tts/cartesia', async (req, res) => {
   try {
     const { text } = req.body;
@@ -1931,7 +1933,16 @@ app.post('/api/tts/cartesia', async (req, res) => {
             add_timestamps: true
         });
 
-        await context.send({ transcript: normalizeTextForCartesia(chunk.text) });
+        let spokenText = normalizeTextForCartesia(chunk.text);
+        if (/\\[a-zA-Z]+|\\{|\\}/.test(chunk.text)) {
+            if (ttsNormalizationCache.has(chunk.text)) {
+                spokenText = ttsNormalizationCache.get(chunk.text)!;
+            } else {
+                spokenText = await normalizeTextForTTS(spokenText);
+                ttsNormalizationCache.set(chunk.text, spokenText);
+            }
+        }
+        await context.send({ transcript: spokenText });
 
         let audioBuffers: Buffer[] = [];
         let timestamps: any[] = [];
