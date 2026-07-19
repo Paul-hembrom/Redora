@@ -217,20 +217,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           nextAudio.preload = "auto";
         }
 
-        let highlightOverlay = document.getElementById('tts-highlight-overlay');
-        if (!highlightOverlay) {
-            highlightOverlay = document.createElement('div');
-            highlightOverlay.id = 'tts-highlight-overlay';
-            highlightOverlay.className = 'absolute pointer-events-none bg-amber-400/70 rounded z-[100] transition-all duration-75 ease-linear';
-            document.body.appendChild(highlightOverlay);
-        }
-
-        const ranges: (Range | null)[] = [];
+                const wordSpans: (HTMLElement | null)[] = [];
         let shouldHighlight = true;
 
+        // Remove old overlay if it exists
+        const oldOverlay = document.getElementById('tts-highlight-overlay');
+        if (oldOverlay) oldOverlay.remove();
+
         // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
-        // Safety check: If the chunk text (sentence) doesn't perfectly match what we expect in the frontend block, 
-        // skip word highlighting for this chunk entirely (block-level scrolling still works).
         if (sentenceEl && chunk.text) {
            const domText = sentenceEl.textContent || '';
            if (domText.indexOf(chunk.text) === -1 && domText.toLowerCase().indexOf(chunk.text.toLowerCase()) === -1) {
@@ -267,13 +261,15 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             for (const ts of chunk.timestamps) {
                 const word = ts.word ? ts.word.trim() : "";
                 if (!word) {
-                    ranges.push(null);
+                    wordSpans.push(null);
                     continue;
                 }
+
                 let matchIdx = fullText.indexOf(word, searchIndex);
                 if (matchIdx === -1) {
                     matchIdx = fullText.toLowerCase().indexOf(word.toLowerCase(), searchIndex);
                 }
+
                 if (matchIdx !== -1) {
                     const startNodeInfo = indexMap[matchIdx];
                     const endNodeInfo = indexMap[matchIdx + word.length - 1];
@@ -281,74 +277,79 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                         const range = document.createRange();
                         range.setStart(startNodeInfo.node, startNodeInfo.offset);
                         range.setEnd(endNodeInfo.node, endNodeInfo.offset + 1);
-                        ranges.push(range);
+                        
+                        let span: HTMLElement | null = null;
+                        // check if already wrapped
+                        if (startNodeInfo.node === endNodeInfo.node && startNodeInfo.node.parentElement && startNodeInfo.node.parentElement.classList.contains('tts-word')) {
+                            span = startNodeInfo.node.parentElement;
+                        } else {
+                            span = document.createElement('span');
+                            span.className = 'tts-word transition-colors duration-100 ease-linear rounded';
+                            try {
+                                range.surroundContents(span);
+                            } catch (e) {
+                                span = null;
+                            }
+                        }
+                        wordSpans.push(span);
                     } else {
-                        ranges.push(null);
+                        wordSpans.push(null);
                     }
                     searchIndex = matchIdx + word.length;
                 } else {
-                    ranges.push(null);
+                    wordSpans.push(null);
                 }
             }
         }
 
-        let highlightTimeouts: NodeJS.Timeout[] = [];
-        const clearHighlightTimeouts = () => {
-            highlightTimeouts.forEach(clearTimeout);
-            highlightTimeouts = [];
+        const removeHighlights = () => {
+            wordSpans.forEach(span => {
+                if (span) span.classList.remove('bg-amber-400/70');
+            });
         };
-        
+
+        const timeUpdateHandler = () => {
+            if (stopIntentRef.current) return;
+            const currentTime = audio.currentTime;
+
+            chunk.timestamps.forEach((ts: any, k: number) => {
+                const span = wordSpans[k];
+                if (!span) return;
+
+                const start_time = ts.start_time !== undefined ? ts.start_time : ts.start;
+                const end_time = ts.end_time !== undefined ? ts.end_time : ts.end;
+
+                let startAdjusted = start_time;
+                let endAdjusted = end_time;
+                if (i === 0) {
+                    startAdjusted -= 0.150;
+                    endAdjusted -= 0.150;
+                }
+
+                if (currentTime >= startAdjusted && currentTime < endAdjusted) {
+                    span.classList.add('bg-amber-400/70');
+                } else {
+                    span.classList.remove('bg-amber-400/70');
+                }
+            });
+        };
+
         audio.onplay = () => {
            logInfo(`Chunk ${i} started playing.`);
            if (!chunk.timestamps || stopIntentRef.current) return;
-           
-           // Use setTimeout relative to audio currentTime to schedule highlights
-           chunk.timestamps.forEach((ts: any, k: number) => {
-               const activeRange = ranges[k];
-               if (!activeRange || !highlightOverlay) return;
-               
-               const start_time = ts.start_time !== undefined ? ts.start_time : ts.start;
-               const end_time = ts.end_time !== undefined ? ts.end_time : ts.end;
-               
-               // Calculate delay considering current playback time and playback rate
-               let startDelay = Math.max(0, (start_time - audio.currentTime)) * 1000 / playbackRate;
-               let endDelay = Math.max(0, (end_time - audio.currentTime)) * 1000 / playbackRate;
-               
-               // Apply 150ms offset for the very first chunk to compensate for encoder delay
-               if (i === 0) {
-                   startDelay += 150;
-                   endDelay += 150;
-               }
-               
-               const startTimer = setTimeout(() => {
-                   if (stopIntentRef.current || audio !== audioRef.current || audio.paused) return;
-                   const rect = activeRange.getBoundingClientRect();
-                   highlightOverlay.style.top = `${rect.top + window.scrollY}px`;
-                   highlightOverlay.style.left = `${rect.left + window.scrollX}px`;
-                   highlightOverlay.style.width = `${rect.width}px`;
-                   highlightOverlay.style.height = `${rect.height}px`;
-                   highlightOverlay.style.opacity = '1';
-               }, startDelay);
-               
-               const endTimer = setTimeout(() => {
-                   if (stopIntentRef.current || audio !== audioRef.current || audio.paused) return;
-                   if (k === chunk.timestamps.length - 1) {
-                       highlightOverlay.style.opacity = '0';
-                   }
-               }, endDelay);
-               
-               highlightTimeouts.push(startTimer, endTimer);
-           });
+           audio.addEventListener('timeupdate', timeUpdateHandler);
         };
-        
+
         audio.onpause = () => {
            logInfo(`Chunk ${i} paused.`);
-           clearHighlightTimeouts();
+           audio.removeEventListener('timeupdate', timeUpdateHandler);
+           removeHighlights();
         };
-        
+
         audio.onended = () => {
            logInfo(`Chunk ${i} ended.`);
-           clearHighlightTimeouts();
+           audio.removeEventListener('timeupdate', timeUpdateHandler);
+           removeHighlights();
            i++;
            isPlayingNext = false;
            playNextChunk();
