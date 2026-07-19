@@ -128,12 +128,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     setIsLoading(false);
   };
 
-  const tryElevenLabsTTS = async () => {
+  const tryCartesiaTTS = async () => {
     logInfo('Triggered: Attempting ElevenLabs TTS API call...');
     try {
       setIsLoading(true);
       setErrorMsg('');
-      const res = await fetch('/api/tts/stream', {
+      const res = await fetch('/api/tts/cartesia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, highQuality })
@@ -445,9 +445,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
       })();
       
-      logSuccess('ElevenLabs TTS API call successful, starting chunk playback.');
+      logSuccess('Cartesia TTS API call successful, starting chunk playback.');
     } catch (err) {
-      logError('ElevenLabs TTS API call failed:', err);
+      logError('Cartesia TTS API call failed:', err);
       setIsLoading(false);
       setIsPlaying(false);
       
@@ -463,7 +463,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     }
 
     stopIntentRef.current = false;
-    await tryElevenLabsTTS();
+    await tryCartesiaTTS();
   };
 
   useEffect(() => {
