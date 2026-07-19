@@ -94,6 +94,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   }, []);
 
   useEffect(() => {
+    fetch('/api/tts/elevenlabs/prewarm', { method: 'POST' }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const handleInteraction = () => {
       if ('speechSynthesis' in window && window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
@@ -173,8 +177,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         
         isPlayingNext = true;
         
-        const sentenceEl = document.getElementById(`${idPrefix}${i}`);
-        console.log(`Scrolling to ${idPrefix}${i}`, 'found:', !!sentenceEl);
+        const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
+        const sentenceEl = document.getElementById(`${idPrefix}${domIndex}`);
+        console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
         if (sentenceEl) {
            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } else {
@@ -226,9 +231,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
         if (sentenceEl && chunk.text) {
            const domText = sentenceEl.textContent || '';
-           // Just a basic length sanity check (if they are vastly different, skip highlighting)
-           if (Math.abs(domText.length - chunk.text.length) > 50) {
-               console.warn(`Highlighting disabled for chunk ${i} due to length mismatch (DOM: ${domText.length}, Chunk: ${chunk.text.length})`);
+           // Ensure the chunk text is actually found within the DOM text
+           if (domText.indexOf(chunk.text) === -1 && domText.toLowerCase().indexOf(chunk.text.toLowerCase()) === -1) {
+               console.warn(`Highlighting disabled for chunk ${i} because chunk text not found in DOM block`);
                shouldHighlight = false;
            }
         }
@@ -252,6 +257,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
             
             let searchIndex = 0;
+            let chunkOffset = fullText.indexOf(chunk.text);
+            if (chunkOffset === -1) chunkOffset = fullText.toLowerCase().indexOf(chunk.text.toLowerCase());
+            if (chunkOffset !== -1) {
+                searchIndex = chunkOffset;
+            }
+            
             for (const ts of chunk.timestamps) {
                 const word = ts.word ? ts.word.trim() : "";
                 if (!word) {
@@ -328,7 +339,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (i === 0) {
             setTimeout(() => {
               if (!audio.paused) requestAnimationFrame(updateHighlights);
-            }, 100);
+            }, 150);
             audio.onplay = null; // Prevent the default onplay from firing immediately
           }
           await audio.play();
