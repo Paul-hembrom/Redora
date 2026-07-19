@@ -1923,9 +1923,10 @@ app.post('/api/tts/cartesia', async (req, res) => {
             add_timestamps: true
         });
 
-        let spokenText = normalizeTextForCartesia(chunk.text);
-        if (/\\[a-zA-Z]+|\\{|\\}/.test(chunk.text)) {
-            spokenText = await normalizeTextWithLLM(spokenText);
+        const cleanChunk = normalizeTextForCartesia(chunk.text);
+        let spokenText = cleanChunk;
+        if (/\\(?:int|sum|begin|sin|cos|lim|frac|sqrt|tan|prod|theta|alpha|beta|gamma|omega|sigma)|\\{|\\}/i.test(chunk.text)) {
+            spokenText = await normalizeTextWithLLM(cleanChunk);
         }
         await context.send({ transcript: spokenText });
 
