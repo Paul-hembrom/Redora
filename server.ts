@@ -1800,7 +1800,7 @@ ${text}`;
 }
 
 
-app.post('/api/tts/elevenlabs/prewarm', async (req, res) => {
+app.post('/api/tts/stream/prewarm', async (req, res) => {
   try {
     const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) return res.status(200).json({ status: 'skip' });
@@ -1816,7 +1816,7 @@ app.post('/api/tts/elevenlabs/prewarm', async (req, res) => {
   }
 });
 
-app.post('/api/tts/elevenlabs', async (req, res) => {
+app.post('/api/tts/stream', async (req, res) => {
   try {
     const { text, highQuality } = req.body;
     if (!text) {

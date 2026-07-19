@@ -94,7 +94,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   }, []);
 
   useEffect(() => {
-    fetch('/api/tts/elevenlabs/prewarm', { method: 'POST' }).catch(() => {});
+    fetch('/api/tts/stream/prewarm', { method: 'POST' }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -133,7 +133,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     try {
       setIsLoading(true);
       setErrorMsg('');
-      const res = await fetch('/api/tts/elevenlabs', {
+      const res = await fetch('/api/tts/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, highQuality })
