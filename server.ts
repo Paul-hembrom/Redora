@@ -14,6 +14,7 @@ import { processVideoLessonJob, processSceneAssets } from './server/videoPipelin
 import { synthesizeSpeech } from './server/synthesizeSpeech.js';
 import { getUserRoleInOrg } from './server/roles.js';
 import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';
+import { normalizeTextWithLLM } from './src/lib/llmNormalizer.js';
 import { createConcurrencyLimit } from './src/lib/documentProcessor.js';
 import { safeParseJSON } from './src/lib/utils.js';
 
@@ -1777,28 +1778,7 @@ Topic: ${title} (${conceptsStr})`;
     res.status(500).json({ error: err.message });
   }
 });
-async function normalizeTextForTTS(text: string): Promise<string> {
-  const prompt = `You are a text normalizer for a classroom text-to-speech system.
-Rewrite the following passage so it can be spoken naturally by a voice engine.
 
-Rules:
-- Convert all LaTeX and mathematical symbols into spoken English (e.g., "x^2" → "x squared", "\\frac{a}{b}" → "a over b", "\\sqrt{4}" → "the square root of 4").
-- Spell out abbreviations and technical terms the first time they appear.
-- Insert commas and periods where natural pauses should occur (the voice engine will pause at punctuation).
-- Keep the original meaning exactly. Do not summarize or omit anything.
-- Return ONLY the rewritten text, no other text.
-
-Text to normalize:
-${text}`;
-
-  try {
-    const normalized = await callLLM(prompt);
-    return normalized.trim();
-  } catch (err) {
-    console.error("normalizeTextForTTS failed:", err);
-    return text;
-  }
-}
 
 
 app.post('/api/tts/stream/prewarm', async (req, res) => {
@@ -1908,7 +1888,6 @@ function createFloat32WavHeader(dataLength: number, sampleRate: number): Buffer 
     return buffer;
 }
 
-const ttsNormalizationCache = new Map<string, string>();
 
 app.post('/api/tts/cartesia', async (req, res) => {
   try {
@@ -1946,12 +1925,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
 
         let spokenText = normalizeTextForCartesia(chunk.text);
         if (/\\[a-zA-Z]+|\\{|\\}/.test(chunk.text)) {
-            if (ttsNormalizationCache.has(chunk.text)) {
-                spokenText = ttsNormalizationCache.get(chunk.text)!;
-            } else {
-                spokenText = await normalizeTextForTTS(spokenText);
-                ttsNormalizationCache.set(chunk.text, spokenText);
-            }
+            spokenText = await normalizeTextWithLLM(spokenText);
         }
         await context.send({ transcript: spokenText });
 
