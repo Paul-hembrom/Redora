@@ -1805,7 +1805,7 @@ app.post('/api/tts/stream/prewarm', async (req, res) => {
     const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) return res.status(200).json({ status: 'skip' });
     const voiceId = 'JwEIvMzFlLwrArLvqeM5';
-    fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`, {
+    fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'xi-api-key': apiKey },
       body: JSON.stringify({ text: " ", model_id: 'eleven_flash_v2_5' })
@@ -1831,7 +1831,7 @@ app.post('/api/tts/stream', async (req, res) => {
 
     const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
     const modelId = highQuality ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`;
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`;
 
     // Chunk by Markdown blocks (paragraphs, lists, etc) separated by double newlines.
     // This perfectly matches the frontend ReactMarkdown block splitting so IDs align perfectly.
@@ -1896,47 +1896,115 @@ app.post('/api/tts/stream', async (req, res) => {
                  continue;
                }
                
-               const audioBuffer = await response.arrayBuffer();
-               if (audioBuffer.byteLength < 500) {
-                 retries++;
-                 continue;
-               }
+               const decoder = new TextDecoder();
+               const reader = response.body.getReader();
+               let buffer = '';
+               let finalAudioBase64 = '';
+               let chars = [];
+               let startTimes = [];
+               let durations = [];
                
-               const base64 = Buffer.from(audioBuffer).toString('base64');
-               let timestamps = [];
-               try {
-                 const fd = new FormData();
-                 fd.append('file', new Blob([audioBuffer], { type: 'audio/mpeg' }), 'audio.mp3');
-                 fd.append('model_id', 'scribe_v1');
-                 fd.append('timestamps', 'true');
-                 
-                 const scribeRes = await fetchWithTimeout('https://api.elevenlabs.io/v1/speech-to-text', {
-                   method: 'POST',
-                   headers: { 'xi-api-key': apiKey },
-                   body: fd
-                 }, 3000); // slightly longer for scribe
-                 
-                 if (scribeRes.ok) {
-                   const scribeData = await scribeRes.json();
-                   if (scribeData.words && Array.isArray(scribeData.words)) {
-                     timestamps = scribeData.words.map((w: any) => ({
-                       word: w.text || w.word,
-                       start: w.start,
-                       end: w.end
-                     }));
+               while (true) {
+                   const { done, value } = await reader.read();
+                   if (done) break;
+                   buffer += decoder.decode(value, { stream: true });
+                   
+                   let boundary = buffer.indexOf('\n');
+                   while (boundary !== -1) {
+                       const line = buffer.slice(0, boundary).trim();
+                       buffer = buffer.slice(boundary + 1);
+                       if (line) {
+                           try {
+                               const data = JSON.parse(line);
+                               if (data.audio_base64) finalAudioBase64 += data.audio_base64;
+                               if (data.alignment) {
+                                   if (data.alignment.chars) chars.push(...data.alignment.chars);
+                                   if (data.alignment.charStartTimesMs) startTimes.push(...data.alignment.charStartTimesMs);
+                                   if (data.alignment.charDurationsMs) durations.push(...data.alignment.charDurationsMs);
+                               }
+                           } catch(e) {}
+                       }
+                       boundary = buffer.indexOf('\n');
                    }
-                 }
-               } catch (scribeErr) {
-                 console.error("Scribe error:", scribeErr);
                }
                
-               const result = { index: reqChunk.index, domIndex: reqChunk.domIndex, text: reqChunk.text, audioUrl: `data:audio/mpeg;base64,${base64}`, timestamps };
+               if (buffer.trim()) {
+                   try {
+                       const data = JSON.parse(buffer);
+                       if (data.audio_base64) finalAudioBase64 += data.audio_base64;
+                       if (data.alignment) {
+                           if (data.alignment.chars) chars.push(...data.alignment.chars);
+                           if (data.alignment.charStartTimesMs) startTimes.push(...data.alignment.charStartTimesMs);
+                           if (data.alignment.charDurationsMs) durations.push(...data.alignment.charDurationsMs);
+                       }
+                   } catch(e) {}
+               }
+               
+               if (!finalAudioBase64) {
+                   retries++;
+                   continue;
+               }
+               
+               let timestamps = [];
+               let currentWord = "";
+               let wordStart = null;
+               let wordEnd = null;
+               
+               for (let i = 0; i < chars.length; i++) {
+                   const char = chars[i];
+                   const start = startTimes[i];
+                   const duration = durations[i];
+                   
+                   if (char.trim() === "") {
+                       if (currentWord.length > 0) {
+                           timestamps.push({ word: currentWord, start: wordStart / 1000, end: wordEnd / 1000, start_time: wordStart / 1000, end_time: wordEnd / 1000 });
+                           currentWord = "";
+                           wordStart = null;
+                       }
+                   } else {
+                       if (currentWord.length === 0) wordStart = start;
+                       currentWord += char;
+                       wordEnd = start + duration;
+                   }
+               }
+               if (currentWord.length > 0) {
+                   timestamps.push({ word: currentWord, start: wordStart / 1000, end: wordEnd / 1000, start_time: wordStart / 1000, end_time: wordEnd / 1000 });
+               }
+               
+               const result = { index: reqChunk.index, domIndex: reqChunk.domIndex, text: reqChunk.text, audioUrl: `data:audio/mpeg;base64,${finalAudioBase64}`, timestamps };
                res.write(JSON.stringify(result) + '\n');
                return result;
            } catch(e) {
                retries++;
            }
         }
+        // Fallback to non-streaming if stream failed
+        try {
+            const fallbackUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`;
+            const fallbackResponse = await fetchWithTimeout(fallbackUrl, {
+                 method: 'POST',
+                 headers: {
+                   'Content-Type': 'application/json',
+                   'xi-api-key': apiKey,
+                 },
+                 body: JSON.stringify({
+                   text: reqChunk.text,
+                   model_id: modelId,
+                   voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+                 }),
+            }, 3000);
+            
+            if (fallbackResponse.ok) {
+                const fbBuffer = await fallbackResponse.arrayBuffer();
+                if (fbBuffer.byteLength >= 500) {
+                    const fbBase64 = Buffer.from(fbBuffer).toString('base64');
+                    const fbResult = { index: reqChunk.index, domIndex: reqChunk.domIndex, text: reqChunk.text, audioUrl: `data:audio/mpeg;base64,${fbBase64}`, timestamps: [] };
+                    res.write(JSON.stringify(fbResult) + '\n');
+                    return fbResult;
+                }
+            }
+        } catch(e) {}
+        
         const errResult = { index: reqChunk.index, domIndex: reqChunk.domIndex, text: reqChunk.text, audioUrl: null };
         res.write(JSON.stringify(errResult) + '\n');
         return errResult;
