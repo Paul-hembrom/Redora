@@ -215,7 +215,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         if (!highlightOverlay) {
             highlightOverlay = document.createElement('div');
             highlightOverlay.id = 'tts-highlight-overlay';
-            highlightOverlay.className = 'absolute pointer-events-none bg-yellow-400/30 dark:bg-yellow-200/20 rounded z-[100] transition-all duration-75 ease-linear';
+            highlightOverlay.className = 'absolute pointer-events-none bg-[#FFFDE7] mix-blend-multiply dark:mix-blend-normal dark:bg-[#FEF08A]/30 rounded z-[100] transition-all duration-75 ease-linear';
             document.body.appendChild(highlightOverlay);
         }
         
