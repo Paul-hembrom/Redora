@@ -229,9 +229,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         let shouldHighlight = true;
         
         // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
+        // Safety check: If the chunk text (sentence) doesn't perfectly match what we expect in the frontend block, 
+        // skip word highlighting for this chunk entirely (block-level scrolling still works).
         if (sentenceEl && chunk.text) {
            const domText = sentenceEl.textContent || '';
-           // Ensure the chunk text is actually found within the DOM text
            if (domText.indexOf(chunk.text) === -1 && domText.toLowerCase().indexOf(chunk.text.toLowerCase()) === -1) {
                console.warn(`Highlighting disabled for chunk ${i} because chunk text not found in DOM block`);
                shouldHighlight = false;
@@ -310,8 +311,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                const end_time = ts.end_time !== undefined ? ts.end_time : ts.end;
                
                // Calculate delay considering current playback time and playback rate
-               const startDelay = Math.max(0, (start_time - audio.currentTime)) * 1000 / playbackRate;
-               const endDelay = Math.max(0, (end_time - audio.currentTime)) * 1000 / playbackRate;
+               let startDelay = Math.max(0, (start_time - audio.currentTime)) * 1000 / playbackRate;
+               let endDelay = Math.max(0, (end_time - audio.currentTime)) * 1000 / playbackRate;
+               
+               // Apply 150ms offset for the very first chunk to compensate for encoder delay
+               if (i === 0) {
+                   startDelay += 150;
+                   endDelay += 150;
+               }
                
                const startTimer = setTimeout(() => {
                    if (stopIntentRef.current || audio !== audioRef.current || audio.paused) return;

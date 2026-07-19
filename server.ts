@@ -1808,7 +1808,7 @@ app.post('/api/tts/stream/prewarm', async (req, res) => {
     fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'xi-api-key': apiKey },
-      body: JSON.stringify({ text: " ", model_id: 'eleven_flash_v2_5' })
+      body: JSON.stringify({ text: ".", model_id: 'eleven_flash_v2_5' })
     }).catch(() => {});
     res.json({ status: 'ok' });
   } catch(e) {
@@ -1841,10 +1841,17 @@ app.post('/api/tts/stream', async (req, res) => {
     rawBlocks.forEach((block, domIndex) => {
         // Force the first sentence to be short
         if (domIndex === 0 && block.length > 80) {
-            const match = block.match(/^(.{15,100}?[.,;:!?])\s+(.+)$/s);
+            let splitIndex = -1;
+            const match = block.match(/^(.{15,100}?[.,;:!?])\s/);
             if (match) {
-                chunkRequests.push({ text: match[1], domIndex, index: chunkRequests.length });
-                chunkRequests.push({ text: match[2], domIndex, index: chunkRequests.length });
+                splitIndex = match[1].length;
+            } else {
+                const spaceMatch = block.match(/^(.{50,100}?)\s/);
+                if (spaceMatch) splitIndex = spaceMatch[1].length;
+            }
+            if (splitIndex > 0) {
+                chunkRequests.push({ text: block.substring(0, splitIndex).trim(), domIndex, index: chunkRequests.length });
+                chunkRequests.push({ text: block.substring(splitIndex).trim(), domIndex, index: chunkRequests.length });
                 return;
             }
         }
