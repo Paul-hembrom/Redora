@@ -973,10 +973,10 @@ export default function App() {
           ) : (
             <button
               onClick={toggleFullscreen}
-              className="absolute top-3 right-4 z-50 p-2 bg-black/40 hover:bg-black/60 backdrop-blur text-white/70 hover:text-white border border-white/5 rounded-lg shadow-lg opacity-0 group-hover/main:opacity-100 focus:opacity-100 transition-all pointer-events-none group-hover/main:pointer-events-auto focus:pointer-events-auto"
+              className="absolute top-3 right-4 z-50 p-3 bg-black/40 hover:bg-black/60 backdrop-blur text-white/70 hover:text-white border border-white/5 rounded-lg shadow-lg transition-all min-w-[48px] min-h-[48px] flex items-center justify-center"
               title="Full Screen"
             >
-              <Maximize className="w-4 h-4" />
+              <Maximize className="w-5 h-5" />
             </button>
           )}
           {(() => {
