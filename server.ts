@@ -1869,12 +1869,15 @@ app.post('/api/tts/cartesia', async (req, res) => {
 
     const cartesia = new Cartesia({ apiKey });
     const ws = await cartesia.tts.websocket();
+    ws.on('error', (err) => {
+      console.error('Cartesia WebSocket error:', err);
+    });
 
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         
         const context = ws.context({
-            model_id: 'sonic-english',
+            model_id: 'sonic-3.5',
             voice: { mode: 'id', id: 'a0e99841-438c-4a64-b679-ae501e7d6091' },
             output_format: { container: 'raw', encoding: 'pcm_f32le', sample_rate: 44100 },
             add_timestamps: true
