@@ -1,4 +1,4 @@
-import { callLLM } from './gemini';
+import { callLLM } from './gemini.js';
 
 const ttsNormalizationCache = new Map<string, string>();
 
