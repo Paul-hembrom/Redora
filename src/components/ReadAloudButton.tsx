@@ -147,6 +147,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           logError('ElevenLabs audio element threw a playback error.');
           speakWithBrowser();
         };
+        audio.playbackRate = 0.8;
         await audio.play();
         setIsLoading(false);
         setIsPlaying(true);
@@ -189,6 +190,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (englishVoice) {
             utterance.voice = englishVoice;
           }
+          utterance.rate = 0.8;
           utterance.onend = () => {
             i++;
             playNextChunk();
@@ -307,7 +309,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
         
         try {
-          await audio.play();
+          audio.playbackRate = 0.8;
+        await audio.play();
         } catch (e) {
           setIsPlaying(false);
           if (!stopIntentRef.current) speakWithBrowser();
@@ -355,6 +358,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       logInfo('Selected local voice: Default system voice');
     }
     
+    utterance.rate = 0.8;
     let didEnd = false;
     utterance.onstart = () => setIsPlaying(true);
     utterance.onend = () => {

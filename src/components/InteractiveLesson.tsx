@@ -110,7 +110,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
            }
            if (audioUrl && chatAudioRef.current) {
              chatAudioRef.current.src = audioUrl;
-             chatAudioRef.current.play().catch(e => console.error(e));
+             (() => { chatAudioRef.current.playbackRate = 0.8; return chatAudioRef.current.play(); })().catch(e => console.error(e));
              setChatAudioPlaying(true);
            }
          } catch(e) { console.error(e) }
@@ -136,7 +136,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
            if (audioRef.current.getAttribute('src') !== chunks[index].audioUrl) {
              audioRef.current.src = chunks[index].audioUrl;
            }
-           audioRef.current.play().catch(e => console.error("Audio chunk block:", e));
+           (() => { audioRef.current.playbackRate = 0.8; return audioRef.current.play(); })().catch(e => console.error("Audio chunk block:", e));
         } else {
            handleAudioEnded(); // all chunks played
         }
@@ -145,7 +145,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
         if (audioRef.current.getAttribute('src') !== currentStep.narration_audio_url) {
           audioRef.current.src = currentStep.narration_audio_url;
         }
-        audioRef.current.play().catch(e => console.error("Audio block:", e));
+        (() => { audioRef.current.playbackRate = 0.8; return audioRef.current.play(); })().catch(e => console.error("Audio block:", e));
       } else if (currentStep.type !== 'video' && !currentStep.narration_audio_url && (!currentStep.narration_audio_chunks || currentStep.narration_audio_chunks.length === 0)) {
         // Fallback for steps without audio, so it doesn't get stuck forever
         if (currentStep.type === 'question') {
@@ -202,7 +202,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
       const chunks = currentStep.narration_audio_chunks;
       if (currentChunkIndexRef.current < chunks.length && audioRef.current) {
         audioRef.current.src = chunks[currentChunkIndexRef.current].audioUrl;
-        audioRef.current.play().catch(e => console.error("Audio chunk block:", e));
+        (() => { audioRef.current.playbackRate = 0.8; return audioRef.current.play(); })().catch(e => console.error("Audio chunk block:", e));
         return; // wait for this chunk to end
       }
     }
@@ -331,7 +331,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
          
          if (audioUrl && chatAudioRef.current) {
            chatAudioRef.current.src = audioUrl;
-           chatAudioRef.current.play().catch(console.error);
+           (() => { chatAudioRef.current.playbackRate = 0.8; return chatAudioRef.current.play(); })().catch(console.error);
            setChatAudioPlaying(true);
          }
        } catch (err) {
