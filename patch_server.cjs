@@ -1,41 +1,73 @@
 const fs = require('fs');
 let code = fs.readFileSync('server.ts', 'utf8');
 
-const targetStr = `const base64 = Buffer.from(audioBuffer).toString('base64');
-           return { index, text: sentence, audioUrl: \`data:audio/mpeg;base64,\${base64}\` };`;
+const oldTTS = `    const chunks = await Promise.all(rawBlocks.map(async (block: string, index: number) => {
+      return ttsLimiter(async () => {
+        // Optional: Normalize Math per-block if it looks like there might be math or it's long enough.
+        // We skip very short lines or headings to speed up processing.
+        let sentence = block;
+        if (sentence.length > 20 && !sentence.startsWith('#')) {
+            sentence = await normalizeTextForTTS(sentence);
+        }
+`;
 
-const replacementStr = `const base64 = Buffer.from(audioBuffer).toString('base64');
-           let timestamps = [];
-           try {
-             const fd = new FormData();
-             fd.append('file', new Blob([audioBuffer], { type: 'audio/mpeg' }), 'audio.mp3');
-             fd.append('model_id', 'scribe_v1');
-             // ElevenLabs says to use timestamps_granularity in some docs, but user prompt says "timestamps: true"
-             // Adding both just in case, or we'll stick to what the user said
-             fd.append('timestamps', 'true');
-             
-             const scribeRes = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-               method: 'POST',
-               headers: { 'xi-api-key': apiKey },
-               body: fd
-             });
-             if (scribeRes.ok) {
-               const scribeData = await scribeRes.json();
-               if (scribeData.words && Array.isArray(scribeData.words)) {
-                 timestamps = scribeData.words.map((w) => ({
-                   word: w.text || w.word,
-                   start: w.start,
-                   end: w.end
-                 }));
-               }
-             } else {
-               console.error("Scribe API failed:", scribeRes.status, await scribeRes.text());
-             }
-           } catch (scribeErr) {
-             console.error("Scribe API fetch error:", scribeErr);
-           }
-           return { index, text: sentence, audioUrl: \`data:audio/mpeg;base64,\${base64}\`, timestamps };`;
+const newTTS = `    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    // Send total chunks count as the first line so frontend knows how many to expect
+    res.write(JSON.stringify({ totalChunks: rawBlocks.length }) + '\\n');
 
-code = code.replace(targetStr, replacementStr);
+    const chunks = await Promise.all(rawBlocks.map(async (block: string, index: number) => {
+      return ttsLimiter(async () => {
+        // We skip normalizeTextForTTS to ensure Scribe timestamps align perfectly with the frontend text,
+        // and to eliminate the startup delay caused by the Gemini API call.
+        let sentence = block;
+`;
+
+code = code.replace(oldTTS, newTTS);
+
+const oldReturn = `           return { index, text: sentence, audioUrl: \`data:audio/mpeg;base64,\${base64}\`, timestamps };
+        }
+        return { index, text: sentence, audioUrl: null };
+      });
+    }));
+
+    const validChunks = chunks.filter(c => c !== null);
+    if (validChunks.length === 0) {
+       return res.status(500).json({ error: 'TTS generation failed for all chunks' });
+    }
+    
+    return res.json({ chunks: validChunks });
+  } catch (err: any) {
+    console.error("ElevenLabs TTS Error:", err);
+    res.status(500).json({ error: 'TTS failed' });
+  }
+});`;
+
+const newReturn = `           const result = { index, text: sentence, audioUrl: \`data:audio/mpeg;base64,\${base64}\`, timestamps };
+           res.write(JSON.stringify(result) + '\\n');
+           return result;
+        }
+        const errResult = { index, text: sentence, audioUrl: null };
+        res.write(JSON.stringify(errResult) + '\\n');
+        return errResult;
+      });
+    }));
+
+    res.end();
+  } catch (err: any) {
+    console.error("ElevenLabs TTS Error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'TTS failed' });
+    } else {
+      res.end();
+    }
+  }
+});`;
+
+code = code.replace(oldReturn, newReturn);
+
 fs.writeFileSync('server.ts', code);
-console.log('patched');
+console.log('patched server');

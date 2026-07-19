@@ -134,46 +134,44 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, highQuality })
       });
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         throw new Error(`API returned ${res.status}`);
       }
-      const data = await res.json();
       
-      if (data.audioUrl) {
-        const audio = new Audio(data.audioUrl);
-        audioRef.current = audio;
-        audio.onended = () => setIsPlaying(false);
-        audio.onerror = () => {
-          setIsPlaying(false);
-          logError('ElevenLabs audio element threw a playback error.');
-          speakWithBrowser();
-        };
-        audio.playbackRate = playbackRate;
-        await audio.play();
-        setIsLoading(false);
-        setIsPlaying(true);
-        logSuccess('ElevenLabs TTS API call successful, audio is playing.');
-        return;
-      }
-
-      if (!data.chunks || !Array.isArray(data.chunks) || data.chunks.length === 0) {
-        throw new Error('No audio chunks returned');
-      }
-
-      const chunks = data.chunks.sort((a: any, b: any) => a.index - b.index);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      let totalChunks = 0;
+      const chunks: any[] = [];
+      let i = 0;
+      let streamEnded = false;
+      let isPlayingNext = false;
       
       setIsLoading(false);
       setIsPlaying(true);
       
-      let i = 0;
-      
       const playNextChunk = async () => {
-        if (stopIntentRef.current || i >= chunks.length) {
+        if (stopIntentRef.current) {
+          setIsPlaying(false);
+          return;
+        }
+        if (totalChunks > 0 && i >= totalChunks) {
+          setIsPlaying(false);
+          return;
+        }
+        if (streamEnded && !chunks[i]) {
           setIsPlaying(false);
           return;
         }
         
         const chunk = chunks[i];
+        if (!chunk) {
+          // Chunk not ready yet, it will be triggered by read loop
+          return;
+        }
+        
+        isPlayingNext = true;
         
         const sentenceEl = document.getElementById(`${idPrefix}${i}`);
         console.log(`Scrolling to ${idPrefix}${i}`, 'found:', !!sentenceEl);
@@ -194,10 +192,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           utterance.rate = playbackRate;
           utterance.onend = () => {
             i++;
+            isPlayingNext = false;
             playNextChunk();
           };
           utterance.onerror = () => {
             i++;
+            isPlayingNext = false;
             playNextChunk(); // skip this chunk if browser tts fails
           };
           window.speechSynthesis.speak(utterance);
@@ -221,7 +221,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
         
         const ranges: (Range | null)[] = [];
-        if (chunk.timestamps && chunk.timestamps.length > 0 && sentenceEl) {
+        let shouldHighlight = true;
+        
+        // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
+        if (sentenceEl && chunk.text) {
+           const domText = sentenceEl.textContent || '';
+           // Just a basic length sanity check (if they are vastly different, skip highlighting)
+           if (Math.abs(domText.length - chunk.text.length) > 50) {
+               console.warn(`Highlighting disabled for chunk ${i} due to length mismatch (DOM: ${domText.length}, Chunk: ${chunk.text.length})`);
+               shouldHighlight = false;
+           }
+        }
+        
+        if (shouldHighlight && chunk.timestamps && chunk.timestamps.length > 0 && sentenceEl) {
             const walker = document.createTreeWalker(sentenceEl, NodeFilter.SHOW_TEXT, null);
             const textNodes = [];
             let node;
@@ -301,6 +313,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         
         audio.onended = () => {
           i++;
+          isPlayingNext = false;
           playNextChunk();
         };
         
@@ -311,14 +324,71 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         
         try {
           audio.playbackRate = playbackRate;
-        await audio.play();
+          // Small offset for the first chunk to align highlighting with audio start
+          if (i === 0) {
+            setTimeout(() => {
+              if (!audio.paused) requestAnimationFrame(updateHighlights);
+            }, 100);
+            audio.onplay = null; // Prevent the default onplay from firing immediately
+          }
+          await audio.play();
         } catch (e) {
           setIsPlaying(false);
           if (!stopIntentRef.current) speakWithBrowser();
         }
       };
       
-      playNextChunk();
+      // Start reading the stream
+      (async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              streamEnded = true;
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+              if (line.trim()) {
+                const data = JSON.parse(line);
+                if (data.totalChunks !== undefined) {
+                  totalChunks = data.totalChunks;
+                  if (totalChunks === 0) {
+                    throw new Error('No audio chunks returned');
+                  }
+                } else if (data.index !== undefined) {
+                  chunks[data.index] = data;
+                  if (i === data.index && !isPlayingNext) {
+                    playNextChunk();
+                  }
+                }
+              }
+            }
+          }
+          if (buffer.trim()) {
+             const data = JSON.parse(buffer);
+             if (data.index !== undefined) {
+                chunks[data.index] = data;
+                if (i === data.index && !isPlayingNext) {
+                  playNextChunk();
+                }
+             }
+          }
+          if (!isPlayingNext && i < chunks.length) {
+              playNextChunk();
+          }
+        } catch (err) {
+          logError('Stream reading error:', err);
+          if (!isPlayingNext) {
+            setIsPlaying(false);
+            speakWithBrowser();
+          }
+        }
+      })();
+      
       logSuccess('ElevenLabs TTS API call successful, starting chunk playback.');
     } catch (err) {
       logError('ElevenLabs TTS API call failed:', err);

@@ -1821,14 +1821,19 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
     const rawBlocks = text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
     
     const ttsLimiter = createConcurrencyLimit(3);
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    
+    // Send total chunks count as the first line so frontend knows how many to expect
+    res.write(JSON.stringify({ totalChunks: rawBlocks.length }) + '\n');
+
     const chunks = await Promise.all(rawBlocks.map(async (block: string, index: number) => {
       return ttsLimiter(async () => {
-        // Optional: Normalize Math per-block if it looks like there might be math or it's long enough.
-        // We skip very short lines or headings to speed up processing.
+        // We skip normalizeTextForTTS to ensure Scribe timestamps align perfectly with the frontend text,
+        // and to eliminate the startup delay caused by the Gemini API call.
         let sentence = block;
-        if (sentence.length > 20 && !sentence.startsWith('#')) {
-            sentence = await normalizeTextForTTS(sentence);
-        }
 
         let retries = 0;
         let delay = 1000;
