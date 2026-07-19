@@ -1,0 +1,280 @@
+      const res = await fetch('/api/tts/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, highQuality })
+      });
+      if (!res.ok || !res.body) {
+        throw new Error(`API returned ${res.status}`);
+      }
+      
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      let totalChunks = 0;
+      const chunks: any[] = [];
+      let i = 0;
+      let streamEnded = false;
+      let isPlayingNext = false;
+      
+      setIsLoading(false);
+      setIsPlaying(true);
+      
+      const playNextChunk = async () => {
+        if (stopIntentRef.current) {
+          setIsPlaying(false);
+          return;
+        }
+        if (totalChunks > 0 && i >= totalChunks) {
+          setIsPlaying(false);
+          return;
+        }
+        if (streamEnded && !chunks[i]) {
+          setIsPlaying(false);
+          return;
+        }
+        
+        const chunk = chunks[i];
+        if (!chunk) {
+          // Chunk not ready yet, it will be triggered by read loop
+          return;
+        }
+        
+        isPlayingNext = true;
+        
+        const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
+        const sentenceEl = document.getElementById(`${idPrefix}${domIndex}`);
+        console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
+        if (sentenceEl) {
+           sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+           console.warn(`Scroll target not found: ${idPrefix}${i}`);
+        }
+
+        if (!chunk.audioUrl) {
+          logWarning(`Chunk ${i} missing audioUrl, using browser TTS for this sentence.`);
+          const utterance = new SpeechSynthesisUtterance(chunk.text);
+          const voices = window.speechSynthesis.getVoices();
+          const englishVoice = voices.find(v => v.lang.toLowerCase().includes('en') && v.localService) || voices[0];
+          if (englishVoice) {
+            utterance.voice = englishVoice;
+          }
+          utterance.rate = playbackRate;
+          utterance.onend = () => {
+            i++;
+            isPlayingNext = false;
+            playNextChunk();
+          };
+          utterance.onerror = () => {
+            i++;
+            isPlayingNext = false;
+            playNextChunk(); // skip this chunk if browser tts fails
+          };
+          window.speechSynthesis.speak(utterance);
+          return;
+        }
+        
+        const audio = new Audio(chunk.audioUrl);
+        audioRef.current = audio;
+        
+        if (i + 1 < chunks.length && chunks[i+1].audioUrl) {
+          const nextAudio = new Audio(chunks[i+1].audioUrl);
+          nextAudio.preload = "auto";
+        }
+        
+        let highlightOverlay = document.getElementById('tts-highlight-overlay');
+        if (!highlightOverlay) {
+            highlightOverlay = document.createElement('div');
+            highlightOverlay.id = 'tts-highlight-overlay';
+            highlightOverlay.className = 'absolute pointer-events-none bg-amber-400/70 rounded z-[100] transition-all duration-75 ease-linear';
+            document.body.appendChild(highlightOverlay);
+        }
+        
+        const ranges: (Range | null)[] = [];
+        let shouldHighlight = true;
+        
+        // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
+        // Safety check: If the chunk text (sentence) doesn't perfectly match what we expect in the frontend block, 
+        // skip word highlighting for this chunk entirely (block-level scrolling still works).
+        if (sentenceEl && chunk.text) {
+           const domText = sentenceEl.textContent || '';
+           if (domText.indexOf(chunk.text) === -1 && domText.toLowerCase().indexOf(chunk.text.toLowerCase()) === -1) {
+               console.warn(`Highlighting disabled for chunk ${i} because chunk text not found in DOM block`);
+               shouldHighlight = false;
+           }
+        }
+        
+        if (shouldHighlight && chunk.timestamps && chunk.timestamps.length > 0 && sentenceEl) {
+            const walker = document.createTreeWalker(sentenceEl, NodeFilter.SHOW_TEXT, null);
+            const textNodes = [];
+            let node;
+            while ((node = walker.nextNode())) {
+                textNodes.push(node);
+            }
+            
+            let fullText = "";
+            const indexMap: {node: Node, offset: number}[] = [];
+            for (const tNode of textNodes) {
+                const txt = tNode.nodeValue || "";
+                for (let k = 0; k < txt.length; k++) {
+                    indexMap.push({ node: tNode, offset: k });
+                }
+                fullText += txt;
+            }
+            
+            let searchIndex = 0;
+            let chunkOffset = fullText.indexOf(chunk.text);
+            if (chunkOffset === -1) chunkOffset = fullText.toLowerCase().indexOf(chunk.text.toLowerCase());
+            if (chunkOffset !== -1) {
+                searchIndex = chunkOffset;
+            }
+            
+            for (const ts of chunk.timestamps) {
+                const word = ts.word ? ts.word.trim() : "";
+                if (!word) {
+                    ranges.push(null);
+                    continue;
+                }
+                let matchIdx = fullText.indexOf(word, searchIndex);
+                if (matchIdx === -1) {
+                    matchIdx = fullText.toLowerCase().indexOf(word.toLowerCase(), searchIndex);
+                }
+                if (matchIdx !== -1) {
+                    const startNodeInfo = indexMap[matchIdx];
+                    const endNodeInfo = indexMap[matchIdx + word.length - 1];
+                    if (startNodeInfo && endNodeInfo) {
+                        const range = document.createRange();
+                        range.setStart(startNodeInfo.node, startNodeInfo.offset);
+                        range.setEnd(endNodeInfo.node, endNodeInfo.offset + 1);
+                        ranges.push(range);
+                    } else {
+                        ranges.push(null);
+                    }
+                    searchIndex = matchIdx + word.length;
+                } else {
+                    ranges.push(null);
+                }
+            }
+        }
+        
+        let highlightTimeouts: NodeJS.Timeout[] = [];
+        
+        const clearHighlightTimeouts = () => {
+            highlightTimeouts.forEach(clearTimeout);
+            highlightTimeouts = [];
+        };
+
+        audio.onplay = () => {
+           if (!chunk.timestamps || stopIntentRef.current) return;
+           
+           // Use setTimeout relative to audio currentTime to schedule highlights
+           chunk.timestamps.forEach((ts, k) => {
+               const activeRange = ranges[k];
+               if (!activeRange || !highlightOverlay) return;
+               
+               const start_time = ts.start_time !== undefined ? ts.start_time : ts.start;
+               const end_time = ts.end_time !== undefined ? ts.end_time : ts.end;
+               
+               // Calculate delay considering current playback time and playback rate
+               let startDelay = Math.max(0, (start_time - audio.currentTime)) * 1000 / playbackRate;
+               let endDelay = Math.max(0, (end_time - audio.currentTime)) * 1000 / playbackRate;
+               
+               // Apply 150ms offset for the very first chunk to compensate for encoder delay
+               if (i === 0) {
+                   startDelay += 150;
+                   endDelay += 150;
+               }
+               
+               const startTimer = setTimeout(() => {
+                   if (stopIntentRef.current || audio !== audioRef.current || audio.paused) return;
+                   const rect = activeRange.getBoundingClientRect();
+                   highlightOverlay.style.top = `${rect.top + window.scrollY}px`;
+                   highlightOverlay.style.left = `${rect.left + window.scrollX}px`;
+                   highlightOverlay.style.width = `${rect.width}px`;
+                   highlightOverlay.style.height = `${rect.height}px`;
+                   highlightOverlay.style.opacity = '1';
+               }, startDelay);
+               
+               const endTimer = setTimeout(() => {
+                   if (stopIntentRef.current || audio !== audioRef.current || audio.paused) return;
+                   if (k === chunk.timestamps.length - 1) {
+                       highlightOverlay.style.opacity = '0';
+                   }
+               }, endDelay);
+               
+               highlightTimeouts.push(startTimer, endTimer);
+           });
+        };
+        
+        audio.onpause = clearHighlightTimeouts;
+        audio.onended = () => {
+           clearHighlightTimeouts();
+           i++;
+           isPlayingNext = false;
+           playNextChunk();
+        };
+        
+
+        
+        audio.onerror = () => {
+          setIsPlaying(false);
+          if (!stopIntentRef.current) speakWithBrowser();
+        };
+        
+        try {
+          audio.playbackRate = playbackRate;
+          await audio.play();
+        } catch (e) {
+          setIsPlaying(false);
+          if (!stopIntentRef.current) speakWithBrowser();
+        }
+      };
+      
+      // Start reading the stream
+      (async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              streamEnded = true;
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+              if (line.trim()) {
+                const data = JSON.parse(line);
+                if (data.totalChunks !== undefined) {
+                  totalChunks = data.totalChunks;
+                  if (totalChunks === 0) {
+                    throw new Error('No audio chunks returned');
+                  }
+                } else if (data.index !== undefined) {
+                  chunks[data.index] = data;
+                  if (i === data.index && !isPlayingNext) {
+                    playNextChunk();
+                  }
+                }
+              }
+            }
+          }
+          if (buffer.trim()) {
+             const data = JSON.parse(buffer);
+             if (data.index !== undefined) {
+                chunks[data.index] = data;
+                if (i === data.index && !isPlayingNext) {
+                  playNextChunk();
+                }
+             }
+          }
+          if (!isPlayingNext && i < chunks.length) {
+              playNextChunk();
+          }
+        } catch (err) {
+          logError('Stream reading error:', err);
+          if (!isPlayingNext) {
+            setIsPlaying(false);
+            speakWithBrowser();
+          }

@@ -151,32 +151,41 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       let i = 0;
       let streamEnded = false;
       let isPlayingNext = false;
-      
+      let disableSync = false;
+      let failedChunks = 0;
+      let playedChunks = 0;
+
       setIsLoading(false);
       setIsPlaying(true);
-      
+
       const playNextChunk = async () => {
         if (stopIntentRef.current) {
           setIsPlaying(false);
           return;
         }
         if (totalChunks > 0 && i >= totalChunks) {
+          if (playedChunks === 0 && failedChunks > 0) {
+            showError('Audio unavailable for this content. Please try again later.');
+          }
           setIsPlaying(false);
           return;
         }
         if (streamEnded && !chunks[i]) {
+          if (playedChunks === 0 && failedChunks > 0) {
+            showError('Audio unavailable for this content. Please try again later.');
+          }
           setIsPlaying(false);
           return;
         }
-        
+
         const chunk = chunks[i];
         if (!chunk) {
           // Chunk not ready yet, it will be triggered by read loop
           return;
         }
-        
+
         isPlayingNext = true;
-        
+
         const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
         const sentenceEl = document.getElementById(`${idPrefix}${domIndex}`);
         console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
@@ -185,38 +194,29 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         } else {
            console.warn(`Scroll target not found: ${idPrefix}${i}`);
         }
-
+        
         if (!chunk.audioUrl) {
-          logWarning(`Chunk ${i} missing audioUrl, using browser TTS for this sentence.`);
-          const utterance = new SpeechSynthesisUtterance(chunk.text);
-          const voices = window.speechSynthesis.getVoices();
-          const englishVoice = voices.find(v => v.lang.toLowerCase().includes('en') && v.localService) || voices[0];
-          if (englishVoice) {
-            utterance.voice = englishVoice;
+          logWarning(`Chunk ${i} missing audioUrl.`);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+             return;
           }
-          utterance.rate = playbackRate;
-          utterance.onend = () => {
-            i++;
-            isPlayingNext = false;
-            playNextChunk();
-          };
-          utterance.onerror = () => {
-            i++;
-            isPlayingNext = false;
-            playNextChunk(); // skip this chunk if browser tts fails
-          };
-          window.speechSynthesis.speak(utterance);
+          i++;
+          isPlayingNext = false;
+          playNextChunk();
           return;
         }
-        
+
         const audio = new Audio(chunk.audioUrl);
         audioRef.current = audio;
-        
+
         if (i + 1 < chunks.length && chunks[i+1].audioUrl) {
           const nextAudio = new Audio(chunks[i+1].audioUrl);
           nextAudio.preload = "auto";
         }
-        
+
         let highlightOverlay = document.getElementById('tts-highlight-overlay');
         if (!highlightOverlay) {
             highlightOverlay = document.createElement('div');
@@ -224,10 +224,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             highlightOverlay.className = 'absolute pointer-events-none bg-amber-400/70 rounded z-[100] transition-all duration-75 ease-linear';
             document.body.appendChild(highlightOverlay);
         }
-        
+
         const ranges: (Range | null)[] = [];
         let shouldHighlight = true;
-        
+
         // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
         // Safety check: If the chunk text (sentence) doesn't perfectly match what we expect in the frontend block, 
         // skip word highlighting for this chunk entirely (block-level scrolling still works).
@@ -238,7 +238,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                shouldHighlight = false;
            }
         }
-        
+
         if (shouldHighlight && chunk.timestamps && chunk.timestamps.length > 0 && sentenceEl) {
             const walker = document.createTreeWalker(sentenceEl, NodeFilter.SHOW_TEXT, null);
             const textNodes = [];
@@ -246,7 +246,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             while ((node = walker.nextNode())) {
                 textNodes.push(node);
             }
-            
+
             let fullText = "";
             const indexMap: {node: Node, offset: number}[] = [];
             for (const tNode of textNodes) {
@@ -256,14 +256,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 }
                 fullText += txt;
             }
-            
+
             let searchIndex = 0;
             let chunkOffset = fullText.indexOf(chunk.text);
             if (chunkOffset === -1) chunkOffset = fullText.toLowerCase().indexOf(chunk.text.toLowerCase());
             if (chunkOffset !== -1) {
                 searchIndex = chunkOffset;
             }
-            
+
             for (const ts of chunk.timestamps) {
                 const word = ts.word ? ts.word.trim() : "";
                 if (!word) {
@@ -291,19 +291,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 }
             }
         }
-        
+
         let highlightTimeouts: NodeJS.Timeout[] = [];
-        
         const clearHighlightTimeouts = () => {
             highlightTimeouts.forEach(clearTimeout);
             highlightTimeouts = [];
         };
-
+        
         audio.onplay = () => {
+           logInfo(`Chunk ${i} started playing.`);
            if (!chunk.timestamps || stopIntentRef.current) return;
            
            // Use setTimeout relative to audio currentTime to schedule highlights
-           chunk.timestamps.forEach((ts, k) => {
+           chunk.timestamps.forEach((ts: any, k: number) => {
                const activeRange = ranges[k];
                if (!activeRange || !highlightOverlay) return;
                
@@ -341,30 +341,50 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
            });
         };
         
-        audio.onpause = clearHighlightTimeouts;
+        audio.onpause = () => {
+           logInfo(`Chunk ${i} paused.`);
+           clearHighlightTimeouts();
+        };
+        
         audio.onended = () => {
+           logInfo(`Chunk ${i} ended.`);
            clearHighlightTimeouts();
            i++;
            isPlayingNext = false;
            playNextChunk();
         };
         
-
-        
-        audio.onerror = () => {
-          setIsPlaying(false);
-          if (!stopIntentRef.current) speakWithBrowser();
+        audio.onerror = (e) => {
+          logError(`Chunk ${i} audio element error`, e);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+          } else {
+             i++;
+             isPlayingNext = false;
+             playNextChunk();
+          }
         };
-        
+
         try {
           audio.playbackRate = playbackRate;
           await audio.play();
+          playedChunks++;
         } catch (e) {
-          setIsPlaying(false);
-          if (!stopIntentRef.current) speakWithBrowser();
+          logError(`Chunk ${i} audio play threw error`, e);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+          } else {
+             i++;
+             isPlayingNext = false;
+             playNextChunk();
+          }
         }
       };
-      
+
       // Start reading the stream
       (async () => {
         try {
@@ -383,11 +403,20 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 const data = JSON.parse(line);
                 if (data.totalChunks !== undefined) {
                   totalChunks = data.totalChunks;
+                  logInfo(`Received totalChunks: ${totalChunks}`);
                   if (totalChunks === 0) {
                     throw new Error('No audio chunks returned');
                   }
+                  const expectedElements = document.querySelectorAll(`[id^="${idPrefix}"]`).length;
+                  if (expectedElements > 0 && totalChunks !== expectedElements) {
+                    logWarning(`Mismatch: expected ${expectedElements} DOM elements but got ${totalChunks} audio chunks. Falling back to whole-text playback (disabling sync).`);
+                    disableSync = true;
+                  }
+
                 } else if (data.index !== undefined) {
                   chunks[data.index] = data;
+                  const isValid = data.audioUrl && data.audioUrl.startsWith('data:audio/');
+                  logInfo(`Received chunk ${data.index}. Audio URL valid: ${!!isValid}`);
                   if (i === data.index && !isPlayingNext) {
                     playNextChunk();
                   }
@@ -411,7 +440,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           logError('Stream reading error:', err);
           if (!isPlayingNext) {
             setIsPlaying(false);
-            speakWithBrowser();
+            showError('Audio unavailable for this content. Please try again later.');
           }
         }
       })();
@@ -422,79 +451,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       setIsLoading(false);
       setIsPlaying(false);
       
-      speakWithBrowser();
+      showError('Audio unavailable for this content. Please try again later.');
     }
   };
 
-  const speakWithBrowser = () => {
-    logWarning('Falling back to local browser SpeechSynthesis engine...');
-    if (!('speechSynthesis' in window)) {
-      logError('SpeechSynthesis engine is not supported by this browser.');
-      showError('Audio playback not available.');
-      return;
-    }
-    
-    window.speechSynthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    
-    if (voices.length === 0) {
-      logError('TTS Failed: No local voices available at time of speak request.');
-      setVoicesAvailable(false);
-      setShowPermissionWarning(true);
-      setTimeout(() => setShowPermissionWarning(false), 5000);
-      showError('Audio playback not available.');
-      return;
-    }
-
-    const englishVoice = voices.find(v => v.lang.toLowerCase().includes('en') && v.localService) || voices[0];
-    if (englishVoice) {
-      utterance.voice = englishVoice;
-      logSuccess(`Selected local voice: ${englishVoice.name} (${englishVoice.lang})`);
-    } else {
-      logInfo('Selected local voice: Default system voice');
-    }
-    
-    utterance.rate = playbackRate;
-    let didEnd = false;
-    utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => {
-      didEnd = true;
-      setIsPlaying(false);
-    };
-    utterance.onerror = (e) => {
-      logError('SpeechSynthesis API threw an error:', e);
-      setIsPlaying(false);
-      if (!stopIntentRef.current) {
-        showError('Audio playback not available.');
-      }
-    };
-    
-    utteranceRef.current = utterance;
-    
-    try {
-      window.speechSynthesis.speak(utterance);
-      logInfo('Called window.speechSynthesis.speak() command.');
-    } catch (err) {
-      logError('Caught exception when calling speak():', err);
-      showError('Audio playback not available.');
-      return;
-    }
-    
-    setIsPlaying(true); 
-    
-    setTimeout(() => {
-      if (stopIntentRef.current || didEnd) return;
-      if (!window.speechSynthesis.speaking) {
-         logWarning('Timeout check: speaking flag is still false after 2 seconds. Triggering failure.');
-         window.speechSynthesis.cancel();
-         showError('Audio playback not available.');
-      } else {
-         logSuccess('Timeout check: confirmed local synthesis is successfully speaking.');
-      }
-    }, 2000);
-  };
 
   const triggerSpeech = async () => {
     if (isPlaying || isLoading) {

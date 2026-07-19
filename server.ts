@@ -1833,6 +1833,7 @@ app.post('/api/tts/stream', async (req, res) => {
     const modelId = highQuality ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`;
 
+    console.log(`[TTS] Request received. Text length: ${text.length}, Voice ID: ${voiceId}, Streaming: true, HighQuality: ${highQuality}`);
     // Chunk by Markdown blocks (paragraphs, lists, etc) separated by double newlines.
     // This perfectly matches the frontend ReactMarkdown block splitting so IDs align perfectly.
     const rawBlocks = text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
@@ -1864,6 +1865,7 @@ app.post('/api/tts/stream', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     
+    console.log(`[TTS] Created ${chunkRequests.length} chunk(s) from ${rawBlocks.length} markdown block(s).`);
     res.write(JSON.stringify({ totalChunks: chunkRequests.length }) + '\n');
 
     const fetchWithTimeout = async (url: string, options: any, timeoutMs: number) => {
@@ -1885,6 +1887,7 @@ app.post('/api/tts/stream', async (req, res) => {
         
         while (retries <= 1) {
            try {
+               console.log(`[TTS] Calling ElevenLabs API for chunk ${reqChunk.index}`);
                const response = await fetchWithTimeout(url, {
                  method: 'POST',
                  headers: {
@@ -1898,7 +1901,10 @@ app.post('/api/tts/stream', async (req, res) => {
                  }),
                }, 2000); // 2 second timeout per user request
                
+               console.log(`[TTS] ElevenLabs streaming API response status: ${response.status} for chunk ${reqChunk.index}`);
                if (!response.ok) {
+                 const errBody = await response.text().catch(() => 'could not read error body');
+                 console.error(`[TTS] ElevenLabs streaming API error (${response.status}): ${errBody} (voice: ${voiceId}, model: ${modelId}, text length: ${reqChunk.text.length})`);
                  retries++;
                  continue;
                }
@@ -1982,6 +1988,7 @@ app.post('/api/tts/stream', async (req, res) => {
                res.write(JSON.stringify(result) + '\n');
                return result;
            } catch(e) {
+               console.error(`[TTS] ElevenLabs streaming API fetch error:`, e);
                retries++;
            }
         }
@@ -2001,6 +2008,7 @@ app.post('/api/tts/stream', async (req, res) => {
                  }),
             }, 3000);
             
+            console.log(`[TTS] ElevenLabs fallback API response status: ${fallbackResponse.status} for chunk ${reqChunk.index}`);
             if (fallbackResponse.ok) {
                 const fbBuffer = await fallbackResponse.arrayBuffer();
                 if (fbBuffer.byteLength >= 500) {
@@ -2008,10 +2016,18 @@ app.post('/api/tts/stream', async (req, res) => {
                     const fbResult = { index: reqChunk.index, domIndex: reqChunk.domIndex, text: reqChunk.text, audioUrl: `data:audio/mpeg;base64,${fbBase64}`, timestamps: [] };
                     res.write(JSON.stringify(fbResult) + '\n');
                     return fbResult;
+                } else {
+                    console.error(`[TTS] ElevenLabs fallback API returned too small buffer: ${fbBuffer.byteLength} bytes`);
                 }
+            } else {
+                const errBody = await fallbackResponse.text().catch(() => 'could not read error body');
+                console.error(`[TTS] ElevenLabs fallback API error (${fallbackResponse.status}): ${errBody}`);
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error(`[TTS] ElevenLabs fallback API fetch error:`, e);
+        }
         
+        console.error(`[TTS] Chunk ${reqChunk.index} failed completely. Returning null audioUrl.`);
         const errResult = { index: reqChunk.index, domIndex: reqChunk.domIndex, text: reqChunk.text, audioUrl: null };
         res.write(JSON.stringify(errResult) + '\n');
         return errResult;
