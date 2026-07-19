@@ -1912,22 +1912,24 @@ app.post('/api/tts/elevenlabs', async (req, res) => {
            } catch (scribeErr) {
              console.error("Scribe API fetch error:", scribeErr);
            }
-           return { index, text: sentence, audioUrl: `data:audio/mpeg;base64,${base64}`, timestamps };
+           const result = { index, text: sentence, audioUrl: `data:audio/mpeg;base64,${base64}`, timestamps };
+           res.write(JSON.stringify(result) + '\n');
+           return result;
         }
-        return { index, text: sentence, audioUrl: null };
+        const errResult = { index, text: sentence, audioUrl: null };
+        res.write(JSON.stringify(errResult) + '\n');
+        return errResult;
       });
     }));
 
-    const validChunks = chunks.filter(c => c !== null);
-
-    if (validChunks.length === 0) {
-       return res.status(500).json({ error: 'TTS generation failed for all chunks' });
-    }
-
-    res.json({ chunks: validChunks });
+    res.end();
   } catch (err: any) {
     console.error('ElevenLabs TTS endpoint error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      res.end();
+    }
   }
 });
 
