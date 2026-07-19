@@ -247,7 +247,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     currentChapterIdRef.current = chapter.id;
   }, [chapter.id]);
 
-  const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [playbackRate, setPlaybackRate] = useState<number>(0.8);
   const [orgName, setOrgName] = useState<string | null>(null);
   const [canGenerateVideo, setCanGenerateVideo] = useState(true);
   const formRef = useRef<HTMLFormElement>(null);
@@ -1005,6 +1005,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             className="flex items-center shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-black/40 text-white/80 border-white/5 hover:bg-white/5 hover:text-white"
             iconSizeClasses="w-4 h-4"
             idPrefix={chapter.content ? "tts-chapter-" : "tts-summary-"}
+            playbackRate={playbackRate}
           />
           <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
              <Volume2 className="w-3.5 h-3.5 text-white/40 ml-1" />
@@ -1013,8 +1014,9 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                onChange={e => setPlaybackRate(Number(e.target.value))}
                className="bg-transparent text-xs text-white/80 font-medium focus:outline-none appearance-none px-2"
              >
-               <option value={1}>1x</option>
-               <option value={1.25}>1.25x</option>
+               <option value={0.5}>0.5x</option>
+               <option value={0.8}>0.8x</option>
+               <option value={1}>1.0x</option>
                <option value={1.5}>1.5x</option>
              </select>
           </div>
@@ -1350,7 +1352,8 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                       <ReadAloudButton 
                         text={msg.text} 
                         iconSizeClasses="w-3.5 h-3.5" 
-                        className="bg-black/20 hover:bg-black/40" 
+                        className="bg-black/20 hover:bg-black/40"
+                        playbackRate={playbackRate} 
                       />
                     )}
                     {msg.role === 'model' && (

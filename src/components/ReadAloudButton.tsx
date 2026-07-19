@@ -3,6 +3,7 @@ import { Volume2, Square, Loader2, AudioLines, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Props {
+  playbackRate?: number;
   text: string;
   className?: string;
   iconSizeClasses?: string;
@@ -28,7 +29,7 @@ const logError = (msg: string, data?: any) => {
 };
 
 
-export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-" }: Props) {
+export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-", playbackRate = 0.8 }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -147,7 +148,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           logError('ElevenLabs audio element threw a playback error.');
           speakWithBrowser();
         };
-        audio.playbackRate = 0.8;
+        audio.playbackRate = playbackRate;
         await audio.play();
         setIsLoading(false);
         setIsPlaying(true);
@@ -190,7 +191,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (englishVoice) {
             utterance.voice = englishVoice;
           }
-          utterance.rate = 0.8;
+          utterance.rate = playbackRate;
           utterance.onend = () => {
             i++;
             playNextChunk();
@@ -309,7 +310,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
         
         try {
-          audio.playbackRate = 0.8;
+          audio.playbackRate = playbackRate;
         await audio.play();
         } catch (e) {
           setIsPlaying(false);
@@ -358,7 +359,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       logInfo('Selected local voice: Default system voice');
     }
     
-    utterance.rate = 0.8;
+    utterance.rate = playbackRate;
     let didEnd = false;
     utterance.onstart = () => setIsPlaying(true);
     utterance.onend = () => {
