@@ -1,10 +1,16 @@
 const fs = require('fs');
 let code = fs.readFileSync('src/components/ReadAloudButton.tsx', 'utf8');
 
-code = code.replace(/tryElevenLabsTTS/g, 'tryCartesiaTTS');
-code = code.replace(/'\/api\/tts\/stream'/g, "'/api/tts/cartesia'");
-code = code.replace(/'ElevenLabs TTS API call failed:'/g, "'Cartesia TTS API call failed:'");
-code = code.replace(/'ElevenLabs TTS API call successful/g, "'Cartesia TTS API call successful");
+const oldLogs = `        console.log(\`Scrolling to \${idPrefix}\${domIndex}\`, 'found:', !!sentenceEl);`;
 
-fs.writeFileSync('src/components/ReadAloudButton.tsx', code);
-console.log('patched frontend route to cartesia');
+const newLogs = `        console.log(\`[ReadAloud] Chunk \${i} - audioUrl length:\`, chunk.audioUrl ? chunk.audioUrl.length : 0);
+        console.log(\`[ReadAloud] Chunk \${i} - timestamps count:\`, chunk.timestamps ? chunk.timestamps.length : 0);
+        console.log(\`Scrolling to \${idPrefix}\${domIndex}\`, 'found:', !!sentenceEl);`;
+
+if (code.includes(oldLogs)) {
+    code = code.replace(oldLogs, newLogs);
+    fs.writeFileSync('src/components/ReadAloudButton.tsx', code);
+    console.log('Patched frontend');
+} else {
+    console.log('Could not find frontend logs hook');
+}

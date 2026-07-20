@@ -194,6 +194,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
         const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
         const sentenceEl = document.getElementById(`${idPrefix}${domIndex}`);
+        console.log(`[ReadAloud] Chunk ${i} - audioUrl length:`, chunk.audioUrl ? chunk.audioUrl.length : 0);
+        console.log(`[ReadAloud] Chunk ${i} - timestamps count:`, chunk.timestamps ? chunk.timestamps.length : 0);
         console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
         if (sentenceEl) {
            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -408,7 +410,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             for (const line of lines) {
               if (line.trim()) {
                 const data = JSON.parse(line);
-                if (data.totalChunks !== undefined) {
+                if (data.error) {
+                  logError(`Server returned TTS error: ${data.error}`);
+                  showError(data.error);
+                  stopIntentRef.current = true;
+                  stopPlaying();
+                  return;
+                } else if (data.totalChunks !== undefined) {
                   totalChunks = data.totalChunks;
                   logInfo(`Received totalChunks: ${totalChunks}`);
                   if (totalChunks === 0) {
