@@ -36,12 +36,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const [voicesAvailable, setVoicesAvailable] = useState(true);
   const [showPermissionWarning, setShowPermissionWarning] = useState(false);
   const [highQuality, setHighQuality] = useState(false);
-  
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const stopIntentRef = useRef(false);
+
+  // Resolves the DOM root to search within. Falls back to `document` when no
+  // containerRef is supplied, but scopes lookups to the given container/ref
+  // when one is provided so multiple instances on the same page with
+  // overlapping idPrefixes don't collide.
+  const getScopeRoot = (): Document | HTMLElement => {
+    if (!containerRef) return document;
+    if (containerRef instanceof HTMLElement) return containerRef;
+    return containerRef.current || document;
+  };
 
   useEffect(() => {
     return () => stopPlaying();
@@ -51,7 +63,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     const checkVoices = () => {
       if ('speechSynthesis' in window) {
         const voices = window.speechSynthesis.getVoices();
-        
+
         const logVoices = (vList: SpeechSynthesisVoice[]) => {
           logSuccess(`Found ${vList.length} voices loaded.`);
           if (vList.length > 0) {
@@ -60,6 +72,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         if (voices.length === 0) {
+          // Set the known state immediately instead of leaving it stuck at
+          // the default `true` in case `voiceschanged` never fires.
+          setVoicesAvailable(false);
           logInfo('No voices initially. Listening for voiceschanged event...');
           const handleVoicesChanged = () => {
             const updatedVoices = window.speechSynthesis.getVoices();
@@ -77,16 +92,16 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         setVoicesAvailable(false);
       }
     };
-    
+
     const cleanupVoices = checkVoices();
-    
+
     const handleFocus = () => {
       if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
     };
     window.addEventListener('focus', handleFocus);
-    
+
     return () => {
       if (cleanupVoices) cleanupVoices();
       window.removeEventListener('focus', handleFocus);
@@ -129,7 +144,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   const tryCartesiaTTS = async () => {
-    logInfo('Triggered: Attempting ElevenLabs TTS API call...');
+    logInfo('Triggered: Attempting Cartesia TTS API call...');
     try {
       setIsLoading(true);
       setErrorMsg('');
@@ -141,11 +156,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       if (!res.ok || !res.body) {
         throw new Error(`API returned ${res.status}`);
       }
-      
+
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      
+
       let totalChunks = 0;
       const chunks: any[] = [];
       let i = 0;
@@ -187,14 +202,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         isPlayingNext = true;
 
         const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
-        const sentenceEl = document.getElementById(`${idPrefix}${domIndex}`);
-        console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
-        if (sentenceEl) {
-           sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else {
-           console.warn(`Scroll target not found: ${idPrefix}${i}`);
+        const scopeRoot = getScopeRoot();
+        const sentenceEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement | null;
+
+        if (!disableSync) {
+          console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
+          if (sentenceEl) {
+            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else {
+            console.warn(`Scroll target not found: ${idPrefix}${i}`);
+          }
         }
-        
+
         if (!chunk.audioUrl) {
           logWarning(`Chunk ${i} missing audioUrl.`);
           failedChunks++;
@@ -212,20 +231,23 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         const audio = new Audio(chunk.audioUrl);
         audioRef.current = audio;
 
-        if (i + 1 < chunks.length && chunks[i+1].audioUrl) {
-          const nextAudio = new Audio(chunks[i+1].audioUrl);
+        // Guard against sparse-array holes: the next chunk may not have
+        // arrived yet even though `chunks.length` already reflects a later
+        // index (chunks can arrive out of order over the network).
+        if (i + 1 < chunks.length && chunks[i + 1] && chunks[i + 1].audioUrl) {
+          const nextAudio = new Audio(chunks[i + 1].audioUrl);
           nextAudio.preload = "auto";
         }
 
-                const wordSpans: (HTMLElement | null)[] = [];
-        let shouldHighlight = true;
+        const wordSpans: (HTMLElement | null)[] = new Array(chunk.timestamps ? chunk.timestamps.length : 0).fill(null);
+        let shouldHighlight = !disableSync;
 
         // Remove old overlay if it exists
         const oldOverlay = document.getElementById('tts-highlight-overlay');
         if (oldOverlay) oldOverlay.remove();
 
         // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
-        if (sentenceEl && chunk.text) {
+        if (shouldHighlight && sentenceEl && chunk.text) {
            const domText = sentenceEl.textContent || '';
            if (domText.indexOf(chunk.text) === -1 && domText.toLowerCase().indexOf(chunk.text.toLowerCase()) === -1) {
                console.warn(`Highlighting disabled for chunk ${i} because chunk text not found in DOM block`);
@@ -258,12 +280,16 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 searchIndex = chunkOffset;
             }
 
-            for (const ts of chunk.timestamps) {
+            // Pass 1: locate every word match in the *original* (unmutated)
+            // text first. We must not wrap-as-we-go here, because wrapping
+            // a word splits its text node and invalidates the node/offset
+            // references we've already computed for later words.
+            type Match = { tsIndex: number; start: number; end: number };
+            const matches: Match[] = [];
+            for (let tsIdx = 0; tsIdx < chunk.timestamps.length; tsIdx++) {
+                const ts = chunk.timestamps[tsIdx];
                 const word = ts.word ? ts.word.trim() : "";
-                if (!word) {
-                    wordSpans.push(null);
-                    continue;
-                }
+                if (!word) continue;
 
                 let matchIdx = fullText.indexOf(word, searchIndex);
                 if (matchIdx === -1) {
@@ -271,34 +297,41 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 }
 
                 if (matchIdx !== -1) {
-                    const startNodeInfo = indexMap[matchIdx];
-                    const endNodeInfo = indexMap[matchIdx + word.length - 1];
-                    if (startNodeInfo && endNodeInfo) {
-                        const range = document.createRange();
-                        range.setStart(startNodeInfo.node, startNodeInfo.offset);
-                        range.setEnd(endNodeInfo.node, endNodeInfo.offset + 1);
-                        
-                        let span: HTMLElement | null = null;
-                        // check if already wrapped
-                        if (startNodeInfo.node === endNodeInfo.node && startNodeInfo.node.parentElement && startNodeInfo.node.parentElement.classList.contains('tts-word')) {
-                            span = startNodeInfo.node.parentElement;
-                        } else {
-                            span = document.createElement('span');
-                            span.className = 'tts-word transition-colors duration-100 ease-linear rounded';
-                            try {
-                                range.surroundContents(span);
-                            } catch (e) {
-                                span = null;
-                            }
-                        }
-                        wordSpans.push(span);
-                    } else {
-                        wordSpans.push(null);
-                    }
+                    matches.push({ tsIndex: tsIdx, start: matchIdx, end: matchIdx + word.length - 1 });
                     searchIndex = matchIdx + word.length;
-                } else {
-                    wordSpans.push(null);
                 }
+            }
+
+            // Pass 2: wrap matches in *descending* start-offset order so
+            // that mutating a later match's text node never invalidates the
+            // node/offset references of matches earlier in the sentence
+            // (splitting a node only ever affects the content after the
+            // split point, never before it).
+            const orderedForWrapping = [...matches].sort((a, b) => b.start - a.start);
+
+            for (const m of orderedForWrapping) {
+                const startNodeInfo = indexMap[m.start];
+                const endNodeInfo = indexMap[m.end];
+                if (!startNodeInfo || !endNodeInfo) continue;
+
+                const range = document.createRange();
+                range.setStart(startNodeInfo.node, startNodeInfo.offset);
+                range.setEnd(endNodeInfo.node, endNodeInfo.offset + 1);
+
+                let span: HTMLElement | null = null;
+                // check if already wrapped
+                if (startNodeInfo.node === endNodeInfo.node && startNodeInfo.node.parentElement && startNodeInfo.node.parentElement.classList.contains('tts-word')) {
+                    span = startNodeInfo.node.parentElement;
+                } else {
+                    span = document.createElement('span');
+                    span.className = 'tts-word transition-colors duration-100 ease-linear rounded';
+                    try {
+                        range.surroundContents(span);
+                    } catch (e) {
+                        span = null;
+                    }
+                }
+                wordSpans[m.tsIndex] = span;
             }
         }
 
@@ -354,7 +387,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
            isPlayingNext = false;
            playNextChunk();
         };
-        
+
         audio.onerror = (e) => {
           logError(`Chunk ${i} audio element error`, e);
           failedChunks++;
@@ -398,7 +431,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
-            
+
             for (const line of lines) {
               if (line.trim()) {
                 const data = JSON.parse(line);
@@ -408,7 +441,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                   if (totalChunks === 0) {
                     throw new Error('No audio chunks returned');
                   }
-                  const expectedElements = document.querySelectorAll(`[id^="${idPrefix}"]`).length;
+                  const scopeRoot = getScopeRoot();
+                  const expectedElements = scopeRoot.querySelectorAll(`[id^="${idPrefix}"]`).length;
                   if (expectedElements > 0 && totalChunks !== expectedElements) {
                     logWarning(`Mismatch: expected ${expectedElements} DOM elements but got ${totalChunks} audio chunks. Falling back to whole-text playback (disabling sync).`);
                     disableSync = true;
@@ -445,13 +479,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           }
         }
       })();
-      
+
       logSuccess('Cartesia TTS API call successful, starting chunk playback.');
     } catch (err) {
       logError('Cartesia TTS API call failed:', err);
       setIsLoading(false);
       setIsPlaying(false);
-      
+
       showError('Audio unavailable for this content. Please try again later.');
     }
   };
@@ -473,7 +507,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
     const handleTouchStart = (e: TouchEvent) => {
       logInfo("Trigger Event: touchstart detected on ReadAloudButton");
-      e.preventDefault(); 
+      e.preventDefault();
       triggerSpeech();
     };
 
@@ -490,18 +524,29 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       btn.removeEventListener('click', handleClick);
       btn.removeEventListener('touchstart', handleTouchStart);
     };
-  }, [text, isPlaying, isLoading, voicesAvailable]); 
+  }, [text, isPlaying, isLoading, voicesAvailable]);
 
   const showError = (msg: string) => {
     setErrorMsg(msg);
-    setTimeout(() => {
+    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+    errorTimeoutRef.current = setTimeout(() => {
       setErrorMsg('');
     }, 3000);
+
+    // Surface the permission/voices hint only when it's actually relevant:
+    // playback failed entirely AND the browser has no TTS voices available.
+    if (!voicesAvailable) {
+      setShowPermissionWarning(true);
+      if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
+      warningTimeoutRef.current = setTimeout(() => {
+        setShowPermissionWarning(false);
+      }, 5000);
+    }
   };
 
   return (
     <div className="relative inline-flex items-center gap-1">
-      <button 
+      <button
         ref={buttonRef}
         className={cn(
           "relative p-1.5 bg-black/20 hover:bg-black/40 rounded text-white/50 hover:text-cyan-400 disabled:opacity-50 transition-colors flex items-center justify-center touch-manipulation z-10",
@@ -523,7 +568,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           <Volume2 className={iconSizeClasses} />
         )}
       </button>
-      
+
       {!isPlaying && !isLoading && (
         <button
           onClick={(e) => {
