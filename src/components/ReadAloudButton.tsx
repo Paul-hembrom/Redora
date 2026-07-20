@@ -2,12 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Square, Loader2, AudioLines, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-
-function stripVideoSection(text: string): string {
-  // Remove everything from "### Related Videos" to the end, or to the next "###" heading
-  return text.replace(/### Related Videos[\s\S]*?(?=### |$)/, '').trim();
-}
-
 interface Props {
   playbackRate?: number;
   text: string;
@@ -43,16 +37,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const [showPermissionWarning, setShowPermissionWarning] = useState(false);
   const [highQuality, setHighQuality] = useState(false);
   
-  const [volume, setVolumeState] = useState(1);
-  const volumeRef = useRef(1);
-  const setVolume = (val: number) => {
-    setVolumeState(val);
-    volumeRef.current = val;
-    if (audioRef.current) {
-      audioRef.current.volume = val;
-    }
-  };
-
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -152,7 +136,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const res = await fetch('/api/tts/cartesia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: stripVideoSection(text), highQuality })
+        body: JSON.stringify({ text, highQuality })
       });
       if (!res.ok || !res.body) {
         throw new Error(`API returned ${res.status}`);
@@ -204,8 +188,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
         const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
         const sentenceEl = document.getElementById(`${idPrefix}${domIndex}`);
-        console.log(`[ReadAloud] Chunk ${i} - audioUrl length:`, chunk.audioUrl ? chunk.audioUrl.length : 0);
-        console.log(`[ReadAloud] Chunk ${i} - timestamps count:`, chunk.timestamps ? chunk.timestamps.length : 0);
         console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
         if (sentenceEl) {
            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -228,7 +210,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
 
         const audio = new Audio(chunk.audioUrl);
-        audio.volume = volumeRef.current;
         audioRef.current = audio;
 
         if (i + 1 < chunks.length && chunks[i+1].audioUrl) {
@@ -421,13 +402,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             for (const line of lines) {
               if (line.trim()) {
                 const data = JSON.parse(line);
-                if (data.error) {
-                  logError(`Server returned TTS error: ${data.error}`);
-                  showError(data.error);
-                  stopIntentRef.current = true;
-                  stopPlaying();
-                  return;
-                } else if (data.totalChunks !== undefined) {
+                if (data.totalChunks !== undefined) {
                   totalChunks = data.totalChunks;
                   logInfo(`Received totalChunks: ${totalChunks}`);
                   if (totalChunks === 0) {
@@ -525,24 +500,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   return (
-    <div className="relative inline-flex items-center gap-1 group">
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-black/80 backdrop-blur-sm border border-white/10 p-2 rounded-lg shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200 z-50 flex items-center gap-2">
-        <Volume2 className="w-3 h-3 text-white/70" />
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.05"
-          value={volume}
-          onChange={(e) => {
-            e.stopPropagation();
-            setVolume(parseFloat(e.target.value));
-          }}
-          className="w-16 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-          title="Volume"
-        />
-      </div>
-
+    <div className="relative inline-flex items-center gap-1">
       <button 
         ref={buttonRef}
         className={cn(

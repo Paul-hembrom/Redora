@@ -1972,41 +1972,26 @@ app.post('/api/tts/cartesia', async (req, res) => {
         let audioBuffers: Buffer[] = [];
         let timestamps: any[] = [];
 
-                for await (const message of context.receive()) {
-            if (message.type === 'chunk') {
-                if (message.data) {
-                    const buf = Buffer.from(message.data, 'base64');
-                    audioBuffers.push(buf);
-                } else {
-                    console.warn(`Cartesia TTS: Chunk message missing 'data' property. Keys: `, Object.keys(message));
-                }
+        for await (const message of context.receive()) {
+            if (message.audio) {
+                const buf = Buffer.from(message.audio, 'base64');
+                audioBuffers.push(buf);
             }
-            if (message.type === 'timestamps') {
-                if (message.word_timestamps && message.word_timestamps.words) {
-                    for (let k = 0; k < message.word_timestamps.words.length; k++) {
-                        timestamps.push({
-                            word: message.word_timestamps.words[k],
-                            start: message.word_timestamps.start[k],
-                            end: message.word_timestamps.end[k]
-                        });
-                    }
-                } else {
-                    console.warn(`Cartesia TTS: Timestamps message missing 'word_timestamps' property. Keys: `, Object.keys(message));
+            if (message.word_timestamps) {
+                for (let k = 0; k < message.word_timestamps.words.length; k++) {
+                    timestamps.push({
+                        word: message.word_timestamps.words[k],
+                        start: message.word_timestamps.start[k],
+                        end: message.word_timestamps.end[k]
+                    });
                 }
             }
         }
-        
+
         const rawAudio = Buffer.concat(audioBuffers);
-        let audioUrl = '';
-        if (rawAudio.length === 0) {
-            console.warn(`Cartesia TTS: No audio received for chunk ${i}`);
-            res.write(JSON.stringify({ error: "Audio unavailable for this content (API limit or error)" }) + '\n');
-            continue;
-        } else {
-            const header = createFloat32WavHeader(rawAudio.length, 44100);
-            const finalBuffer = Buffer.concat([header, rawAudio]);
-            audioUrl = 'data:audio/wav;base64,' + finalBuffer.toString('base64');
-        }
+        const header = createFloat32WavHeader(rawAudio.length, 44100);
+        const finalBuffer = Buffer.concat([header, rawAudio]);
+        const audioUrl = 'data:audio/wav;base64,' + finalBuffer.toString('base64');
 
         res.write(JSON.stringify({
             index: i,
@@ -2021,7 +2006,6 @@ app.post('/api/tts/cartesia', async (req, res) => {
     res.end();
   } catch (err: any) {
     console.error("Cartesia TTS error:", err);
-    res.write(JSON.stringify({ error: err.message || "TTS Service Error" }) + '\n');
     res.end();
   }
 });

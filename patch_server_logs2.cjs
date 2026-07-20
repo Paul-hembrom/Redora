@@ -1,60 +1,24 @@
 const fs = require('fs');
 let code = fs.readFileSync('server.ts', 'utf8');
 
-const oldLoop = `for await (const message of context.receive()) {
-            if (message.type === 'chunk') {
-                if (message.data) {
-                    const buf = Buffer.from(message.data, 'base64');
-                    audioBuffers.push(buf);
-                } else {
-                    console.warn(\`Cartesia TTS: Chunk message missing 'data' property.\`);
-                }
-            }
-            if (message.type === 'timestamps') {
-                if (message.word_timestamps && message.word_timestamps.words) {
-                    for (let k = 0; k < message.word_timestamps.words.length; k++) {
-                        timestamps.push({
-                            word: message.word_timestamps.words[k],
-                            start: message.word_timestamps.start[k],
-                            end: message.word_timestamps.end[k]
-                        });
-                    }
-                } else {
-                    console.warn(\`Cartesia TTS: Timestamps message missing 'word_timestamps' property.\`);
-                }
-            }
-        }`;
+const regex1 = /    console.log\(\`\[TTS\] Request received. Text length: \$\{text.length\}, HighQuality: \$\{highQuality\}\`\);/;
+const replacement1 = `    console.log(\`[TTS] Request received. Text length: \${text.length}, Voice ID: \${voiceId}, Streaming: true, HighQuality: \${highQuality}\`);`;
+code = code.replace(regex1, replacement1);
 
-const newLoop = `for await (const message of context.receive()) {
-            console.log('[Cartesia] Msg type:', message.type, 'Keys:', Object.keys(message));
-            if (message.type === 'chunk') {
-                if (message.data) {
-                    const buf = Buffer.from(message.data, 'base64');
-                    audioBuffers.push(buf);
-                } else {
-                    console.warn(\`Cartesia TTS: Chunk message missing 'data' property. Keys: \`, Object.keys(message));
-                }
-            }
-            if (message.type === 'timestamps') {
-                if (message.word_timestamps && message.word_timestamps.words) {
-                    for (let k = 0; k < message.word_timestamps.words.length; k++) {
-                        timestamps.push({
-                            word: message.word_timestamps.words[k],
-                            start: message.word_timestamps.start[k],
-                            end: message.word_timestamps.end[k]
-                        });
-                    }
-                } else {
-                    console.warn(\`Cartesia TTS: Timestamps message missing 'word_timestamps' property. Keys: \`, Object.keys(message));
-                }
-            }
-        }
-        console.log('[Cartesia] Chunk complete. Buffers:', audioBuffers.length, 'Timestamps:', timestamps.length);`;
+const regex2 = /               const response = await fetchWithTimeout\(url, \{/;
+const replacement2 = `               console.log(\`[TTS] Calling ElevenLabs API for chunk \${reqChunk.index}\`);
+               const response = await fetchWithTimeout(url, {`;
+code = code.replace(regex2, replacement2);
 
-if (code.includes(oldLoop)) {
-    code = code.replace(oldLoop, newLoop);
-    fs.writeFileSync('server.ts', code);
-    console.log('Patched server logs 2!');
-} else {
-    console.log('Could not find old loop for logs 2!');
-}
+const regex3 = /               if \(!response.ok\) \{/;
+const replacement3 = `               console.log(\`[TTS] ElevenLabs streaming API response status: \${response.status} for chunk \${reqChunk.index}\`);
+               if (!response.ok) {`;
+code = code.replace(regex3, replacement3);
+
+const regex4 = /            if \(fallbackResponse.ok\) \{/;
+const replacement4 = `            console.log(\`[TTS] ElevenLabs fallback API response status: \${fallbackResponse.status} for chunk \${reqChunk.index}\`);
+            if (fallbackResponse.ok) {`;
+code = code.replace(regex4, replacement4);
+
+fs.writeFileSync('server.ts', code);
+console.log('patched server logs 2');
