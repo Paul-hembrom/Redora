@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ReadAloudButton } from './ReadAloudButton';
@@ -69,6 +69,7 @@ const TableWrapper = ({ node, children, ...props }: any) => {
 };
 
 const AnswerWrapper = ({ node, children, ...props }: any) => {
+  const uniqueId = useId().replace(/:/g, '');
   const [revealed, setRevealed] = useState(false);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [isExplaining, setIsExplaining] = useState(false);
@@ -162,12 +163,11 @@ const AnswerWrapper = ({ node, children, ...props }: any) => {
               {explanation && (
                 <div className="pt-3 border-t border-white/5 relative group/explanation">
                   <p className="text-xs font-display font-semibold text-cyan-400/60 tracking-widest uppercase mb-2">AI Explanation</p>
-                  <div className="text-white/80 text-sm leading-relaxed pr-10">
+                  <div id={`tts-explanation-${uniqueId}-0`} className="text-white/80 text-sm leading-relaxed pr-10">
                     {explanation}
                   </div>
                   <div className="absolute bottom-0 right-0 opacity-50 group-hover/explanation:opacity-100 transition-opacity">
-                    <ReadAloudButton 
-                      text={explanation}
+                    <ReadAloudButton idPrefix={`tts-explanation-${uniqueId}-`} text={explanation}
                       className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 rounded border border-cyan-500/20"
                       iconSizeClasses="w-3.5 h-3.5"
                     />

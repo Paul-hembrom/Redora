@@ -203,7 +203,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
         const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
         const scopeRoot = getScopeRoot();
-        const sentenceEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement | null;
+        let sentenceEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement | null;
+        if (!sentenceEl && idPrefix.startsWith("tts-explanation-")) {
+            sentenceEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`) as HTMLElement | null;
+        }
 
         if (!disableSync) {
           console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
@@ -246,15 +249,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         const oldOverlay = document.getElementById('tts-highlight-overlay');
         if (oldOverlay) oldOverlay.remove();
 
-        // Guard: Check if the text matches (to avoid erratic highlighting if chunks don't align)
-        if (shouldHighlight && sentenceEl && chunk.text) {
-           const domText = sentenceEl.textContent || '';
-           if (domText.indexOf(chunk.text) === -1 && domText.toLowerCase().indexOf(chunk.text.toLowerCase()) === -1) {
-               console.warn(`Highlighting disabled for chunk ${i} because chunk text not found in DOM block`);
-               shouldHighlight = false;
-           }
-        }
-
+        // Guard removed for markdown compatibility
         if (shouldHighlight && chunk.timestamps && chunk.timestamps.length > 0 && sentenceEl) {
             const walker = document.createTreeWalker(sentenceEl, NodeFilter.SHOW_TEXT, null);
             const textNodes = [];
@@ -443,8 +438,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                   }
                   const scopeRoot = getScopeRoot();
                   const expectedElements = scopeRoot.querySelectorAll(`[id^="${idPrefix}"]`).length;
-                  if (expectedElements > 0 && totalChunks !== expectedElements) {
-                    logWarning(`Mismatch: expected ${expectedElements} DOM elements but got ${totalChunks} audio chunks. Falling back to whole-text playback (disabling sync).`);
+                  if (expectedElements === 0 && !idPrefix.startsWith("tts-explanation-")) {
+                    logWarning(`No DOM elements found matching ${idPrefix}. Disabling sync.`);
                     disableSync = true;
                   }
 

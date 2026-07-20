@@ -1,29 +1,23 @@
 const fs = require('fs');
-const path = 'src/components/ChatArea.tsx';
-let content = fs.readFileSync(path, 'utf8');
+let code = fs.readFileSync('src/components/ChatArea.tsx', 'utf8');
 
-const providerImport = "import { markdownComponents, QuestionContext } from './MarkdownComponents';";
-content = content.replace("import { markdownComponents } from './MarkdownComponents';", providerImport);
+// Fix summary ID
+code = code.replace(
+    /id=\{\`tts-summary-\$\{idx\}\`\}/g,
+    `id={\`tts-summary-\${index}-\${idx}\`}`
+);
 
-// We need to replace the mapping of blocks for chapter content.
-const chapterContentReplace = `return blocks.map((s, idx) => (
-                      <QuestionContext.Provider key={idx} value={{
-                        blockText: s,
-                        grade: 'High School',
-                        subject: 'General Education',
-                        topic: chapter.title
-                      }}>
-                        <div id={\`tts-chapter-\${idx}\`}>
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]}
-                            components={markdownComponents}
-                          >
-                            {s}
-                          </ReactMarkdown>
-                        </div>
-                      </QuestionContext.Provider>
-                    ));`;
+// Fix chapter ID
+code = code.replace(
+    /id=\{\`tts-chapter-\$\{idx\}\`\}/g,
+    `id={\`tts-chapter-\${index}-\${idx}\`}`
+);
 
-content = content.replace(/return blocks\.map\(\(s, idx\) => \(\s*<div key=\{idx\} id=\{\`tts-chapter-\$\{idx\}\`\}>\s*<ReactMarkdown\s*remarkPlugins=\{\[remarkGfm\]\}\s*components=\{markdownComponents\}\s*>\s*\{s\}\s*<\/ReactMarkdown>\s*<\/div>\s*\)\);/, chapterContentReplace);
+// Fix ReadAloudButton idPrefix
+code = code.replace(
+    /idPrefix=\{chapter\.content \? "tts-chapter-" : "tts-summary-"\}/g,
+    `idPrefix={chapter.content ? \`tts-chapter-\${index}-\` : \`tts-summary-\${index}-\`}`
+);
 
-fs.writeFileSync(path, content);
+fs.writeFileSync('src/components/ChatArea.tsx', code);
+console.log("patched ChatArea.tsx");

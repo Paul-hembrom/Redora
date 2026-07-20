@@ -1979,6 +1979,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
                 audioBuffers.push(buf);
             }
             if (msg.word_timestamps) {
+                                console.log("Got word_timestamps from Cartesia:", msg.word_timestamps);
                 for (let k = 0; k < msg.word_timestamps.words.length; k++) {
                     timestamps.push({
                         word: msg.word_timestamps.words[k],
