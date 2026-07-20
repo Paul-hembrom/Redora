@@ -1973,16 +1973,17 @@ app.post('/api/tts/cartesia', async (req, res) => {
         let timestamps: any[] = [];
 
         for await (const message of context.receive()) {
-            if (message.audio) {
-                const buf = Buffer.from(message.audio, 'base64');
+            const msg = message as any;
+            if (msg.audio) {
+                const buf = Buffer.from(msg.audio, 'base64');
                 audioBuffers.push(buf);
             }
-            if (message.word_timestamps) {
-                for (let k = 0; k < message.word_timestamps.words.length; k++) {
+            if (msg.word_timestamps) {
+                for (let k = 0; k < msg.word_timestamps.words.length; k++) {
                     timestamps.push({
-                        word: message.word_timestamps.words[k],
-                        start: message.word_timestamps.start[k],
-                        end: message.word_timestamps.end[k]
+                        word: msg.word_timestamps.words[k],
+                        start: msg.word_timestamps.start[k],
+                        end: msg.word_timestamps.end[k]
                     });
                 }
             }
