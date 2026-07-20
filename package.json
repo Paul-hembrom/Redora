@@ -51,7 +51,7 @@
     "pdfjs-dist": "^5.5.207",
     "postgres": "^3.4.8",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react-dom": "^19.2.7",
     "react-dropzone": "^15.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
