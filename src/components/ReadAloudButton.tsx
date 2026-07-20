@@ -214,6 +214,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           } else {
             console.warn(`Scroll target not found: ${idPrefix}${i}`);
+            // Fallback for explicitly requested tts-sentence-{i}
+            document.getElementById(`tts-sentence-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
           }
         }
 
@@ -320,6 +322,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 } else {
                     span = document.createElement('span');
                     span.className = 'tts-word transition-colors duration-100 ease-linear rounded';
+                    span.id = `tts-word-${i}-${m.tsIndex}`;
                     try {
                         range.surroundContents(span);
                     } catch (e) {
