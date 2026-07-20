@@ -2,6 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Square, Loader2, AudioLines, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 
+
+function stripVideoSection(text: string): string {
+  // Remove everything from "### Related Videos" to the end, or to the next "###" heading
+  return text.replace(/### Related Videos[\s\S]*?(?=### |$)/, '').trim();
+}
+
 interface Props {
   playbackRate?: number;
   text: string;
@@ -136,7 +142,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const res = await fetch('/api/tts/cartesia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, highQuality })
+        body: JSON.stringify({ text: stripVideoSection(text), highQuality })
       });
       if (!res.ok || !res.body) {
         throw new Error(`API returned ${res.status}`);
