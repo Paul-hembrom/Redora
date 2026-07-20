@@ -1004,7 +1004,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
             text={smartNormalizeText(typeof chapter.content === 'string' ? chapter.content : (chapter.summary || ''))} 
             className="flex items-center shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-black/40 text-white/80 border-white/5 hover:bg-white/5 hover:text-white"
             iconSizeClasses="w-4 h-4"
-            idPrefix={chapter.content ? `tts-chapter-${chapter.id}-` : `tts-summary-${chapter.id}-`}
+            idPrefix={chapter.content ? "tts-chapter-" : "tts-summary-"}
             playbackRate={playbackRate}
           />
           <div className="flex items-center shrink-0 bg-black/40 rounded-lg border border-white/5 p-1 mr-2 gap-1">
@@ -1157,7 +1157,7 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     if (!blocks.length) blocks = [content];
                     
                     return blocks.map((s, idx) => (
-                      <div key={idx} id={`tts-summary-${chapter.id}-${idx}`}>
+                      <div key={idx} id={`tts-summary-${idx}`}>
                         <ReactMarkdown 
                           remarkPlugins={[remarkGfm]}
                           components={markdownComponents}
