@@ -43,6 +43,16 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const [showPermissionWarning, setShowPermissionWarning] = useState(false);
   const [highQuality, setHighQuality] = useState(false);
   
+  const [volume, setVolumeState] = useState(1);
+  const volumeRef = useRef(1);
+  const setVolume = (val: number) => {
+    setVolumeState(val);
+    volumeRef.current = val;
+    if (audioRef.current) {
+      audioRef.current.volume = val;
+    }
+  };
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -218,6 +228,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
 
         const audio = new Audio(chunk.audioUrl);
+        audio.volume = volumeRef.current;
         audioRef.current = audio;
 
         if (i + 1 < chunks.length && chunks[i+1].audioUrl) {
@@ -514,7 +525,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   return (
-    <div className="relative inline-flex items-center gap-1">
+    <div className="relative inline-flex items-center gap-1 group">
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-black/80 backdrop-blur-sm border border-white/10 p-2 rounded-lg shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200 z-50 flex items-center gap-2">
+        <Volume2 className="w-3 h-3 text-white/70" />
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={volume}
+          onChange={(e) => {
+            e.stopPropagation();
+            setVolume(parseFloat(e.target.value));
+          }}
+          className="w-16 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+          title="Volume"
+        />
+      </div>
+
       <button 
         ref={buttonRef}
         className={cn(
