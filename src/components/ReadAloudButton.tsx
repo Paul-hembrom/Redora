@@ -207,17 +207,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         if (!sentenceEl && idPrefix.startsWith("tts-explanation-")) {
             sentenceEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`) as HTMLElement | null;
         }
-
-        if (!disableSync) {
-          console.log(`Scrolling to ${idPrefix}${domIndex}`, 'found:', !!sentenceEl);
-          if (sentenceEl) {
-            sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          } else {
-            console.warn(`Scroll target not found: ${idPrefix}${i}`);
-            // Fallback for explicitly requested tts-sentence-{i}
-            document.getElementById(`tts-sentence-${i}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
+        if (!sentenceEl) {
+            sentenceEl = document.getElementById(`tts-sentence-${i}`) as HTMLElement | null;
         }
+        if (!sentenceEl && buttonRef.current) {
+            // Fallback for ChatArea chat message bubbles
+            const bubble = buttonRef.current.closest('.group\\/bubble');
+            if (bubble) {
+                sentenceEl = bubble.querySelector('.prose') as HTMLElement | null;
+            }
+        }
+
+        // Scrolling now happens in audio.onplay
 
         if (!chunk.audioUrl) {
           logWarning(`Chunk ${i} missing audioUrl.`);
@@ -334,8 +335,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
 
         const removeHighlights = () => {
-            wordSpans.forEach(span => {
-                if (span) span.classList.remove('bg-amber-400/70');
+            wordSpans.forEach((span, k) => {
+                let domSpan = document.getElementById(`tts-word-${i}-${k}`);
+                if (!domSpan) domSpan = span;
+                if (domSpan) domSpan.classList.remove('bg-amber-400/70');
             });
         };
 
@@ -344,7 +347,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             const currentTime = audio.currentTime;
 
             chunk.timestamps.forEach((ts: any, k: number) => {
-                const span = wordSpans[k];
+                let span = document.getElementById(`tts-word-${i}-${k}`);
+                if (!span) span = wordSpans[k];
                 if (!span) return;
 
                 const start_time = ts.start_time !== undefined ? ts.start_time : ts.start;
@@ -367,6 +371,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
         audio.onplay = () => {
            logInfo(`Chunk ${i} started playing.`);
+           
+           // Sentence-level auto-scroll – When the i-th audio chunk starts playing
+           const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
+           if (sentenceSpan) {
+             sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+           } else {
+             // Fallback for our own dynamic domIndex scrolling
+             const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
+             const scopeRoot = getScopeRoot();
+             let fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`);
+             if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
+                 fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
+             }
+             if (fallbackEl) {
+                 fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+             }
+           }
+
            if (!chunk.timestamps || stopIntentRef.current) return;
            audio.addEventListener('timeupdate', timeUpdateHandler);
         };
@@ -441,9 +463,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                   }
                   const scopeRoot = getScopeRoot();
                   const expectedElements = scopeRoot.querySelectorAll(`[id^="${idPrefix}"]`).length;
-                  if (expectedElements === 0 && !idPrefix.startsWith("tts-explanation-")) {
-                    logWarning(`No DOM elements found matching ${idPrefix}. Disabling sync.`);
-                    disableSync = true;
+                  const fallbackElements = document.querySelectorAll('[id^="tts-sentence-"]').length;
+                  if (expectedElements === 0 && fallbackElements === 0 && !idPrefix.startsWith("tts-explanation-")) {
+                    // Try to see if we have a fallback bubble
+                    const bubble = buttonRef.current?.closest('.group\\/bubble');
+                    if (!bubble) {
+                        logWarning(`No DOM elements found matching ${idPrefix} or fallback. Disabling sync.`);
+                        disableSync = true;
+                    }
                   }
 
                 } else if (data.index !== undefined) {
