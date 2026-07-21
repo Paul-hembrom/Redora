@@ -11,6 +11,7 @@ import TerminologyExtractorModal from './components/TerminologyExtractorModal';
 import QuizDashboardModal from './components/QuizDashboardModal';
 import { useAuth } from './contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
+import { useScrollSync } from './hooks/useScrollSync';
 import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw, Loader2, Maximize, Minimize, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
@@ -56,6 +57,7 @@ const flattenChapters = (chapters: any[] = [], parentPrefix: string = ''): any[]
 };
 
 export default function App() {
+  useScrollSync();
   const isCurriculum = new URLSearchParams(window.location.search).get('source') === 'curriculum';
   const { user, loading, logout, isOffline } = useAuth();
   const [isStudent, setIsStudent] = useState(user?.role === 'student');
