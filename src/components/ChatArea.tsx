@@ -591,17 +591,20 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
     try {
       // 1. Generate query
-      
       const query = await generateNewsSearchQuery(
         chapter.title,
         chapter.content || ''
       );
 
-      // 2. Fetch news
+      // 2. Fetch news summary
       const response = await fetch('/api/search-news', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: query || chapter.title })
+        body: JSON.stringify({ 
+          query: query || chapter.title,
+          topicTitle: chapter.title,
+          keyConcepts: (chapter as any).key_concepts ? (chapter as any).key_concepts.join(', ') : ''
+        })
       });
 
       if (!response.ok) {
@@ -610,22 +613,11 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
 
       const newsData = await response.json();
 
-      let aiMsg: ChatMessage;
-      if (!newsData || newsData.length === 0) {
-        aiMsg = {
-          id: uuidv4(),
-          role: 'model',
-          text: `I couldn't find any recent news for "${query}".`
-        };
-      } else {
-        aiMsg = {
-          id: uuidv4(),
-          role: 'model',
-          text: `Here are some recent news articles related to this topic (Searched for: "${query}"):`,
-          type: 'news',
-          news: newsData
-        };
-      }
+      let aiMsg: ChatMessage = {
+        id: uuidv4(),
+        role: 'model',
+        text: newsData.summary || `I couldn't find any recent news for "${query}".`
+      };
 
       if (currentChapterId === chapter.id) {
         setMessages(prev => [...prev, aiMsg]);
@@ -1461,33 +1453,7 @@ const handleFetchImages = async () => {
                   })}
                 </div>
 
-                                {msg.news && msg.news.length > 0 && (
-                  <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.3 }}
-                    className="mt-6 text-left"
-                  >
-                    <h3 className="text-sm font-bold text-cyan-400 flex items-center gap-2 mb-4">
-                      <Newspaper className="w-4 h-4" /> Latest News
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {msg.news.map((item, nIdx) => (
-                        <div key={nIdx} className="bg-white/5 border border-white/10 rounded-lg overflow-hidden flex flex-col">
-                          <div className="p-3 flex flex-col flex-1">
-                            <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-white line-clamp-2 hover:text-cyan-400 transition-colors mb-2" title={item.title}>
-                              {item.title}
-                            </a>
-                            <p className="text-xs text-white/50 mb-2 truncate">
-                              {item.source} {item.date ? `· ${item.date}` : ''}
-                            </p>
-                            <p className="text-xs text-white/70 italic line-clamp-3 flex-1">{item.snippet}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
+                                
 
                 {msg.recommended_videos && msg.recommended_videos.length > 0 && (
                   <motion.div 
