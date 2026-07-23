@@ -234,6 +234,16 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           return;
         }
 
+        
+        if (i === 0) {
+            console.log('[ReadAloud] Chunk 0 timestamps received:', chunk.timestamps?.length);
+            if (chunk.timestamps?.length > 0) {
+                console.log('[ReadAloud] First timestamp in chunk 0:', JSON.stringify(chunk.timestamps[0]));
+            } else {
+                console.warn('[ReadAloud] Missing or empty timestamps in chunk 0!');
+            }
+        }
+        
         const audio = new Audio(chunk.audioUrl);
         audioRef.current = audio;
 
@@ -342,9 +352,22 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             });
         };
 
+        let chunkCompleted = false;
         const timeUpdateHandler = () => {
             if (stopIntentRef.current) return;
             const currentTime = audio.currentTime;
+            
+            // Fix premature ending
+            if (audio.duration && currentTime >= Math.max(0, audio.duration - 0.1) && !chunkCompleted) {
+                chunkCompleted = true;
+                logInfo(`Chunk ${i} completed via timeupdate.`);
+                audio.removeEventListener('timeupdate', timeUpdateHandler);
+                removeHighlights();
+                i++;
+                isPlayingNext = false;
+                playNextChunk();
+                return;
+            }
 
             chunk.timestamps.forEach((ts: any, k: number) => {
                 let span = document.getElementById(`tts-word-${i}-${k}`);
@@ -400,7 +423,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         audio.onended = () => {
-           logInfo(`Chunk ${i} ended.`);
+           if (chunkCompleted) return;
+           logInfo(`Chunk ${i} ended natively.`);
+           chunkCompleted = true;
            audio.removeEventListener('timeupdate', timeUpdateHandler);
            removeHighlights();
            i++;
