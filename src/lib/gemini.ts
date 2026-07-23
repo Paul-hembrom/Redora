@@ -1495,7 +1495,7 @@ Topic title: ${subtopicTitle}
 Content summary: ${contentSnippet}
 Return ONLY the query string, no other text.`;
   try {
-    const text = await callLLM(prompt, false, 0.3);
+    const text = await callLLM(prompt, undefined, 0.3);
     return text.replace(/["']/g, '').trim();
   } catch (e) {
     console.error('generateNewsSearchQuery failed:', e);
