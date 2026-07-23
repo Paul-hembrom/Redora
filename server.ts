@@ -1929,13 +1929,23 @@ function createFloat32WavHeader(dataLength: number, sampleRate: number): Buffer 
 
 
 
-async function synthesizeKokoroSpeech(text: string, voice = "bf_emma") {
+// Available Kokoro voices:
+// - bf_emma
+// - bf_isabella
+// - bm_george
+// - bm_lewis
+// - af_bella
+async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
+  // Ensure we map to a supported voice, default to af_bella
+  const supportedVoices = ["bf_emma", "bf_isabella", "bm_george", "bm_lewis", "af_bella"];
+  const kokoroVoice = supportedVoices.includes(voice) ? voice : "af_bella";
+
   const response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ text, voice, speed: 1.0 })
+    body: JSON.stringify({ text, voice: kokoroVoice, speed: 1.0 })
   });
 
   if (!response.ok) {
