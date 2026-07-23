@@ -1488,9 +1488,12 @@ export async function generateNewsSearchQuery(
   subtopicTitle: string,
   content: string
 ): Promise<string> {
-  const prompt = `Generate a concise news search query based on this educational topic: ${subtopicTitle}.
-Optional context: ${content ? content.substring(0, 500) : ''}
-Only return the query string.`;
+  const contentSnippet = content ? content.substring(0, 1000) : '';
+  const prompt = `Generate a concise, highly specific news search query based on the following educational topic. The query should return recent, relevant news articles that a teacher could use in a classroom.
+
+Topic title: ${subtopicTitle}
+Content summary: ${contentSnippet}
+Return ONLY the query string, no other text.`;
   try {
     const text = await callLLM(prompt, false, 0.3);
     return text.replace(/["']/g, '').trim();
