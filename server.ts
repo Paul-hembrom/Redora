@@ -1969,7 +1969,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
           
           const context = ws.context({
               model_id: 'sonic-3.5',
-              voice: { mode: 'id', id: 'a0e99841-438c-4a64-b679-ae501e7d6091' },
+              voice: { mode: 'id', id: '62ae83ad-4f6a-430b-af41-a9bede9286ca' },
               output_format: { container: 'raw', encoding: 'pcm_f32le', sample_rate: 44100 },
               add_timestamps: true
           });
