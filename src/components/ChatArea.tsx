@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
-import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward, Lock, Mic, MicOff } from 'lucide-react';
+import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, Newspaper, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward, Lock, Mic, MicOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { markdownComponents, QuestionContext } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
@@ -9,7 +9,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
-import { generateChatResponse, generateActionTool, generateExerciseAnswer, generateSearchQueries } from '../lib/gemini';
+import { generateChatResponse, generateActionTool, generateExerciseAnswer, generateSearchQueries, generateNewsSearchQuery } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
 import { ImageSearchButton } from './ImageSearchButton';
 import { SerperImageSearch } from './SerperImageSearch';
@@ -580,7 +580,74 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
     }
   };
 
-  const handleFetchImages = async () => {
+    const handleFetchNews = async () => {
+    if (isTyping) return;
+    const currentChapterId = chapter.id;
+
+    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: "Find news articles for this topic." };
+    setMessages(prev => [...prev, userMsg]);
+    setIsTyping(true);
+    setError(null);
+
+    try {
+      // 1. Generate query
+      
+      const query = await generateNewsSearchQuery(
+        chapter.title,
+        chapter.content || ''
+      );
+
+      // 2. Fetch news
+      const response = await fetch('/api/search-news', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query || chapter.title })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch news');
+      }
+
+      const newsData = await response.json();
+
+      let aiMsg: ChatMessage;
+      if (!newsData || newsData.length === 0) {
+        aiMsg = {
+          id: uuidv4(),
+          role: 'model',
+          text: `I couldn't find any recent news for "${query}".`
+        };
+      } else {
+        aiMsg = {
+          id: uuidv4(),
+          role: 'model',
+          text: `Here are some recent news articles related to this topic (Searched for: "${query}"):`,
+          type: 'news',
+          news: newsData
+        };
+      }
+
+      if (currentChapterId === chapter.id) {
+        setMessages(prev => [...prev, aiMsg]);
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (currentChapterId === chapter.id) {
+        const errorMsg: ChatMessage = {
+          id: uuidv4(),
+          role: 'model',
+          text: `Failed to find news: ${err.message}`
+        };
+        setMessages(prev => [...prev, errorMsg]);
+      }
+    } finally {
+      if (currentChapterId === chapter.id) {
+        setIsTyping(false);
+      }
+    }
+  };
+
+const handleFetchImages = async () => {
     if (isTyping) return;
     const currentChapterId = chapter.id;
     
@@ -1070,6 +1137,14 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     <Wand2 className="w-3.5 h-3.5" /> Generate Video <BetaBadge />
                   </button>
                 )}
+                                <button 
+                  onClick={handleFetchNews} 
+                  disabled={isTyping}
+                  className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-blue-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" 
+                  title="Find news articles"
+                >
+                  <Newspaper className="w-3.5 h-3.5" /> Find News
+                </button>
                 <SerperImageSearch onSearch={handleGoogleImageSearch} isLoading={isTyping} />
                 <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
                 <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
@@ -1385,6 +1460,33 @@ export default function ChatArea({ chapter, documentId, onClearChats, persona, o
                     );
                   })}
                 </div>
+
+                                {msg.news && msg.news.length > 0 && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.3 }}
+                    className="mt-6 text-left"
+                  >
+                    <h3 className="text-sm font-bold text-blue-400 flex items-center gap-2 mb-4">
+                      <Newspaper className="w-4 h-4" /> Latest News
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {msg.news.map((item, nIdx) => (
+                        <a key={nIdx} href={item.link} target="_blank" rel="noopener noreferrer" className="block bg-white/5 border border-white/10 hover:border-blue-500/50 hover:bg-white/10 rounded-lg overflow-hidden flex flex-col transition-colors">
+                          <div className="p-4 flex flex-col flex-1">
+                            <h4 className="text-sm font-medium text-white line-clamp-2 mb-2" title={item.title}>{item.title}</h4>
+                            <p className="text-xs text-white/50 mb-3 truncate flex items-center justify-between">
+                               <span>{item.source}</span>
+                               <span>{item.date}</span>
+                            </p>
+                            <p className="text-xs text-white/70 italic line-clamp-3 flex-1">{item.snippet}</p>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
 
                 {msg.recommended_videos && msg.recommended_videos.length > 0 && (
                   <motion.div 

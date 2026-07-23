@@ -1484,6 +1484,22 @@ Example:
   }
 }
 
+export async function generateNewsSearchQuery(
+  subtopicTitle: string,
+  content: string
+): Promise<string> {
+  const prompt = `Generate a concise news search query based on this educational topic: ${subtopicTitle}.
+Optional context: ${content ? content.substring(0, 500) : ''}
+Only return the query string.`;
+  try {
+    const text = await callLLM(prompt, false, 0.3);
+    return text.replace(/["']/g, '').trim();
+  } catch (e) {
+    console.error('generateNewsSearchQuery failed:', e);
+    return subtopicTitle;
+  }
+}
+
 export async function extractExercisesForChapter(chapterTitle: string, chapterContent: string): Promise<string | null> {
   const prompt = `
 ${chapterContent}

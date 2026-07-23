@@ -36,10 +36,11 @@ export interface ChatMessage {
   text: string;
   relationshipGraph?: { source: string; target: string; relation: string }[];
   followUps?: string[];
-  type?: 'text' | 'quiz' | 'glossary' | 'brief' | 'videos' | 'images' | 'image_fallback';
+  type?: 'text' | 'quiz' | 'glossary' | 'brief' | 'videos' | 'images' | 'image_fallback' | 'news';
   actionData?: any;
   recommended_videos?: any[];
   images?: { url: string, thumbnail: string, alt: string, source: 'real' | 'generated' }[];
+  news?: { title: string, link: string, snippet: string, date: string, source: string }[];
   reactions?: Record<string, string[]>;
   pinned?: boolean;
 }
