@@ -244,14 +244,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
         }
         
-        const audio = new Audio(chunk.audioUrl);
+        const audio = new Audio();
+        audio.playbackRate = playbackRate;
+        audio.src = chunk.audioUrl;
         audioRef.current = audio;
 
         // Guard against sparse-array holes: the next chunk may not have
         // arrived yet even though `chunks.length` already reflects a later
         // index (chunks can arrive out of order over the network).
         if (i + 1 < chunks.length && chunks[i + 1] && chunks[i + 1].audioUrl) {
-          const nextAudio = new Audio(chunks[i + 1].audioUrl);
+          const nextAudio = new Audio();
+          nextAudio.playbackRate = playbackRate;
+          nextAudio.src = chunks[i + 1].audioUrl;
           nextAudio.preload = "auto";
         }
 
@@ -457,7 +461,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         try {
-          audio.playbackRate = playbackRate;
           await audio.play();
           playedChunks++;
         } catch (e) {

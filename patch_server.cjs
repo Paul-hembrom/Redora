@@ -1,36 +1,25 @@
 const fs = require('fs');
 let code = fs.readFileSync('server.ts', 'utf8');
 
-// Import it at the top
-if (!code.includes('normalizeTextWithLLM')) {
-    code = code.replace(
-        "import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';",
-        "import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';\nimport { normalizeTextWithLLM } from './src/lib/llmNormalizer.js';"
-    );
-}
+const regex = /const audioBytes = Buffer\.from\(data\.audio_base64, 'base64'\)\.length;\n    const PLAYBACK_RATE = 0\.8;\n    const rawDuration = Math\.max\(0, \(audioBytes - 44\) \/ \(24000 \* 2\)\);/s;
 
-// Remove the old normalizeTextForTTS function
-code = code.replace(/async function normalizeTextForTTS[\s\S]*?return text;\n  \}\n\}/, '');
+const newCode = `const audioBuffer = Buffer.from(data.audio_base64, 'base64');
+    const audioBytes = audioBuffer.length;
+    const PLAYBACK_RATE = 0.8;
+    let numChannels = 1;
+    let sampleRate = 24000;
+    let bitsPerSample = 16;
+    if (audioBytes > 44) {
+      numChannels = audioBuffer.readUInt16LE(22);
+      sampleRate = audioBuffer.readUInt32LE(24);
+      bitsPerSample = audioBuffer.readUInt16LE(34);
+    }
+    const dataSize = audioBytes - 44;
+    const bytesPerSample = bitsPerSample / 8;
+    const bytesPerFrame = numChannels * bytesPerSample;
+    const totalFrames = dataSize / bytesPerFrame;
+    const rawDuration = Math.max(0, totalFrames / sampleRate);`;
 
-// Remove the old cache
-code = code.replace("const ttsNormalizationCache = new Map<string, string>();\n", "");
-
-// Update the cartesia handler
-const oldLogic = `        let spokenText = normalizeTextForCartesia(chunk.text);
-        if (/\\\\[a-zA-Z]+|\\\\{|\\\\}/.test(chunk.text)) {
-            if (ttsNormalizationCache.has(chunk.text)) {
-                spokenText = ttsNormalizationCache.get(chunk.text)!;
-            } else {
-                spokenText = await normalizeTextForTTS(spokenText);
-                ttsNormalizationCache.set(chunk.text, spokenText);
-            }
-        }`;
-
-const newLogic = `        let spokenText = normalizeTextForCartesia(chunk.text);
-        if (/\\\\[a-zA-Z]+|\\\\{|\\\\}/.test(chunk.text)) {
-            spokenText = await normalizeTextWithLLM(spokenText);
-        }`;
-
-code = code.replace(oldLogic, newLogic);
+code = code.replace(regex, newCode);
 fs.writeFileSync('server.ts', code);
-console.log('patched');
+console.log("Patched server.ts");

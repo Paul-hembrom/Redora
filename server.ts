@@ -1982,9 +1982,22 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
   const audioUrl = `data:audio/wav;base64,${data.audio_base64}`;
 
   if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
-    const audioBytes = Buffer.from(data.audio_base64, 'base64').length;
+    const audioBuffer = Buffer.from(data.audio_base64, 'base64');
+    const audioBytes = audioBuffer.length;
     const PLAYBACK_RATE = 0.8;
-    const rawDuration = Math.max(0, (audioBytes - 44) / (24000 * 2));
+    let numChannels = 1;
+    let sampleRate = 24000;
+    let bitsPerSample = 16;
+    if (audioBytes > 44) {
+      numChannels = audioBuffer.readUInt16LE(22);
+      sampleRate = audioBuffer.readUInt32LE(24);
+      bitsPerSample = audioBuffer.readUInt16LE(34);
+    }
+    const dataSize = audioBytes - 44;
+    const bytesPerSample = bitsPerSample / 8;
+    const bytesPerFrame = numChannels * bytesPerSample;
+    const totalFrames = dataSize / bytesPerFrame;
+    const rawDuration = Math.max(0, totalFrames / sampleRate);
     const playbackDuration = rawDuration / PLAYBACK_RATE;
     const words = cleanText.split(/\s+/).filter(w => w.length > 0);
     if (words.length > 0) {
