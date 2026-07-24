@@ -1983,18 +1983,18 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
 
   if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
     const audioBytes = Buffer.from(data.audio_base64, 'base64').length;
-    const duration = Math.max(0, (audioBytes - 44) / (24000 * 2));
+    const PLAYBACK_RATE = 0.8;
+    const rawDuration = Math.max(0, (audioBytes - 44) / (24000 * 2));
+    const playbackDuration = rawDuration / PLAYBACK_RATE;
     const words = cleanText.split(/\s+/).filter(w => w.length > 0);
     if (words.length > 0) {
-      const avgDuration = duration / words.length;
-      const PLAYBACK_RATE = 0.8;
-      const adjustedAvgDuration = avgDuration / PLAYBACK_RATE;
+      const avgDuration = playbackDuration / words.length;
       mappedTimestamps = words.map((word, idx) => ({
         word,
-        start: idx * adjustedAvgDuration,
-        end: (idx + 1) * adjustedAvgDuration
+        start: idx * avgDuration,
+        end: (idx + 1) * avgDuration
       }));
-      console.log(`[Kokoro] Generated ${mappedTimestamps.length} synthetic timestamps. Estimated duration: ${duration.toFixed(2)}s`);
+      console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Words: ${words.length}, Avg per word: ${avgDuration.toFixed(3)}s`);
     }
   }
 
