@@ -1,155 +1,49 @@
 const fs = require('fs');
 let code = fs.readFileSync('server.ts', 'utf8');
 
-const kokoroHelper = `
-async function synthesizeKokoroSpeech(text: string, voice = "bf_emma") {
-  const response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ text, voice, speed: 1.0 })
-  });
+const regexClean = /let cleanText = extractedText\.replace\(\/\[\^\}\{\\\[\\\]"\'\]\/g, ' '\);/g;
+// Actually I can just replace the specific string
+code = code.replace(/let cleanText = extractedText\.replace\(\/\[\^\}\{\\\[\\\]"\'\]\/g, ' '\);/, "let cleanText = extractedText.replace(/[^a-zA-Z0-9\\s.,!?\\-:;()]/g, ' ');");
+// Wait, the original code is:
+// let cleanText = extractedText.replace(/[{}[\]"']/g, ' ');
+code = code.replace(/let cleanText = extractedText\.replace\(\/\[\{\}\[\\\]"'\]\/g, ' '\);/, "let cleanText = extractedText.replace(/[^a-zA-Z0-9\\s.,!?\\-:;()]/g, ' ');");
 
-  if (!response.ok) {
-    throw new Error(\`Kokoro TTS failed: \${response.statusText}\`);
-  }
+const regexTimestamps = /const words = cleanText\.split\(\/\\s\+\/\)\.filter\(w => w\.length > 0\);\n    if \(words\.length > 0\) \{\n      const avgDuration = playbackDuration \/ words\.length;\n      mappedTimestamps = words\.map\(\(word, idx\) => \(\{\n        word,\n        start: idx \* avgDuration,\n        end: \(idx \+ 1\) \* avgDuration\n      \}\)\);\n      console\.log\(`\[Kokoro\] Raw duration: \$\{rawDuration\.toFixed\(2\)\}s, Playback duration: \$\{playbackDuration\.toFixed\(2\)\}s, Words: \$\{words\.length\}, Avg per word: \$\{avgDuration\.toFixed\(3\)\}s`\);\n    \}/;
 
-  const data = await response.json();
-  if (!data.audio_base64 || !data.timestamps) {
-    throw new Error("Invalid response format from Kokoro");
-  }
+const newTimestamps = `const words = cleanText.split(/\\s+/).filter(w => w.length > 0);
+    
+    const cleanedWords = words
+      .map(w => w.replace(/[^a-zA-Z]/g, ''))
+      .filter(w => w.length > 0);
+    
+    const speakableWords = cleanedWords.filter(w => 
+      w.length > 1 || w === 'a' || w === 'i' || w === 'A' || w === 'I'
+    );
+    
+    if (speakableWords.length > 0) {
+      const totalChars = speakableWords.reduce((sum, w) => sum + w.length, 0);
+      let currentTime = 0;
+      
+      mappedTimestamps = speakableWords.map((word) => {
+        const wordDuration = (word.length / totalChars) * playbackDuration;
+        const timestamp = {
+          word,
+          start: currentTime,
+          end: currentTime + wordDuration
+        };
+        currentTime += wordDuration;
+        return timestamp;
+      });
+      console.log(\`[Kokoro] Raw duration: \$\{rawDuration.toFixed(2)\}s, Playback duration: \$\{playbackDuration.toFixed(2)\}s, Speakable Words: \$\{speakableWords.length\}\`);
+    } else if (words.length > 0) {
+      const avgDuration = playbackDuration / words.length;
+      mappedTimestamps = words.map((word, idx) => ({
+        word,
+        start: idx * avgDuration,
+        end: (idx + 1) * avgDuration
+      }));
+    }`;
 
-  return {
-    audioUrl: \`data:audio/wav;base64,\${data.audio_base64}\`,
-    timestamps: data.timestamps.map((t: any) => ({
-      word: t.word,
-      start: t.start_time,
-      end: t.end_time
-    }))
-  };
-}
-`;
-
-if (!code.includes('synthesizeKokoroSpeech')) {
-  // Find a good place to insert it, maybe before app.post('/api/tts/cartesia'
-  code = code.replace("app.post('/api/tts/cartesia', async (req, res) => {", kokoroHelper + "\napp.post('/api/tts/cartesia', async (req, res) => {");
-}
-
-const oldLoop = `          const context = ws.context({
-              model_id: 'sonic-3.5',
-              voice: { mode: 'id', id: '62ae83ad-4f6a-430b-af41-a9bede9286ca' },
-              output_format: { container: 'raw', encoding: 'pcm_f32le', sample_rate: 44100 },
-              add_timestamps: true
-          });
-
-          const cleanChunk = normalizeTextForCartesia(chunk.text);
-          let spokenText = cleanChunk;
-          if (/\\\\(?:int|sum|begin|sin|cos|lim|frac|sqrt|tan|prod|theta|alpha|beta|gamma|omega|sigma)|\\\\{|\\\\}/i.test(chunk.text)) {
-              spokenText = await normalizeTextWithLLM(cleanChunk);
-          }
-          await context.send({ transcript: spokenText });
-
-          let audioBuffers = [];
-          let timestamps = [];
-
-          for await (const message of context.receive()) {
-              const msg = message;
-              if (msg.audio) {
-                  const buf = Buffer.from(msg.audio, 'base64');
-                  audioBuffers.push(buf);
-              }
-              if (msg.word_timestamps) {
-                  for (let k = 0; k < msg.word_timestamps.words.length; k++) {
-                      timestamps.push({
-                          word: msg.word_timestamps.words[k],
-                          start: msg.word_timestamps.start[k],
-                          end: msg.word_timestamps.end[k]
-                      });
-                  }
-              }
-          }
-          
-          if (audioBuffers.length > 0) {
-            const rawAudio = Buffer.concat(audioBuffers);
-            const header = createFloat32WavHeader(rawAudio.length, 44100);
-            const finalBuffer = Buffer.concat([header, rawAudio]);
-            const audioUrl = 'data:audio/wav;base64,' + finalBuffer.toString('base64');
-
-            res.write(JSON.stringify({
-                index: i,
-                domIndex: chunk.domIndex,
-                text: chunk.text,
-                audioUrl: audioUrl,
-                timestamps: timestamps
-            }) + '\\n');
-          }`;
-
-const newLoop = `          const cleanChunk = normalizeTextForCartesia(chunk.text);
-          let spokenText = cleanChunk;
-          if (/\\\\(?:int|sum|begin|sin|cos|lim|frac|sqrt|tan|prod|theta|alpha|beta|gamma|omega|sigma)|\\\\{|\\\\}/i.test(chunk.text)) {
-              spokenText = await normalizeTextWithLLM(cleanChunk);
-          }
-
-          try {
-            // Try Kokoro first
-            const kokoroResult = await synthesizeKokoroSpeech(spokenText);
-            res.write(JSON.stringify({
-                index: i,
-                domIndex: chunk.domIndex,
-                text: chunk.text,
-                audioUrl: kokoroResult.audioUrl,
-                timestamps: kokoroResult.timestamps
-            }) + '\\n');
-          } catch (kokoroErr) {
-            console.error('Kokoro TTS failed, falling back to Cartesia:', kokoroErr.message);
-            
-            // Fallback to Cartesia
-            const context = ws.context({
-                model_id: 'sonic-3.5',
-                voice: { mode: 'id', id: '62ae83ad-4f6a-430b-af41-a9bede9286ca' },
-                output_format: { container: 'raw', encoding: 'pcm_f32le', sample_rate: 44100 },
-                add_timestamps: true
-            });
-
-            await context.send({ transcript: spokenText });
-
-            let audioBuffers = [];
-            let timestamps = [];
-
-            for await (const message of context.receive()) {
-                const msg = message;
-                if (msg.audio) {
-                    const buf = Buffer.from(msg.audio, 'base64');
-                    audioBuffers.push(buf);
-                }
-                if (msg.word_timestamps) {
-                    for (let k = 0; k < msg.word_timestamps.words.length; k++) {
-                        timestamps.push({
-                            word: msg.word_timestamps.words[k],
-                            start: msg.word_timestamps.start[k],
-                            end: msg.word_timestamps.end[k]
-                        });
-                    }
-                }
-            }
-            
-            if (audioBuffers.length > 0) {
-              const rawAudio = Buffer.concat(audioBuffers);
-              const header = createFloat32WavHeader(rawAudio.length, 44100);
-              const finalBuffer = Buffer.concat([header, rawAudio]);
-              const audioUrl = 'data:audio/wav;base64,' + finalBuffer.toString('base64');
-
-              res.write(JSON.stringify({
-                  index: i,
-                  domIndex: chunk.domIndex,
-                  text: chunk.text,
-                  audioUrl: audioUrl,
-                  timestamps: timestamps
-              }) + '\\n');
-            }
-          }`;
-
-code = code.replace(oldLoop, newLoop);
+code = code.replace(regexTimestamps, newTimestamps);
 fs.writeFileSync('server.ts', code);
-console.log("Updated server.ts with Kokoro");
+console.log("Patched server.ts with word-length weights");

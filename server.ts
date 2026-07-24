@@ -1951,7 +1951,7 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
   }
 
   // Remove any JSON braces, brackets, or other non-speakable characters
-  let cleanText = extractedText.replace(/[{}\[\]"']/g, ' ');
+  let cleanText = extractedText.replace(/[^a-zA-Z0-9\s.,!?\-:;()]/g, ' ');
   cleanText = cleanText.replace(/\s+/g, ' ').trim();
 
   const response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
@@ -2000,14 +2000,37 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
     const rawDuration = Math.max(0, totalFrames / sampleRate);
     const playbackDuration = rawDuration / PLAYBACK_RATE;
     const words = cleanText.split(/\s+/).filter(w => w.length > 0);
-    if (words.length > 0) {
+    
+    const cleanedWords = words
+      .map(w => w.replace(/[^a-zA-Z]/g, ''))
+      .filter(w => w.length > 0);
+    
+    const speakableWords = cleanedWords.filter(w => 
+      w.length > 1 || w === 'a' || w === 'i' || w === 'A' || w === 'I'
+    );
+    
+    if (speakableWords.length > 0) {
+      const totalChars = speakableWords.reduce((sum, w) => sum + w.length, 0);
+      let currentTime = 0;
+      
+      mappedTimestamps = speakableWords.map((word) => {
+        const wordDuration = (word.length / totalChars) * playbackDuration;
+        const timestamp = {
+          word,
+          start: currentTime,
+          end: currentTime + wordDuration
+        };
+        currentTime += wordDuration;
+        return timestamp;
+      });
+      console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Speakable Words: ${speakableWords.length}`);
+    } else if (words.length > 0) {
       const avgDuration = playbackDuration / words.length;
       mappedTimestamps = words.map((word, idx) => ({
         word,
         start: idx * avgDuration,
         end: (idx + 1) * avgDuration
       }));
-      console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Words: ${words.length}, Avg per word: ${avgDuration.toFixed(3)}s`);
     }
   }
 
