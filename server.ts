@@ -1477,7 +1477,7 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.`;
               'Authorization': `Bearer ${dsKey}`
             },
             body: JSON.stringify({
-              model: 'deepseek-chat',
+              model: 'deepseek-v4-flash',
               messages: [{ role: 'user', content: prompt }],
               response_format: { type: 'json_object' }
             })
@@ -1940,12 +1940,26 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
   const supportedVoices = ["bf_emma", "bf_isabella", "bm_george", "bm_lewis", "af_bella"];
   const kokoroVoice = supportedVoices.includes(voice) ? voice : "af_bella";
 
+  let extractedText = typeof text === 'string' ? text : ((text as any)?.text || String(text));
+  try {
+    const parsed = typeof extractedText === 'string' ? JSON.parse(extractedText) : null;
+    if (parsed && typeof parsed.text === 'string') {
+      extractedText = parsed.text;
+    }
+  } catch (e) {
+    // Not JSON, ignore
+  }
+
+  // Remove any JSON braces, brackets, or other non-speakable characters
+  let cleanText = extractedText.replace(/[{}\[\]"']/g, ' ');
+  cleanText = cleanText.replace(/\s+/g, ' ').trim();
+
   const response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ text, voice: kokoroVoice, speed: 1.0 })
+    body: JSON.stringify({ text: cleanText, voice: kokoroVoice, speed: 1.0 })
   });
 
   if (!response.ok) {
@@ -1970,7 +1984,7 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
   if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
     const audioBytes = Buffer.from(data.audio_base64, 'base64').length;
     const duration = Math.max(0, (audioBytes - 44) / (24000 * 2));
-    const words = text.split(/\s+/).filter(w => w.length > 0);
+    const words = cleanText.split(/\s+/).filter(w => w.length > 0);
     if (words.length > 0) {
       const avgDuration = duration / words.length;
       const PLAYBACK_RATE = 0.8;

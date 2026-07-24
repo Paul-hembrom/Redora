@@ -86,7 +86,7 @@ async function callDeepSeek(
   messages.push({ role: 'user', content });
 
   const body: any = {
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     messages,
     temperature: temperature,
     max_tokens: maxTokens ?? 4096,
