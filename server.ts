@@ -2026,13 +2026,22 @@ app.post('/api/tts/cartesia', async (req, res) => {
             // Try Kokoro first
             let kokoroResult = await synthesizeKokoroSpeech(spokenText);
             
-            // Check for empty audio (< 200 bytes means audioUrl length < 266 approx)
-            if (!kokoroResult.audioUrl || kokoroResult.audioUrl.length < 300) {
-              console.warn(`[Kokoro] Chunk ${i} returned empty audio (${kokoroResult.audioUrl?.length} chars), retrying...`);
-              await new Promise(resolve => setTimeout(resolve, 1000)); // wait a bit before retry
+            // Check for empty audio OR empty timestamps
+            const hasValidAudio = kokoroResult.audioUrl && kokoroResult.audioUrl.length >= 300;
+            const hasValidTimestamps = kokoroResult.timestamps && kokoroResult.timestamps.length > 0;
+
+            if (!hasValidAudio || !hasValidTimestamps) {
+              console.warn(
+                `[Kokoro] Chunk ${i} invalid - audio: ${!!hasValidAudio}, timestamps: ${kokoroResult.timestamps?.length || 0}, retrying...`
+              );
+              await new Promise(resolve => setTimeout(resolve, 1000));
               kokoroResult = await synthesizeKokoroSpeech(spokenText);
-              if (!kokoroResult.audioUrl || kokoroResult.audioUrl.length < 300) {
-                throw new Error("Kokoro returned empty audio after retry");
+
+              const retryAudio = kokoroResult.audioUrl && kokoroResult.audioUrl.length >= 300;
+              const retryTimestamps = kokoroResult.timestamps && kokoroResult.timestamps.length > 0;
+
+              if (!retryAudio || !retryTimestamps) {
+                throw new Error("Kokoro returned empty audio or timestamps after retry");
               }
             }
             res.write(JSON.stringify({
