@@ -1957,13 +1957,30 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
     throw new Error("Invalid response format from Kokoro");
   }
 
-  const mappedTimestamps = data.timestamps.map((t: any) => ({
+  console.log('[Kokoro] Raw timestamps count from API:', data.timestamps.length);
+
+  let mappedTimestamps = data.timestamps.map((t: any) => ({
     word: t.word,
     start: t.start_time,
     end: t.end_time
   }));
 
   const audioUrl = `data:audio/wav;base64,${data.audio_base64}`;
+
+  if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
+    const audioBytes = Buffer.from(data.audio_base64, 'base64').length;
+    const duration = Math.max(0, (audioBytes - 44) / (24000 * 2));
+    const words = text.split(/\s+/).filter(w => w.length > 0);
+    if (words.length > 0) {
+      const avgDuration = duration / words.length;
+      mappedTimestamps = words.map((word, idx) => ({
+        word,
+        start: idx * avgDuration,
+        end: (idx + 1) * avgDuration
+      }));
+      console.log(`[Kokoro] Generated ${mappedTimestamps.length} synthetic timestamps. Estimated duration: ${duration.toFixed(2)}s`);
+    }
+  }
 
   console.log('[Kokoro] Returning audioUrl (length)', audioUrl.length, 'timestamps count:', mappedTimestamps.length);
   if (mappedTimestamps.length > 0) {
