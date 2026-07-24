@@ -1967,7 +1967,7 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
 
   console.log('[Kokoro] Returning audioUrl (length)', audioUrl.length, 'timestamps count:', mappedTimestamps.length);
   if (mappedTimestamps.length > 0) {
-    console.log('[Kokoro] First timestamp:', JSON.stringify(mappedTimestamps[0]));
+    console.log('[Kokoro] First timestamp after mapping:', JSON.stringify(mappedTimestamps[0]));
   }
 
   return {
