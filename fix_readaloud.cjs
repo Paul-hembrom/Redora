@@ -1,32 +1,33 @@
 const fs = require('fs');
-
 let code = fs.readFileSync('src/components/ReadAloudButton.tsx', 'utf8');
 
-// 1. Fix expectedElements
-code = code.replace(
-    /const expectedElements = scopeRoot\.querySelectorAll\(\`\[id\^="\$\{idPrefix\}"\]\`\)\.length;\s*if \(expectedElements > 0 && totalChunks !== expectedElements\) \{\s*logWarning\([\s\S]*?disableSync = true;\s*\}/,
-    `const expectedElements = scopeRoot.querySelectorAll(\`[id^="\${idPrefix}"]\`).length;
-                  if (expectedElements === 0 && idPrefix !== "tts-explanation-") {
-                    logWarning(\`No DOM elements found matching \${idPrefix}. Disabling sync.\`);
-                    disableSync = true;
-                  }`
-);
+const regexLoop = /const highlightLoop = \(\) => \{\n            if \(stopIntentRef\.current \|\| chunkCompleted \|\| audio\.paused \|\| audio\.ended\) return;\n\n            const currentTime = audio\.currentTime;[\s\S]*?if \(currentTime > 0\.05 && !hasScrolled\) \{[\s\S]*?\}\n            \}\n            if \(stopIntentRef\.current \|\| chunkCompleted/s;
 
-// 2. Fix sentenceEl
-code = code.replace(
-    /const sentenceEl = scopeRoot\.querySelector\(\`\[id="\$\{idPrefix\}\$\{domIndex\}"\]\`\) as HTMLElement \| null;/,
-    `let sentenceEl = scopeRoot.querySelector(\`[id="\${idPrefix}\${domIndex}"]\`) as HTMLElement | null;
-        if (!sentenceEl && idPrefix === "tts-explanation-") {
-            sentenceEl = scopeRoot.querySelector(\`[id="tts-explanation-0"]\`) as HTMLElement | null;
-        }`
-);
+const replacement = `const highlightLoop = () => {
+            if (stopIntentRef.current || chunkCompleted || audio.paused || audio.ended) return;
 
-// 3. Fix guard
-code = code.replace(
-    /\/\/ Guard: Check if the text matches \([\s\S]*?if \(shouldHighlight && chunk\.timestamps && chunk\.timestamps\.length > 0 && sentenceEl\) \{/,
-    `// Guard removed for markdown compatibility
-        if (shouldHighlight && chunk.timestamps && chunk.timestamps.length > 0 && sentenceEl) {`
-);
+            const currentTime = audio.currentTime;
+            
+            if (currentTime > 0.05 && !hasScrolled) {
+               hasScrolled = true;
+               const sentenceSpan = document.getElementById(\`tts-sentence-\${i}\`);
+               if (sentenceSpan) {
+                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+               } else {
+                 const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
+                 const scopeRoot = getScopeRoot();
+                 let fallbackEl = scopeRoot.querySelector(\`[id="\${idPrefix}\${domIndex}"]\`);
+                 if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
+                     fallbackEl = scopeRoot.querySelector(\`[id="\${idPrefix}0"]\`);
+                 }
+                 if (fallbackEl) {
+                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                 }
+               }
+            }
 
+            if (stopIntentRef.current || chunkCompleted`;
+
+code = code.replace(regexLoop, replacement);
 fs.writeFileSync('src/components/ReadAloudButton.tsx', code);
-console.log("Patched ReadAloudButton.tsx");
+console.log("Fixed ReadAloudButton");

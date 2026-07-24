@@ -1973,10 +1973,12 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
     const words = text.split(/\s+/).filter(w => w.length > 0);
     if (words.length > 0) {
       const avgDuration = duration / words.length;
+      const PLAYBACK_RATE = 0.8;
+      const adjustedAvgDuration = avgDuration / PLAYBACK_RATE;
       mappedTimestamps = words.map((word, idx) => ({
         word,
-        start: idx * avgDuration,
-        end: (idx + 1) * avgDuration
+        start: idx * adjustedAvgDuration,
+        end: (idx + 1) * adjustedAvgDuration
       }));
       console.log(`[Kokoro] Generated ${mappedTimestamps.length} synthetic timestamps. Estimated duration: ${duration.toFixed(2)}s`);
     }

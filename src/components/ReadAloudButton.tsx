@@ -353,6 +353,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         let chunkCompleted = false;
+        let hasScrolled = false;
         let animationFrameId: number;
 
         const highlightLoop = () => {
@@ -360,6 +361,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
             const currentTime = audio.currentTime;
             
+            if (currentTime > 0.05 && !hasScrolled) {
+               hasScrolled = true;
+               const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
+               if (sentenceSpan) {
+                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+               } else {
+                 const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
+                 const scopeRoot = getScopeRoot();
+                 let fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`);
+                 if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
+                     fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
+                 }
+                 if (fallbackEl) {
+                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                 }
+               }
+            }
+
             // Fix premature ending
             if (audio.duration && currentTime >= Math.max(0, audio.duration - 0.1) && !chunkCompleted) {
                 chunkCompleted = true;
@@ -401,22 +420,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         audio.onplay = () => {
            logInfo(`Chunk ${i} started playing.`);
            
-           // Sentence-level auto-scroll – When the i-th audio chunk starts playing
-           const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
-           if (sentenceSpan) {
-             sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-           } else {
-             // Fallback for our own dynamic domIndex scrolling
-             const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
-             const scopeRoot = getScopeRoot();
-             let fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`);
-             if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
-                 fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
-             }
-             if (fallbackEl) {
-                 fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-             }
-           }
+           
 
            if (!chunk.timestamps || stopIntentRef.current) return;
            animationFrameId = requestAnimationFrame(highlightLoop);
