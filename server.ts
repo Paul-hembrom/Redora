@@ -1979,6 +1979,11 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
     end: t.end_time
   }));
 
+  console.log(`[Kokoro] Native timestamps count: ${mappedTimestamps.length}`);
+  if (mappedTimestamps.length > 0) {
+    console.log(`[Kokoro] First native timestamp: ${JSON.stringify(mappedTimestamps[0])}`);
+  }
+
   const audioUrl = `data:audio/wav;base64,${data.audio_base64}`;
 
   if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
