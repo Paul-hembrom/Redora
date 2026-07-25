@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 800
+    }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/auth/(.*)", "destination": "/api/index" }
