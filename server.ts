@@ -2027,13 +2027,7 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
       console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Words: ${words.length}`);
     }
   } else if (mappedTimestamps.length > 0) {
-      // Scale native timestamps if any were returned
-      const scaleFactor = rawDuration > 0 ? playbackDuration / rawDuration : 1;
-      mappedTimestamps = mappedTimestamps.map((t: any) => ({
-        ...t,
-        start: +(t.start * scaleFactor).toFixed(4),
-        end: +(t.end * scaleFactor).toFixed(4)
-      }));
+      // Do not scale in backend; let frontend handle it
   }
 
   console.log('[Kokoro] Returning audioUrl (length)', audioUrl.length, 'timestamps count:', mappedTimestamps.length);
@@ -2043,7 +2037,9 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
 
   return {
     audioUrl,
-    timestamps: mappedTimestamps
+    timestamps: mappedTimestamps,
+    rawDuration,
+    playbackDuration
   };
 }
 
@@ -2106,7 +2102,9 @@ app.post('/api/tts/cartesia', async (req, res) => {
                 domIndex: chunk.domIndex,
                 text: chunk.text,
                 audioUrl: kokoroResult.audioUrl,
-                timestamps: kokoroResult.timestamps
+                timestamps: kokoroResult.timestamps,
+                rawDuration: kokoroResult.rawDuration,
+                playbackDuration: kokoroResult.playbackDuration
             }) + '\n');
           } catch (kokoroErr) {
             console.error('Kokoro TTS failed, falling back to Cartesia:', kokoroErr.message);
