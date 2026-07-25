@@ -247,28 +247,21 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
         }
         
-        const audio = new Audio();
+        if (!audioRef.current) {
+            audioRef.current = new Audio();
+            audioRef.current.style.display = 'none';
+            document.body.appendChild(audioRef.current);
+        }
+        const audio = audioRef.current;
         audio.playbackRate = playbackRate;
         audio.src = chunk.audioUrl;
-        audioRef.current = audio;
         
-        console.log('[ReadAloud] Audio element created – src length:', chunk.audioUrl?.length);
+        console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
         console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
-        
-        audio.style.display = 'none';
-        document.body.appendChild(audio);
 
         audio.onloadedmetadata = () => console.log('[ReadAloud] Audio duration:', audio.duration);
 
-        // Guard against sparse-array holes: the next chunk may not have
-        // arrived yet even though `chunks.length` already reflects a later
-        // index (chunks can arrive out of order over the network).
-        if (i + 1 < chunks.length && chunks[i + 1] && chunks[i + 1].audioUrl) {
-          const nextAudio = new Audio();
-          nextAudio.playbackRate = playbackRate;
-          nextAudio.src = chunks[i + 1].audioUrl;
-          nextAudio.preload = "auto";
-        }
+        
 
         const wordSpans: (HTMLElement | null)[] = new Array(chunk.timestamps ? chunk.timestamps.length : 0).fill(null);
         let shouldHighlight = !disableSync;
@@ -421,7 +414,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         audio.onplay = () => {
-           console.log('[ReadAloud] Audio playing');
+           console.log('[ReadAloud] Audio onplay fired');
            logInfo(`Chunk ${i} started playing.`);
            
            
@@ -431,20 +424,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         audio.onpause = () => {
-           console.log('[ReadAloud] Audio paused');
+           console.log('[ReadAloud] Audio onpause fired');
            logInfo(`Chunk ${i} paused.`);
            cancelAnimationFrame(animationFrameId);
            removeHighlights();
         };
 
         audio.onended = () => {
-           console.log('[ReadAloud] Audio ended');
+           console.log('[ReadAloud] Audio onended fired');
            logInfo(`Chunk ${i} ended natively.`);
            cancelAnimationFrame(animationFrameId);
            removeHighlights();
-           if (audio.parentElement) {
-               audio.parentElement.removeChild(audio);
-           }
+
            playNextChunk();
         };
 
@@ -457,9 +448,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
              setIsPlaying(false);
              isQueuePlaying = false;
           } else {
-             if (audio.parentElement) {
-                 audio.parentElement.removeChild(audio);
-             }
              playNextChunk();
           }
         };
@@ -487,9 +475,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                            setIsPlaying(false);
                            isQueuePlaying = false;
                         } else {
-                           if (audio.parentElement) {
-                               audio.parentElement.removeChild(audio);
-                           }
                            playNextChunk();
                         }
                     }
@@ -600,9 +585,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     stopIntentRef.current = false;
     
     // Unlock audio context for mobile/safari
+    if (!audioRef.current) {
+        audioRef.current = new Audio();
+        audioRef.current.style.display = 'none';
+        document.body.appendChild(audioRef.current);
+    }
     try {
-      const unlockAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-      unlockAudio.play().catch(e => console.log('[ReadAloud] Unlock play caught:', e));
+      audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      audioRef.current.play().catch(e => console.log('[ReadAloud] Unlock play caught:', e));
     } catch (e) {
       console.log('[ReadAloud] Audio context unlock error:', e);
     }
