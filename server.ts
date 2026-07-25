@@ -1988,7 +1988,7 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
 
   const audioBuffer = Buffer.from(data.audio_base64, 'base64');
   const audioBytes = audioBuffer.length;
-  const PLAYBACK_RATE = 0.8;
+  
   let numChannels = 1;
   let sampleRate = 24000;
   let bitsPerSample = 16;
@@ -2003,7 +2003,7 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
   const totalFrames = dataSize / bytesPerFrame;
   const calculatedRawDuration = Math.max(0, totalFrames / sampleRate);
   const rawDuration = data.playbackDuration !== undefined ? data.playbackDuration : calculatedRawDuration;
-  const playbackDuration = rawDuration / PLAYBACK_RATE;
+  const playbackDuration = rawDuration;
 
   if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
     const words = cleanText
@@ -2028,12 +2028,7 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
       console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Words: ${words.length}`);
     }
   } else if (mappedTimestamps.length > 0) {
-      const scaleFactor = playbackDuration / rawDuration;
-      mappedTimestamps = mappedTimestamps.map((t: any) => ({
-        word: t.word,
-        start: +(t.start * scaleFactor).toFixed(4),
-        end:   +(t.end   * scaleFactor).toFixed(4)
-      }));
+      
   }
 
   console.log('[Kokoro] Returning audioUrl (length)', audioUrl.length, 'timestamps count:', mappedTimestamps.length);

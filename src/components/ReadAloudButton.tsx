@@ -282,8 +282,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
         const audio = audioRef.current;
         audio.src = chunk.audioUrl;
-        audio.playbackRate = 0.8;
-        audio.defaultPlaybackRate = 0.8;
+        audio.playbackRate = playbackRate;
+        audio.defaultPlaybackRate = playbackRate;
         
         console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
         console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
@@ -492,7 +492,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           }
         };
 
-        audio.playbackRate = 0.8;
+        audio.playbackRate = playbackRate;
         const playPromise = audio.play();
         if (playPromise !== undefined) {
             playPromise.then(() => {
@@ -671,6 +671,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       btn.removeEventListener('touchstart', handleTouchStart);
     };
   }, [text, isPlaying, isLoading, voicesAvailable]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+      audioRef.current.defaultPlaybackRate = playbackRate;
+    }
+  }, [playbackRate]);
 
   
   const showError = (msg: string) => {
