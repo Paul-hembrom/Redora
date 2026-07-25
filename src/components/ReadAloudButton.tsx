@@ -361,8 +361,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         const scaleFactor = (chunk.rawDuration && chunk.playbackDuration) 
-            ? (chunk.playbackDuration / chunk.rawDuration) 
-            : (1 / playbackRate);
+            ? (chunk.rawDuration / chunk.playbackDuration) 
+            : (playbackRate);
             
         const calibratedTimestamps = chunk.timestamps ? chunk.timestamps.map((item: any) => ({
             ...item,
@@ -376,7 +376,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         const highlightLoop = () => {
             if (stopIntentRef.current || audio.paused || audio.ended) return;
 
-            const currentTime = audio.currentTime * scaleFactor;
+            const currentTime = audio.currentTime;
             
             if (currentTime > 0.05 && !hasScrolled) {
                hasScrolled = true;
