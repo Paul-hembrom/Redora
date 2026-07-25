@@ -356,7 +356,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             wordSpans.forEach((span, k) => {
                 let domSpan = document.getElementById(`tts-word-${i}-${k}`);
                 if (!domSpan) domSpan = span;
-                if (domSpan) domSpan.classList.remove('bg-amber-400/70');
+                if (domSpan) {
+                    domSpan.classList.remove('bg-amber-400/70');
+                    domSpan.style.background = '';
+                    domSpan.style.webkitBackgroundClip = '';
+                    domSpan.style.backgroundClip = '';
+                    domSpan.style.color = '';
+                }
             });
         };
 
@@ -403,8 +409,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                     }
 
                     if (currentTime >= startAdjusted && currentTime < endAdjusted) {
-                        span.classList.add('bg-amber-400/70');
+                        const duration = endAdjusted - startAdjusted;
+                        const progress = duration > 0 ? Math.max(0, Math.min(1, (currentTime - startAdjusted) / duration)) : 1;
+                        span.style.background = `linear-gradient(to right, #FBBF24 ${progress * 100}%, transparent ${progress * 100}%)`;
+                        span.style.webkitBackgroundClip = 'text';
+                        span.style.backgroundClip = 'text';
+                        span.style.color = 'transparent';
+                        span.classList.remove('bg-amber-400/70');
                     } else {
+                        span.style.background = '';
+                        span.style.webkitBackgroundClip = '';
+                        span.style.backgroundClip = '';
+                        span.style.color = '';
                         span.classList.remove('bg-amber-400/70');
                     }
                 });
