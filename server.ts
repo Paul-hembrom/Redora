@@ -2064,21 +2064,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
     const chunks = chunkDocumentText(text);
 
     const cartesia = new Cartesia({ apiKey });
-    let ws;
-    try {
-      ws = await cartesia.tts.websocket();
-      if (ws.source) { 
-        ws.source.on('error', (err) => {
-          console.error('Cartesia WebSocket source error:', err);
-        }); 
-      }
-      ws.on('error', (err) => {
-        console.error('Cartesia WebSocket error:', err);
-      });
-    } catch (wsErr) {
-      console.error('Failed to open Cartesia WebSocket:', wsErr);
-      return res.status(500).json({ error: 'Failed to connect to Cartesia' });
-    }
+    let responseStream: any;
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -2129,7 +2115,21 @@ app.post('/api/tts/cartesia', async (req, res) => {
             console.error('Kokoro TTS failed, falling back to Cartesia:', kokoroErr.message);
             
             // Fallback to Cartesia
-            const context = ws.context({
+            if (!responseStream) {
+                try {
+                    responseStream = await cartesia.tts.websocket();
+                    if (responseStream.source) {
+                        responseStream.source.on('error', (err: any) => {
+                            console.error('Cartesia WebSocket error (ignored):', err.message);
+                        });
+                    }
+                } catch (wsErr) {
+                    console.error('Failed to open Cartesia WebSocket (ignored for pre-warm):', wsErr);
+                    continue; // Skip this chunk and continue
+                }
+            }
+
+            const context = responseStream.context({
                 model_id: 'sonic-3.5',
                 voice: { mode: 'id', id: '62ae83ad-4f6a-430b-af41-a9bede9286ca' },
                 output_format: { container: 'raw', encoding: 'pcm_f32le', sample_rate: 44100 },
@@ -2177,7 +2177,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
     } catch (wsLoopErr) {
       console.error('Cartesia chunk streaming error:', wsLoopErr);
     } finally {
-      try { ws.close(); } catch (e) {}
+      try { responseStream?.close?.(); } catch (e) {}
       res.end();
     }
   } catch (err: any) {
