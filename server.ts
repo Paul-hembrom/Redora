@@ -1975,8 +1975,8 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
 
   let mappedTimestamps = data.timestamps.map((t: any) => ({
     word: t.word,
-    start: t.start_time !== undefined ? t.start_time : t.start,
-    end: t.end_time !== undefined ? t.end_time : t.end
+    start: t.start !== undefined ? t.start : t.start_time,
+    end: t.end !== undefined ? t.end : t.end_time
   }));
 
   console.log(`[Kokoro] Native timestamps count: ${mappedTimestamps.length}`);
@@ -2001,7 +2001,8 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
   const bytesPerSample = bitsPerSample / 8;
   const bytesPerFrame = numChannels * bytesPerSample;
   const totalFrames = dataSize / bytesPerFrame;
-  const rawDuration = Math.max(0, totalFrames / sampleRate);
+  const calculatedRawDuration = Math.max(0, totalFrames / sampleRate);
+  const rawDuration = data.playbackDuration !== undefined ? data.playbackDuration : calculatedRawDuration;
   const playbackDuration = rawDuration / PLAYBACK_RATE;
 
   if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
