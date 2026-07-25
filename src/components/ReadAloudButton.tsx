@@ -434,7 +434,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                     let startAdjusted = start_time;
                     let endAdjusted = end_time;
 
-                    if (currentTime >= startAdjusted && currentTime < endAdjusted) {
+                    const wordSpan = document.getElementById(spanId);
+                const activeWordText = wordSpan ? wordSpan.innerText : 'unknown';
+                if (!(window as any)._lastRafLog || Date.now() - (window as any)._lastRafLog > 1000) {
+                    console.log('[Frontend] RAF – currentTime:', currentTime.toFixed(2), 'active word:', activeWordText, 'progress:', (span.style.background ? 'active' : 'inactive'));
+                    (window as any)._lastRafLog = Date.now();
+                }
+
+                if (currentTime >= startAdjusted && currentTime < endAdjusted) {
                         const duration = endAdjusted - startAdjusted;
                         const progress = duration > 0 ? Math.max(0, Math.min(1, (currentTime - startAdjusted) / duration)) : 1;
                         span.style.background = `linear-gradient(to right, #FBBF24 ${progress * 100}%, transparent ${progress * 100}%)`;
@@ -496,6 +503,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         const playPromise = audio.play();
         if (playPromise !== undefined) {
             playPromise.then(() => {
+                console.log('[Frontend] Audio playbackRate after play:', audio.playbackRate, 'src length:', audio.src.length);
                 console.log('[ReadAloud] Actual playbackRate:', audio.playbackRate);
                 console.log('[ReadAloud] play() succeeded');
                 playedChunks++;
@@ -563,6 +571,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 } else if (data.index !== undefined) {
                   const isValid = data.audioUrl && data.audioUrl.startsWith('data:audio/');
                   logInfo(`Received chunk ${data.index}. Audio URL valid: ${!!isValid}`);
+                  if (data.timestamps && data.timestamps.length > 0) {
+                      console.log(`[Frontend] Chunk ${data.index} – first timestamp:`, JSON.stringify(data.timestamps[0]), 'last timestamp:', JSON.stringify(data.timestamps[data.timestamps.length - 1]));
+                  }
                   chunksMapRef.current.set(data.index, data);
                   
                   let addedToQueue = false;
@@ -583,6 +594,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (buffer.trim()) {
              const data = JSON.parse(buffer);
              if (data.index !== undefined) {
+                if (data.timestamps && data.timestamps.length > 0) {
+                    console.log(`[Frontend] Chunk ${data.index} – first timestamp:`, JSON.stringify(data.timestamps[0]), 'last timestamp:', JSON.stringify(data.timestamps[data.timestamps.length - 1]));
+                }
                 chunksMapRef.current.set(data.index, data);
                 let addedToQueue = false;
                 while (chunksMapRef.current.has(expectedIndex)) {
