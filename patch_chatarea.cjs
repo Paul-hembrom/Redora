@@ -1,23 +1,11 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/components/ChatArea.tsx', 'utf8');
+let content = fs.readFileSync('src/components/ChatArea.tsx', 'utf8');
 
-// Fix summary ID
-code = code.replace(
-    /id=\{\`tts-summary-\$\{idx\}\`\}/g,
-    `id={\`tts-summary-\${index}-\${idx}\`}`
-);
+const regex = /<option value=\{0\.5\}>0\.5x<\/option>\s*<option value=\{0\.8\}>0\.8x<\/option>\s*<option value=\{1\}>1\.0x<\/option>\s*<option value=\{1\.5\}>1\.5x<\/option>/m;
+const repl = `<option value={0.8}>0.8x</option>
+               <option value={1}>1.0x</option>
+               <option value={1.25}>1.25x</option>`;
 
-// Fix chapter ID
-code = code.replace(
-    /id=\{\`tts-chapter-\$\{idx\}\`\}/g,
-    `id={\`tts-chapter-\${index}-\${idx}\`}`
-);
-
-// Fix ReadAloudButton idPrefix
-code = code.replace(
-    /idPrefix=\{chapter\.content \? "tts-chapter-" : "tts-summary-"\}/g,
-    `idPrefix={chapter.content ? \`tts-chapter-\${index}-\` : \`tts-summary-\${index}-\`}`
-);
-
-fs.writeFileSync('src/components/ChatArea.tsx', code);
-console.log("patched ChatArea.tsx");
+content = content.replace(regex, repl);
+fs.writeFileSync('src/components/ChatArea.tsx', content);
+console.log("Patched ChatArea successfully");

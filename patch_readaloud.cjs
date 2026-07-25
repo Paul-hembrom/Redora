@@ -1,39 +1,31 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/components/ReadAloudButton.tsx', 'utf8');
+let content = fs.readFileSync('src/components/ReadAloudButton.tsx', 'utf8');
 
-const regexScroll = /\/\/ Sentence-level auto-scroll.*?if \(fallbackEl\) \{\n                 fallbackEl\.scrollIntoView\(\{ behavior: 'smooth', block: 'center' \}\);\n             \}\n           \}/s;
+// 1. Add useEffect for playbackRate
+const regexUseEffect = /  const showError = \(msg: string\) => \{/;
+const replUseEffect = `  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate]);
 
-code = code.replace(regexScroll, ''); // Remove from onplay
+  const showError = (msg: string) => {`;
+content = content.replace(regexUseEffect, replUseEffect);
 
-const regexLoop = /let chunkCompleted = false;\n        let animationFrameId: number;\n\n        const highlightLoop = \(\) => \{/s;
-
-const newLoop = `let chunkCompleted = false;
-        let hasScrolled = false;
-        let animationFrameId: number;
-
-        const highlightLoop = () => {
-            if (stopIntentRef.current || chunkCompleted || audio.paused || audio.ended) return;
-
-            const currentTime = audio.currentTime;
+// 2. Add syncTime to highlightLoop
+const regexHighlight = /const currentTime = audio\.currentTime;\s*if \(currentTime > 0\.05 && !hasScrolled\)/;
+const replHighlight = `const currentTime = audio.currentTime;
+            const syncTime = currentTime / 0.8;
             
-            if (currentTime > 0.05 && !hasScrolled) {
-               hasScrolled = true;
-               const sentenceSpan = document.getElementById(\`tts-sentence-\${i}\`);
-               if (sentenceSpan) {
-                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-               } else {
-                 const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
-                 const scopeRoot = getScopeRoot();
-                 let fallbackEl = scopeRoot.querySelector(\`[id="\${idPrefix}\${domIndex}"]\`);
-                 if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
-                     fallbackEl = scopeRoot.querySelector(\`[id="\${idPrefix}0"]\`);
-                 }
-                 if (fallbackEl) {
-                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                 }
-               }
-            }`;
+            if (currentTime > 0.05 && !hasScrolled)`;
+content = content.replace(regexHighlight, replHighlight);
 
-code = code.replace(regexLoop, newLoop);
-fs.writeFileSync('src/components/ReadAloudButton.tsx', code);
-console.log("Patched ReadAloudButton");
+// 3. Update comparison to use syncTime
+const regexCompare = /if \(currentTime >= startAdjusted && currentTime < endAdjusted\) \{[\s\S]*?const duration = endAdjusted - startAdjusted;\s*const progress = duration > 0 \? Math\.max\(0, Math\.min\(1, \(currentTime - startAdjusted\) \/ duration\)\) : 1;/;
+const replCompare = `if (syncTime >= startAdjusted && syncTime < endAdjusted) {
+                        const duration = endAdjusted - startAdjusted;
+                        const progress = duration > 0 ? Math.max(0, Math.min(1, (syncTime - startAdjusted) / duration)) : 1;`;
+content = content.replace(regexCompare, replCompare);
+
+fs.writeFileSync('src/components/ReadAloudButton.tsx', content);
+console.log("Patched ReadAloudButton successfully");

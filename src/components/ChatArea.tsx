@@ -1073,10 +1073,9 @@ const handleFetchImages = async () => {
                onChange={e => setPlaybackRate(Number(e.target.value))}
                className="bg-transparent text-xs text-white/80 font-medium focus:outline-none appearance-none px-2"
              >
-               <option value={0.5}>0.5x</option>
                <option value={0.8}>0.8x</option>
                <option value={1}>1.0x</option>
-               <option value={1.5}>1.5x</option>
+               <option value={1.25}>1.25x</option>
              </select>
           </div>
           {onNavigateChapter && (

@@ -373,6 +373,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             if (stopIntentRef.current || audio.paused || audio.ended) return;
 
             const currentTime = audio.currentTime;
+            const syncTime = currentTime / 0.8;
             
             if (currentTime > 0.05 && !hasScrolled) {
                hasScrolled = true;
@@ -408,9 +409,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                         endAdjusted -= 0.150;
                     }
 
-                    if (currentTime >= startAdjusted && currentTime < endAdjusted) {
+                    if (syncTime >= startAdjusted && syncTime < endAdjusted) {
                         const duration = endAdjusted - startAdjusted;
-                        const progress = duration > 0 ? Math.max(0, Math.min(1, (currentTime - startAdjusted) / duration)) : 1;
+                        const progress = duration > 0 ? Math.max(0, Math.min(1, (syncTime - startAdjusted) / duration)) : 1;
                         span.style.background = `linear-gradient(to right, #FBBF24 ${progress * 100}%, transparent ${progress * 100}%)`;
                         span.style.webkitBackgroundClip = 'text';
                         span.style.backgroundClip = 'text';
@@ -638,6 +639,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       btn.removeEventListener('touchstart', handleTouchStart);
     };
   }, [text, isPlaying, isLoading, voicesAvailable]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate]);
 
   const showError = (msg: string) => {
     setErrorMsg(msg);
