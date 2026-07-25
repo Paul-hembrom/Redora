@@ -40,10 +40,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const audioQueueRef = useRef<any[]>([]);
+  const chunksMapRef = useRef<Map<number, any>>(new Map());
+  const animationFrameIdRef = useRef<number | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const stopIntentRef = useRef(false);
+  const playSessionIdRef = useRef<number>(0);
 
   // Resolves the DOM root to search within. Falls back to `document` when no
   // containerRef is supplied, but scopes lookups to the given container/ref
@@ -57,7 +60,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
   useEffect(() => {
     return () => stopPlaying();
-  }, []);
+  }, [text, idPrefix]);
 
   useEffect(() => {
     const checkVoices = () => {
@@ -128,13 +131,33 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, []);
 
+  const clearAllHighlights = () => {
+    document.querySelectorAll('.tts-word').forEach((el) => {
+      const domSpan = el as HTMLElement;
+      domSpan.style.background = '';
+      domSpan.style.webkitBackgroundClip = '';
+      domSpan.style.backgroundClip = '';
+      domSpan.style.color = '';
+      domSpan.classList.remove('bg-amber-400/70');
+    });
+  };
+
   const stopPlaying = () => {
-    stopIntentRef.current = true;
+    playSessionIdRef.current += 1;
+    if (animationFrameIdRef.current !== null) {
+      cancelAnimationFrame(animationFrameIdRef.current);
+      animationFrameIdRef.current = null;
+    }
+    clearAllHighlights();
+    
+    audioQueueRef.current = [];
+    chunksMapRef.current.clear();
+    
     const highlightOverlay = document.getElementById('tts-highlight-overlay');
     if (highlightOverlay) highlightOverlay.style.opacity = '0';
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      audioRef.current.src = '';
     }
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -144,6 +167,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   const tryCartesiaTTS = async () => {
+    const currentSessionId = playSessionIdRef.current;
     logInfo('Triggered: Attempting Cartesia TTS API call...');
     try {
       setIsLoading(true);
@@ -162,8 +186,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       let buffer = '';
 
       let totalChunks = 0;
-      const chunksMap = new Map<number, any>();
-      const audioQueue: any[] = [];
+      audioQueueRef.current = [];
+      chunksMapRef.current.clear();
       let isQueuePlaying = false;
       let expectedIndex = 0;
 
@@ -176,13 +200,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       setIsPlaying(true);
 
       const playNextChunk = async () => {
-        if (stopIntentRef.current) {
+        if (currentSessionId !== playSessionIdRef.current) {
           setIsPlaying(false);
           isQueuePlaying = false;
           return;
         }
 
-        if (audioQueue.length === 0) {
+        if (audioQueueRef.current.length === 0) {
           isQueuePlaying = false;
           if (streamEnded && expectedIndex >= totalChunks) {
             if (playedChunks === 0 && failedChunks > 0) {
@@ -194,13 +218,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
 
         isQueuePlaying = true;
-        const chunk = audioQueue.shift();
+        const chunk = audioQueueRef.current.shift();
 
         // Pre-load the next audio chunk while the current one is playing
-        if (audioQueue.length > 0) {
+        if (audioQueueRef.current.length > 0) {
             const nextAudio = new Audio();
             nextAudio.preload = 'auto';
-            nextAudio.src = audioQueue[0].audioUrl;
+            nextAudio.src = audioQueueRef.current[0].audioUrl;
         }
 
         const i = chunk.index;
@@ -367,13 +391,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
                 let hasScrolled = false;
-        let animationFrameId: number;
+        
 
         const highlightLoop = () => {
-            if (stopIntentRef.current || audio.paused || audio.ended) return;
+            if (currentSessionId !== playSessionIdRef.current || audio.paused || audio.ended) return;
 
             const currentTime = audio.currentTime;
-            const syncTime = currentTime / 0.8;
+            
             
             if (currentTime > 0.05 && !hasScrolled) {
                hasScrolled = true;
@@ -409,9 +433,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                         endAdjusted -= 0.150;
                     }
 
-                    if (syncTime >= startAdjusted && syncTime < endAdjusted) {
+                    if (currentTime >= startAdjusted && currentTime < endAdjusted) {
                         const duration = endAdjusted - startAdjusted;
-                        const progress = duration > 0 ? Math.max(0, Math.min(1, (syncTime - startAdjusted) / duration)) : 1;
+                        const progress = duration > 0 ? Math.max(0, Math.min(1, (currentTime - startAdjusted) / duration)) : 1;
                         span.style.background = `linear-gradient(to right, #FBBF24 ${progress * 100}%, transparent ${progress * 100}%)`;
                         span.style.webkitBackgroundClip = 'text';
                         span.style.backgroundClip = 'text';
@@ -427,28 +451,28 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 });
             }
 
-            animationFrameId = requestAnimationFrame(highlightLoop);
+            animationFrameIdRef.current = requestAnimationFrame(highlightLoop);
         };
 
         audio.onplay = () => {
            console.log('[ReadAloud] Audio onplay fired');
            logInfo(`Chunk ${i} started playing.`);
            
-           if (!chunk.timestamps || stopIntentRef.current) return;
-           animationFrameId = requestAnimationFrame(highlightLoop);
+           if (!chunk.timestamps || currentSessionId !== playSessionIdRef.current) return;
+           animationFrameIdRef.current = requestAnimationFrame(highlightLoop);
         };
 
         audio.onpause = () => {
            console.log('[ReadAloud] Audio onpause fired');
            logInfo(`Chunk ${i} paused.`);
-           cancelAnimationFrame(animationFrameId);
+           if (animationFrameIdRef.current !== null) { cancelAnimationFrame(animationFrameIdRef.current); animationFrameIdRef.current = null; }
            removeHighlights();
         };
 
         audio.onended = () => {
            console.log('[ReadAloud] Audio onended fired');
            logInfo(`Chunk ${i} ended natively.`);
-           cancelAnimationFrame(animationFrameId);
+           if (animationFrameIdRef.current !== null) { cancelAnimationFrame(animationFrameIdRef.current); animationFrameIdRef.current = null; }
            removeHighlights();
 
            playNextChunk();
@@ -502,6 +526,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       (async () => {
         try {
           while (true) {
+            if (currentSessionId !== playSessionIdRef.current) break;
             const { done, value } = await reader.read();
             if (done) {
               streamEnded = true;
@@ -535,12 +560,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 } else if (data.index !== undefined) {
                   const isValid = data.audioUrl && data.audioUrl.startsWith('data:audio/');
                   logInfo(`Received chunk ${data.index}. Audio URL valid: ${!!isValid}`);
-                  chunksMap.set(data.index, data);
+                  chunksMapRef.current.set(data.index, data);
                   
                   let addedToQueue = false;
-                  while (chunksMap.has(expectedIndex)) {
-                      audioQueue.push(chunksMap.get(expectedIndex));
-                      chunksMap.delete(expectedIndex);
+                  while (chunksMapRef.current.has(expectedIndex)) {
+                      audioQueueRef.current.push(chunksMapRef.current.get(expectedIndex));
+                      chunksMapRef.current.delete(expectedIndex);
                       expectedIndex++;
                       addedToQueue = true;
                   }
@@ -555,11 +580,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (buffer.trim()) {
              const data = JSON.parse(buffer);
              if (data.index !== undefined) {
-                chunksMap.set(data.index, data);
+                chunksMapRef.current.set(data.index, data);
                 let addedToQueue = false;
-                while (chunksMap.has(expectedIndex)) {
-                    audioQueue.push(chunksMap.get(expectedIndex));
-                    chunksMap.delete(expectedIndex);
+                while (chunksMapRef.current.has(expectedIndex)) {
+                    audioQueueRef.current.push(chunksMapRef.current.get(expectedIndex));
+                    chunksMapRef.current.delete(expectedIndex);
                     expectedIndex++;
                     addedToQueue = true;
                 }
@@ -568,7 +593,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 }
              }
           }
-          if (!isQueuePlaying && audioQueue.length > 0) {
+          if (!isQueuePlaying && audioQueueRef.current.length > 0) {
               playNextChunk();
           }
         } catch (err) {
@@ -597,7 +622,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       return;
     }
 
-    stopIntentRef.current = false;
+    playSessionIdRef.current += 1;
     
     // Unlock audio context for mobile/safari
     if (!audioRef.current) {

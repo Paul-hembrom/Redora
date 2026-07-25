@@ -16,7 +16,8 @@ export default defineConfig(({mode}) => {
         devOptions: { enabled: true },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,ttf}'],
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          globIgnores: ['server.js', 'server.cjs'],
+          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           runtimeCaching: [
             {
               urlPattern: /\/api\/.*/i,
