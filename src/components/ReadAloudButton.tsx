@@ -360,17 +360,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             });
         };
 
-        const scaleFactor = (chunk.rawDuration && chunk.playbackDuration) 
-            ? (chunk.rawDuration / chunk.playbackDuration) 
-            : (playbackRate);
-            
-        const calibratedTimestamps = chunk.timestamps ? chunk.timestamps.map((item: any) => ({
-            ...item,
-            start: (item.start_time !== undefined ? item.start_time : item.start) * scaleFactor,
-            end: (item.end_time !== undefined ? item.end_time : item.end) * scaleFactor
-        })) : [];
-
-        let hasScrolled = false;
+                let hasScrolled = false;
         let animationFrameId: number;
 
         const highlightLoop = () => {
@@ -396,14 +386,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                }
             }
 
-            if (calibratedTimestamps.length > 0) {
-                calibratedTimestamps.forEach((ts: any, k: number) => {
+            if (chunk.timestamps && chunk.timestamps.length > 0) {
+                chunk.timestamps.forEach((ts: any, k: number) => {
                     let span = document.getElementById(`tts-word-${i}-${k}`);
                     if (!span) span = wordSpans[k];
                     if (!span) return;
 
-                    const start_time = ts.start;
-                    const end_time = ts.end;
+                    const start_time = ts.start_time !== undefined ? ts.start_time : ts.start;
+                    const end_time = ts.end_time !== undefined ? ts.end_time : ts.end;
 
                     let startAdjusted = start_time;
                     let endAdjusted = end_time;
@@ -427,8 +417,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
            console.log('[ReadAloud] Audio onplay fired');
            logInfo(`Chunk ${i} started playing.`);
            
-           
-
            if (!chunk.timestamps || stopIntentRef.current) return;
            animationFrameId = requestAnimationFrame(highlightLoop);
         };

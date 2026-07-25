@@ -2027,7 +2027,12 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
       console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Words: ${words.length}`);
     }
   } else if (mappedTimestamps.length > 0) {
-      // Do not scale in backend; let frontend handle it
+      const scaleFactor = playbackDuration / rawDuration;
+      mappedTimestamps = mappedTimestamps.map((t: any) => ({
+        word: t.word,
+        start: +(t.start * scaleFactor).toFixed(4),
+        end:   +(t.end   * scaleFactor).toFixed(4)
+      }));
   }
 
   console.log('[Kokoro] Returning audioUrl (length)', audioUrl.length, 'timestamps count:', mappedTimestamps.length);
