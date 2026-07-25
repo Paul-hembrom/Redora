@@ -162,12 +162,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       let buffer = '';
 
       let totalChunks = 0;
-      const chunksMap = new Map<number, any>();
-      const audioQueue: any[] = [];
-      let isQueuePlaying = false;
-      let expectedIndex = 0;
-
+      const chunks: any[] = [];
+      let i = 0;
       let streamEnded = false;
+      let isPlayingNext = false;
       let disableSync = false;
       let failedChunks = 0;
       let playedChunks = 0;
@@ -178,32 +176,30 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const playNextChunk = async () => {
         if (stopIntentRef.current) {
           setIsPlaying(false);
-          isQueuePlaying = false;
           return;
         }
-
-        if (audioQueue.length === 0) {
-          isQueuePlaying = false;
-          if (streamEnded && expectedIndex >= totalChunks) {
-            if (playedChunks === 0 && failedChunks > 0) {
-              showError('Audio unavailable for this content. Please try again later.');
-            }
-            setIsPlaying(false);
+        if (totalChunks > 0 && i >= totalChunks) {
+          if (playedChunks === 0 && failedChunks > 0) {
+            showError('Audio unavailable for this content. Please try again later.');
           }
+          setIsPlaying(false);
+          return;
+        }
+        if (streamEnded && !chunks[i]) {
+          if (playedChunks === 0 && failedChunks > 0) {
+            showError('Audio unavailable for this content. Please try again later.');
+          }
+          setIsPlaying(false);
           return;
         }
 
-        isQueuePlaying = true;
-        const chunk = audioQueue.shift();
-
-        // Pre-load the next audio chunk while the current one is playing
-        if (audioQueue.length > 0) {
-            const nextAudio = new Audio();
-            nextAudio.preload = 'auto';
-            nextAudio.src = audioQueue[0].audioUrl;
+        const chunk = chunks[i];
+        if (!chunk) {
+          // Chunk not ready yet, it will be triggered by read loop
+          return;
         }
 
-        const i = chunk.index;
+        isPlayingNext = true;
 
         const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
         const scopeRoot = getScopeRoot();
@@ -230,9 +226,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (failedChunks > Math.max(1, totalChunks / 2)) {
              showError('Audio unavailable for this content. Please try again later.');
              setIsPlaying(false);
-             isQueuePlaying = false;
              return;
           }
+          i++;
+          isPlayingNext = false;
           playNextChunk();
           return;
         }
@@ -359,11 +356,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             });
         };
 
+        let chunkCompleted = false;
         let hasScrolled = false;
         let animationFrameId: number;
 
         const highlightLoop = () => {
-            if (stopIntentRef.current || audio.paused || audio.ended) return;
+            if (stopIntentRef.current || chunkCompleted || audio.paused || audio.ended) return;
 
             const currentTime = audio.currentTime;
             
@@ -383,6 +381,17 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                      fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                  }
                }
+            }
+
+            // Fix premature ending
+            if (audio.duration && currentTime >= Math.max(0, audio.duration - 0.1) && !chunkCompleted) {
+                chunkCompleted = true;
+                logInfo(`Chunk ${i} completed via requestAnimationFrame.`);
+                removeHighlights();
+                i++;
+                isPlayingNext = false;
+                playNextChunk();
+                return;
             }
 
             if (chunk.timestamps) {
@@ -428,9 +437,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         audio.onended = () => {
+           if (chunkCompleted) return;
            logInfo(`Chunk ${i} ended natively.`);
+           chunkCompleted = true;
            cancelAnimationFrame(animationFrameId);
            removeHighlights();
+           i++;
+           isPlayingNext = false;
            playNextChunk();
         };
 
@@ -440,8 +453,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (failedChunks > Math.max(1, totalChunks / 2)) {
              showError('Audio unavailable for this content. Please try again later.');
              setIsPlaying(false);
-             isQueuePlaying = false;
           } else {
+             i++;
+             isPlayingNext = false;
              playNextChunk();
           }
         };
@@ -455,8 +469,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (failedChunks > Math.max(1, totalChunks / 2)) {
              showError('Audio unavailable for this content. Please try again later.');
              setIsPlaying(false);
-             isQueuePlaying = false;
           } else {
+             i++;
+             isPlayingNext = false;
              playNextChunk();
           }
         }
@@ -497,20 +512,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                   }
 
                 } else if (data.index !== undefined) {
+                  chunks[data.index] = data;
                   const isValid = data.audioUrl && data.audioUrl.startsWith('data:audio/');
                   logInfo(`Received chunk ${data.index}. Audio URL valid: ${!!isValid}`);
-                  chunksMap.set(data.index, data);
-                  
-                  let addedToQueue = false;
-                  while (chunksMap.has(expectedIndex)) {
-                      audioQueue.push(chunksMap.get(expectedIndex));
-                      chunksMap.delete(expectedIndex);
-                      expectedIndex++;
-                      addedToQueue = true;
-                  }
-                  
-                  if (addedToQueue && !isQueuePlaying) {
-                      playNextChunk();
+                  if (i === data.index && !isPlayingNext) {
+                    playNextChunk();
                   }
                 }
               }
@@ -519,25 +525,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (buffer.trim()) {
              const data = JSON.parse(buffer);
              if (data.index !== undefined) {
-                chunksMap.set(data.index, data);
-                let addedToQueue = false;
-                while (chunksMap.has(expectedIndex)) {
-                    audioQueue.push(chunksMap.get(expectedIndex));
-                    chunksMap.delete(expectedIndex);
-                    expectedIndex++;
-                    addedToQueue = true;
-                }
-                if (addedToQueue && !isQueuePlaying) {
-                    playNextChunk();
+                chunks[data.index] = data;
+                if (i === data.index && !isPlayingNext) {
+                  playNextChunk();
                 }
              }
           }
-          if (!isQueuePlaying && audioQueue.length > 0) {
+          if (!isPlayingNext && i < chunks.length) {
               playNextChunk();
           }
         } catch (err) {
           logError('Stream reading error:', err);
-          if (!isQueuePlaying) {
+          if (!isPlayingNext) {
             setIsPlaying(false);
             showError('Audio unavailable for this content. Please try again later.');
           }

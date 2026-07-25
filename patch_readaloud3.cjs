@@ -1,25 +1,139 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/components/ReadAloudButton.tsx', 'utf8');
+let content = fs.readFileSync('readaloud_copy2.tsx', 'utf8');
 
-const regex1 = /const audio = new Audio\(chunk\.audioUrl\);\n        audioRef\.current = audio;/s;
-const replace1 = `const audio = new Audio();
-        audio.playbackRate = 0.8;
-        audio.src = chunk.audioUrl;
-        audioRef.current = audio;`;
+content = content.replace(
+`        if (!chunk.audioUrl) {
+          logWarning(\`Chunk \${i} missing audioUrl.\`);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+             return;
+          }
+          i++;
+          isPlayingNext = false;
+          playNextChunk();
+          return;
+        }`,
+`        if (!chunk.audioUrl) {
+          logWarning(\`Chunk \${i} missing audioUrl.\`);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+             isQueuePlaying = false;
+             return;
+          }
+          playNextChunk();
+          return;
+        }`
+);
 
-code = code.replace(regex1, replace1);
+content = content.replace(
+`        let chunkCompleted = false;
+        let hasScrolled = false;
+        let animationFrameId: number;
 
-const regex2 = /const nextAudio = new Audio\(chunks\[i \+ 1\]\.audioUrl\);\n          nextAudio\.preload = "auto";/s;
-const replace2 = `const nextAudio = new Audio();
-          nextAudio.playbackRate = 0.8;
-          nextAudio.src = chunks[i + 1].audioUrl;
-          nextAudio.preload = "auto";`;
+        const highlightLoop = () => {
+            if (stopIntentRef.current || chunkCompleted || audio.paused || audio.ended) return;`,
+`        let hasScrolled = false;
+        let animationFrameId: number;
 
-code = code.replace(regex2, replace2);
+        const highlightLoop = () => {
+            if (stopIntentRef.current || audio.paused || audio.ended) return;`
+);
 
-// Make sure any old timeupdate logic is completely gone and use 0.8 constant if needed
-const regex3 = /audio\.playbackRate = playbackRate;/g;
-code = code.replace(regex3, 'audio.playbackRate = 0.8;');
+content = content.replace(
+`            // Fix premature ending
+            if (audio.duration && currentTime >= Math.max(0, audio.duration - 0.1) && !chunkCompleted) {
+                chunkCompleted = true;
+                logInfo(\`Chunk \${i} completed via requestAnimationFrame.\`);
+                removeHighlights();
+                i++;
+                isPlayingNext = false;
+                playNextChunk();
+                return;
+            }
 
-fs.writeFileSync('src/components/ReadAloudButton.tsx', code);
-console.log("Patched ReadAloudButton.tsx");
+            if (chunk.timestamps) {`,
+`            if (chunk.timestamps) {`
+);
+
+content = content.replace(
+`        audio.onended = () => {
+           if (chunkCompleted) return;
+           logInfo(\`Chunk \${i} ended natively.\`);
+           chunkCompleted = true;
+           cancelAnimationFrame(animationFrameId);
+           removeHighlights();
+           i++;
+           isPlayingNext = false;
+           playNextChunk();
+        };`,
+`        audio.onended = () => {
+           logInfo(\`Chunk \${i} ended natively.\`);
+           cancelAnimationFrame(animationFrameId);
+           removeHighlights();
+           playNextChunk();
+        };`
+);
+
+content = content.replace(
+`        audio.onerror = (e) => {
+          logError(\`Chunk \${i} audio element error\`, e);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+          } else {
+             i++;
+             isPlayingNext = false;
+             playNextChunk();
+          }
+        };`,
+`        audio.onerror = (e) => {
+          logError(\`Chunk \${i} audio element error\`, e);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+             isQueuePlaying = false;
+          } else {
+             playNextChunk();
+          }
+        };`
+);
+
+content = content.replace(
+`        try {
+          await audio.play();
+          playedChunks++;
+        } catch (e) {
+          logError(\`Chunk \${i} audio play threw error\`, e);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+          } else {
+             i++;
+             isPlayingNext = false;
+             playNextChunk();
+          }
+        }`,
+`        try {
+          await audio.play();
+          playedChunks++;
+        } catch (e) {
+          logError(\`Chunk \${i} audio play threw error\`, e);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+             isQueuePlaying = false;
+          } else {
+             playNextChunk();
+          }
+        }`
+);
+
+fs.writeFileSync('readaloud_copy3.tsx', content);
