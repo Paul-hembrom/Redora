@@ -2005,22 +2005,17 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
   const playbackDuration = rawDuration / PLAYBACK_RATE;
 
   if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
-    const words = cleanText.split(/\s+/).filter(w => w.length > 0);
-    
-    const cleanedWords = words
+    const words = cleanText
+      .split(/\s+/)
       .map(w => w.replace(/[^a-zA-Z]/g, ''))
       .filter(w => w.length > 0);
       
-    const speakableWords = cleanedWords.filter(w => 
-      w.length > 1 || w === 'a' || w === 'i' || w === 'A' || w === 'I'
-    );
-      
-    if (speakableWords.length > 0) {
-      const totalChars = speakableWords.reduce((sum, w) => sum + w.length, 0);
+    if (words.length > 0) {
+      const totalChars = words.reduce((sum, w) => sum + w.length, 0);
       let currentTime = 0;
       
-      mappedTimestamps = speakableWords.map((word) => {
-        const wordDuration = (word.length / totalChars) * rawDuration;
+      mappedTimestamps = words.map((word) => {
+        const wordDuration = (word.length / totalChars) * playbackDuration;
         const timestamp = {
           word,
           start: currentTime,
@@ -2029,23 +2024,17 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
         currentTime += wordDuration;
         return timestamp;
       });
-      console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Speakable Words: ${speakableWords.length}`);
-    } else if (words.length > 0) {
-      const avgDuration = rawDuration / words.length;
-      mappedTimestamps = words.map((word, idx) => ({
-        word,
-        start: idx * avgDuration,
-        end: (idx + 1) * avgDuration
-      }));
+      console.log(`[Kokoro] Raw duration: ${rawDuration.toFixed(2)}s, Playback duration: ${playbackDuration.toFixed(2)}s, Words: ${words.length}`);
     }
+  } else if (mappedTimestamps.length > 0) {
+      // Scale native timestamps if any were returned
+      const scaleFactor = rawDuration > 0 ? playbackDuration / rawDuration : 1;
+      mappedTimestamps = mappedTimestamps.map((t: any) => ({
+        ...t,
+        start: +(t.start * scaleFactor).toFixed(4),
+        end: +(t.end * scaleFactor).toFixed(4)
+      }));
   }
-
-  const scaleFactor = rawDuration > 0 ? playbackDuration / rawDuration : 1;
-  mappedTimestamps = mappedTimestamps.map((t: any) => ({
-    ...t,
-    start: +(t.start * scaleFactor).toFixed(4),
-    end: +(t.end * scaleFactor).toFixed(4)
-  }));
 
   console.log('[Kokoro] Returning audioUrl (length)', audioUrl.length, 'timestamps count:', mappedTimestamps.length);
   if (mappedTimestamps.length > 0) {

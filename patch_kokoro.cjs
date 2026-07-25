@@ -1,30 +1,26 @@
 const fs = require('fs');
-let code = fs.readFileSync('server.ts', 'utf8');
+let content = fs.readFileSync('server.ts', 'utf8');
 
-const regexClean = /let cleanText = extractedText\.replace\(\/\[\^\}\{\\\[\\\]"\'\]\/g, ' '\);/g;
-// Actually I can just replace the specific string
-code = code.replace(/let cleanText = extractedText\.replace\(\/\[\^\}\{\\\[\\\]"\'\]\/g, ' '\);/, "let cleanText = extractedText.replace(/[^a-zA-Z0-9\\s.,!?\\-:;()]/g, ' ');");
-// Wait, the original code is:
-// let cleanText = extractedText.replace(/[{}[\]"']/g, ' ');
-code = code.replace(/let cleanText = extractedText\.replace\(\/\[\{\}\[\\\]"'\]\/g, ' '\);/, "let cleanText = extractedText.replace(/[^a-zA-Z0-9\\s.,!?\\-:;()]/g, ' ');");
+const targetFunctionStart = content.indexOf('async function synthesizeKokoroSpeech');
+const targetFunctionEnd = content.indexOf('app.post(\'/api/tts/cartesia\'');
 
-const regexTimestamps = /const words = cleanText\.split\(\/\\s\+\/\)\.filter\(w => w\.length > 0\);\n    if \(words\.length > 0\) \{\n      const avgDuration = playbackDuration \/ words\.length;\n      mappedTimestamps = words\.map\(\(word, idx\) => \(\{\n        word,\n        start: idx \* avgDuration,\n        end: \(idx \+ 1\) \* avgDuration\n      \}\)\);\n      console\.log\(`\[Kokoro\] Raw duration: \$\{rawDuration\.toFixed\(2\)\}s, Playback duration: \$\{playbackDuration\.toFixed\(2\)\}s, Words: \$\{words\.length\}, Avg per word: \$\{avgDuration\.toFixed\(3\)\}s`\);\n    \}/;
-
-const newTimestamps = `const words = cleanText.split(/\\s+/).filter(w => w.length > 0);
+if (targetFunctionStart !== -1 && targetFunctionEnd !== -1) {
+    let functionBody = content.substring(targetFunctionStart, targetFunctionEnd);
     
-    const cleanedWords = words
+    // Replace the synthetic timestamp block
+    const oldBlockRegex = /if \(mappedTimestamps\.length === 0 && data\.audio_base64\.length > 300\) \{[\s\S]*?const scaleFactor = rawDuration > 0 \? playbackDuration \/ rawDuration : 1;/;
+    
+    const newBlock = `if (mappedTimestamps.length === 0 && data.audio_base64.length > 300) {
+    const words = cleanText
+      .split(/\\s+/)
       .map(w => w.replace(/[^a-zA-Z]/g, ''))
       .filter(w => w.length > 0);
-    
-    const speakableWords = cleanedWords.filter(w => 
-      w.length > 1 || w === 'a' || w === 'i' || w === 'A' || w === 'I'
-    );
-    
-    if (speakableWords.length > 0) {
-      const totalChars = speakableWords.reduce((sum, w) => sum + w.length, 0);
+      
+    if (words.length > 0) {
+      const totalChars = words.reduce((sum, w) => sum + w.length, 0);
       let currentTime = 0;
       
-      mappedTimestamps = speakableWords.map((word) => {
+      mappedTimestamps = words.map((word) => {
         const wordDuration = (word.length / totalChars) * playbackDuration;
         const timestamp = {
           word,
@@ -34,16 +30,29 @@ const newTimestamps = `const words = cleanText.split(/\\s+/).filter(w => w.lengt
         currentTime += wordDuration;
         return timestamp;
       });
-      console.log(\`[Kokoro] Raw duration: \$\{rawDuration.toFixed(2)\}s, Playback duration: \$\{playbackDuration.toFixed(2)\}s, Speakable Words: \$\{speakableWords.length\}\`);
-    } else if (words.length > 0) {
-      const avgDuration = playbackDuration / words.length;
-      mappedTimestamps = words.map((word, idx) => ({
-        word,
-        start: idx * avgDuration,
-        end: (idx + 1) * avgDuration
+      console.log(\`[Kokoro] Raw duration: \${rawDuration.toFixed(2)}s, Playback duration: \${playbackDuration.toFixed(2)}s, Words: \${words.length}\`);
+    }
+  } else if (mappedTimestamps.length > 0) {
+      // Scale native timestamps if any were returned
+      const scaleFactor = rawDuration > 0 ? playbackDuration / rawDuration : 1;
+      mappedTimestamps = mappedTimestamps.map((t: any) => ({
+        ...t,
+        start: +(t.start * scaleFactor).toFixed(4),
+        end: +(t.end * scaleFactor).toFixed(4)
       }));
-    }`;
+  }
 
-code = code.replace(regexTimestamps, newTimestamps);
-fs.writeFileSync('server.ts', code);
-console.log("Patched server.ts with word-length weights");
+  // To prevent the next lines from breaking`;
+
+    functionBody = functionBody.replace(oldBlockRegex, newBlock);
+    
+    // Clean up any remaining scaleFactor mapping outside if it exists
+    const extraMappingRegex = /mappedTimestamps = mappedTimestamps\.map\(\(t: any\) => \(\{[\s\S]*?\}\)\);/;
+    functionBody = functionBody.replace(extraMappingRegex, '');
+    
+    content = content.substring(0, targetFunctionStart) + functionBody + content.substring(targetFunctionEnd);
+    fs.writeFileSync('server.ts', content);
+    console.log("Patched successfully");
+} else {
+    console.log("Could not find function bounds");
+}
