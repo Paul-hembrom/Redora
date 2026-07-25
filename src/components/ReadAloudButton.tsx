@@ -251,6 +251,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         audio.playbackRate = playbackRate;
         audio.src = chunk.audioUrl;
         audioRef.current = audio;
+        
+        console.log('[ReadAloud] Audio element created – src length:', chunk.audioUrl?.length);
 
         // Guard against sparse-array holes: the next chunk may not have
         // arrived yet even though `chunks.length` already reflects a later
@@ -413,6 +415,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         audio.onplay = () => {
+           console.log('[ReadAloud] Audio playing');
            logInfo(`Chunk ${i} started playing.`);
            
            
@@ -422,12 +425,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         audio.onpause = () => {
+           console.log('[ReadAloud] Audio paused');
            logInfo(`Chunk ${i} paused.`);
            cancelAnimationFrame(animationFrameId);
            removeHighlights();
         };
 
         audio.onended = () => {
+           console.log('[ReadAloud] Audio ended');
            logInfo(`Chunk ${i} ended natively.`);
            cancelAnimationFrame(animationFrameId);
            removeHighlights();
@@ -435,6 +440,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         audio.onerror = (e) => {
+          console.error('[ReadAloud] Audio error:', audio.error?.code, audio.error?.message);
           logError(`Chunk ${i} audio element error`, e);
           failedChunks++;
           if (failedChunks > Math.max(1, totalChunks / 2)) {
@@ -448,17 +454,30 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
         try {
           await audio.play();
+          console.log('[ReadAloud] play() succeeded');
           playedChunks++;
-        } catch (e) {
+        } catch (e: any) {
+          console.error('[ReadAloud] play() rejected:', e.message);
           logError(`Chunk ${i} audio play threw error`, e);
-          failedChunks++;
-          if (failedChunks > Math.max(1, totalChunks / 2)) {
-             showError('Audio unavailable for this content. Please try again later.');
-             setIsPlaying(false);
-             isQueuePlaying = false;
-          } else {
-             playNextChunk();
-          }
+          
+          // Retry logic
+          setTimeout(async () => {
+              try {
+                  await audio.play();
+                  console.log('[ReadAloud] retry play() succeeded');
+                  playedChunks++;
+              } catch (retryErr: any) {
+                  console.error('[ReadAloud] retry play() rejected:', retryErr.message);
+                  failedChunks++;
+                  if (failedChunks > Math.max(1, totalChunks / 2)) {
+                     showError('Audio unavailable for this content. Please try again later.');
+                     setIsPlaying(false);
+                     isQueuePlaying = false;
+                  } else {
+                     playNextChunk();
+                  }
+              }
+          }, 200);
         }
       };
 
@@ -562,6 +581,15 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     }
 
     stopIntentRef.current = false;
+    
+    // Unlock audio context for mobile/safari
+    try {
+      const unlockAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+      unlockAudio.play().catch(e => console.log('[ReadAloud] Unlock play caught:', e));
+    } catch (e) {
+      console.log('[ReadAloud] Audio context unlock error:', e);
+    }
+    
     await tryCartesiaTTS();
   };
 
