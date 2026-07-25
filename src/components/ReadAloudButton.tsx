@@ -271,14 +271,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
         }
         
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.src = '';
+        }
         if (!audioRef.current) {
             audioRef.current = new Audio();
             audioRef.current.style.display = 'none';
             document.body.appendChild(audioRef.current);
         }
         const audio = audioRef.current;
-        audio.playbackRate = playbackRate;
         audio.src = chunk.audioUrl;
+        audio.playbackRate = 0.8;
+        audio.defaultPlaybackRate = 0.8;
         
         console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
         console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
@@ -428,10 +433,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
                     let startAdjusted = start_time;
                     let endAdjusted = end_time;
-                    if (i === 0) {
-                        startAdjusted -= 0.150;
-                        endAdjusted -= 0.150;
-                    }
 
                     if (currentTime >= startAdjusted && currentTime < endAdjusted) {
                         const duration = endAdjusted - startAdjusted;
@@ -491,9 +492,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           }
         };
 
+        audio.playbackRate = 0.8;
         const playPromise = audio.play();
         if (playPromise !== undefined) {
             playPromise.then(() => {
+                console.log('[ReadAloud] Actual playbackRate:', audio.playbackRate);
                 console.log('[ReadAloud] play() succeeded');
                 playedChunks++;
             }).catch(err => {
@@ -625,7 +628,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     playSessionIdRef.current += 1;
     
     // Unlock audio context for mobile/safari
-    if (!audioRef.current) {
+    if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.src = '';
+        }
+        if (!audioRef.current) {
         audioRef.current = new Audio();
         audioRef.current.style.display = 'none';
         document.body.appendChild(audioRef.current);
@@ -665,12 +672,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, [text, isPlaying, isLoading, voicesAvailable]);
 
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = playbackRate;
-    }
-  }, [playbackRate]);
-
+  
   const showError = (msg: string) => {
     setErrorMsg(msg);
     if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
