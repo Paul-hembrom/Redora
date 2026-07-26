@@ -745,7 +745,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           onClick={(e) => {
             e.stopPropagation();
             const newHQ = !highQuality;
-            console.log("HQ toggled – now:", newHQ);
+            console.log('HQ toggled – now: ' + newHQ);
             setHighQuality(newHQ);
           }}
           className={cn(

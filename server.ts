@@ -2251,7 +2251,7 @@ app.post('/api/tts/stream', async (req, res) => {
     const modelId = hq ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`;
 
-    console.log(`[TTS] Request received. Text length: ${text.length}, Voice ID: ${voiceId}, Streaming: true, HighQuality: ${hq}`);
+    console.log(hq ? '[TTS] ElevenLabs model: eleven_multilingual_v2 (HQ)' : '[TTS] ElevenLabs model: eleven_flash_v2_5 (Standard)');
     // Chunk by Markdown blocks (paragraphs, lists, etc) separated by double newlines.
     // This perfectly matches the frontend ReactMarkdown block splitting so IDs align perfectly.
     const rawBlocks = text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
