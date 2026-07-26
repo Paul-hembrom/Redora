@@ -12,7 +12,7 @@ import QuizDashboardModal from './components/QuizDashboardModal';
 import { useAuth } from './contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 import { useScrollSync } from './hooks/useScrollSync';
-import { Settings, PlayCircle, Library, Loader2, Sparkles, BookOpen, Clock, Trash2, ArrowRight, Menu, X, Share2, UploadCloud, FileText, CheckCircle2, ChevronRight, Video, FileQuestion, Search, Shield, Info, LogOut, PanelLeftClose, PanelLeftOpen, MessageSquare, Plus, FileImage, User as UserIcon, LogIn, Lock, Check, Zap, Globe, CloudOff, Target, Sun, Moon, RefreshCw, Smartphone, Maximize2, Minimize2 } from 'lucide-react';
+import { Settings, PlayCircle, Library, Loader2, Sparkles, BookOpen, Clock, Trash2, ArrowRight, Menu, X, Share2, UploadCloud, FileText, CheckCircle2, ChevronRight, Video, FileQuestion, Search, Shield, Info, LogOut, PanelLeftClose, PanelLeftOpen, MessageSquare, Plus, FileImage, User as UserIcon, LogIn, Lock, Check, Zap, Globe, CloudOff, Target, Sun, Moon, RefreshCw, Smartphone, Maximize2, Minimize2, Maximize, Minimize } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
