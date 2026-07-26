@@ -175,7 +175,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const res = await fetch('/api/tts/cartesia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, highQuality })
+        body: JSON.stringify({ text, hq: highQuality })
       });
       if (!res.ok || !res.body) {
         throw new Error(`API returned ${res.status}`);
@@ -687,7 +687,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       btn.removeEventListener('click', handleClick);
       btn.removeEventListener('touchstart', handleTouchStart);
     };
-  }, [text, isPlaying, isLoading, voicesAvailable]);
+  }, [text, isPlaying, isLoading, voicesAvailable, highQuality]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -744,7 +744,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setHighQuality(!highQuality);
+            const newHQ = !highQuality;
+            console.log("HQ toggled – now:", newHQ);
+            setHighQuality(newHQ);
           }}
           className={cn(
             "text-[10px] font-mono px-1 rounded transition-colors z-10 hidden sm:block",
