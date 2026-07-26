@@ -281,3 +281,9 @@ h1, h2, h3, h4, h5, h6 {
   .prose-6xl p, .prose-6xl ul, .prose-6xl ol { margin-top: 1.2em; margin-bottom: 1.2em; }
   .prose-6xl li { margin-top: 0.5em; margin-bottom: 0.5em; }
 }
+
+@layer utilities {
+  [id^="tts-sentence-"], [id^="tts-chapter-"], [id^="tts-summary-"] {
+    scroll-margin-top: 1rem; /* A bit more breathing room as headers might stick sometimes, though focus mode hides headers */
+  }
+}

@@ -412,7 +412,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                hasScrolled = true;
                const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
                if (sentenceSpan) {
-                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'start' });
                } else {
                  const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
                  const scopeRoot = getScopeRoot();
@@ -421,7 +421,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                      fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
                  }
                  if (fallbackEl) {
-                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                  }
                }
             }
