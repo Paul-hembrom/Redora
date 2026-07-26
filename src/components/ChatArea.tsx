@@ -147,6 +147,7 @@ const InteractiveQuiz = ({ questions, chapterTitle }: { questions: any[], chapte
 };
 
 interface Props {
+  isFocusMode?: boolean;
   chapter: Chapter;
   documentId?: string;
   onClearChats: () => void;
@@ -1100,6 +1101,7 @@ const handleFetchImages = async () => {
               </button>
             </div>
           )}
+          {!isFocusMode && (
           <div className={cn("flex items-center shrink-0 gap-1.5 bg-black/40 p-1 rounded-lg border border-white/5 pr-2", isOffline && "opacity-50 pointer-events-none")}>
             <button onClick={handleFetchVideos} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Find educational videos">
               <Video className="w-3.5 h-3.5" /> Videos
@@ -1165,6 +1167,7 @@ const handleFetchImages = async () => {
               <CloudDownload className="w-3.5 h-3.5" /> Save Offline
             </button>
           </div>
+          )}
           <button
             onClick={() => {
               const content = messages.map(m => `${m.role === 'user' ? 'You' : 'AI'}:\n${m.text}`).join('\n\n---\n\n');

@@ -12,7 +12,7 @@ import QuizDashboardModal from './components/QuizDashboardModal';
 import { useAuth } from './contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 import { useScrollSync } from './hooks/useScrollSync';
-import { BookOpen, LogOut, User as UserIcon, Menu, X, Search, UploadCloud, Sun, Moon, Lock, RefreshCw, Loader2, Maximize, Minimize, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Settings, PlayCircle, Library, Loader2, Sparkles, BookOpen, Clock, Trash2, ArrowRight, Menu, X, Share2, UploadCloud, FileText, CheckCircle2, ChevronRight, Video, FileQuestion, Search, Shield, Info, LogOut, PanelLeftClose, PanelLeftOpen, MessageSquare, Plus, FileImage, User as UserIcon, LogIn, Lock, Check, Zap, Globe, CloudOff, Target, Sun, Moon, RefreshCw, Smartphone, Maximize2, Minimize2 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -106,6 +106,10 @@ export default function App() {
       await document.exitFullscreen().catch(err => console.error(err));
     }
   };
+  const [isFocusMode, setIsFocusMode] = useState(() => localStorage.getItem('readora_focus_mode') === 'true');
+  useEffect(() => {
+    localStorage.setItem('readora_focus_mode', isFocusMode.toString());
+  }, [isFocusMode]);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isTerminologyModalOpen, setIsTerminologyModalOpen] = useState(false);
   const [terminologyDoc, setTerminologyDoc] = useState<Document | null>(null);
@@ -500,7 +504,7 @@ export default function App() {
           <button onClick={() => setShowLogin(true)} className="text-sm font-medium text-cyan-400 hover:text-cyan-300">Sign in to interact</button>
         </header>
         <div className="flex-1 overflow-hidden">
-          <DocumentReader document={sharedPublicDoc} initialScrollChapterId={initialScrollChapterId} />
+          <DocumentReader isFocusMode={isFocusMode} document={sharedPublicDoc} initialScrollChapterId={initialScrollChapterId} />
         </div>
       </div>
     );
@@ -802,6 +806,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Top Navigation Header */}
+      {!isFocusMode && (
       <header className="h-16 border-b border-white/5 bg-[#0a0a0a]/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 shrink-0 z-30 relative">
         <div className="flex items-center gap-3">
           <button 
@@ -856,6 +861,13 @@ export default function App() {
             )}
           </button>
           <button
+            onClick={() => setIsFocusMode(true)}
+            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+            title="Enter Focus Mode"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+          <button
             onClick={toggleTheme}
             className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
           >
@@ -883,7 +895,17 @@ export default function App() {
           </button>
         </div>
       </header>
+      )}
 
+      {isFocusMode && (
+        <button
+          onClick={() => setIsFocusMode(false)}
+          className="fixed top-4 right-4 z-50 w-12 h-12 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:bg-black/80 transition-all shadow-xl shadow-black/50"
+          title="Exit Focus Mode"
+        >
+          <Minimize2 className="w-5 h-5" />
+        </button>
+      )}
       {isOffline && (
         <div className="bg-orange-500/10 border-b border-orange-500/20 px-4 py-2 flex items-center justify-center text-orange-400 text-xs md:text-sm font-medium w-full z-40 shrink-0">
           You are offline. Some features (AI chat, video generation) are unavailable.
@@ -932,7 +954,7 @@ export default function App() {
           "absolute md:static inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out flex",
           isSidebarOpen ? "translate-x-0" : "-translate-x-full",
           !isSidebarOpen && !isDesktopSidebarCollapsed ? "md:translate-x-0" : "",
-          isDesktopSidebarCollapsed ? "md:hidden" : ""
+          isDesktopSidebarCollapsed || isFocusMode ? "md:hidden" : ""
         )}>
           <Sidebar 
             documents={safeDocuments}
@@ -999,7 +1021,7 @@ export default function App() {
             }
 
             if (selectedChapterId === 'read_all' && selectedDoc) {
-              return <DocumentReader document={selectedDoc} initialScrollChapterId={initialScrollChapterId} />;
+              return <DocumentReader isFocusMode={isFocusMode} document={selectedDoc} initialScrollChapterId={initialScrollChapterId} />;
             }
 
             let hasPrevChapter = false;
@@ -1023,6 +1045,7 @@ export default function App() {
 
             return activeChapter ? (
               <ChatArea 
+                isFocusMode={isFocusMode}
                 chapter={activeChapter}
                 documentId={selectedDoc?.id}
                 onClearChats={() => {

@@ -10,11 +10,12 @@ import { smartNormalizeText } from '../lib/utils';
 import html2pdf from 'html2pdf.js';
 
 interface Props {
+  isFocusMode?: boolean;
   document: Document;
   initialScrollChapterId?: string | null;
 }
 
-export default function DocumentReader({ document, initialScrollChapterId }: Props) {
+export default function DocumentReader({ isFocusMode, document, initialScrollChapterId }: Props) {
   const chapterRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readingProgress, setReadingProgress] = useState<Record<string, number>>({});
@@ -132,6 +133,7 @@ export default function DocumentReader({ document, initialScrollChapterId }: Pro
   return (
     <div className="flex-1 flex flex-col md:flex-row h-full w-full bg-[#050505]">
       {/* Table of Contents - Sidebar */}
+      {!isFocusMode && (
       <div className="w-full md:w-64 border-r border-white/5 bg-[#0a0a0a]/50 p-4 shrink-0 overflow-y-auto">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50 mb-4 flex items-center gap-2">
           <BookOpen className="w-4 h-4" /> Table of Contents
@@ -161,6 +163,7 @@ export default function DocumentReader({ document, initialScrollChapterId }: Pro
           })}
         </ul>
       </div>
+      )}
 
       {/* Reader View */}
       <div 

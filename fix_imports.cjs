@@ -1,7 +1,9 @@
 const fs = require('fs');
-let code = fs.readFileSync('src/components/MarkdownComponents.tsx', 'utf8');
+let code = fs.readFileSync('src/App.tsx', 'utf8');
 
-code = code.replace(/import React, \{ useState \} from 'react';/, "import React, { useState, useId } from 'react';");
+const importRegex = /import \{\s*([^}]+)\s*\} from 'lucide-react';/;
+code = code.replace(importRegex, (match, p1) => {
+  return `import { \${p1}, Maximize2, Minimize2 } from 'lucide-react';`;
+});
 
-fs.writeFileSync('src/components/MarkdownComponents.tsx', code);
-console.log("fixed imports");
+fs.writeFileSync('src/App.tsx', code);
