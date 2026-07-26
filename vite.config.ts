@@ -11,10 +11,21 @@ export default defineConfig(({mode}) => {
     plugins: [
       react(), 
       tailwindcss(),
+      {
+        name: 'html-transform',
+        transformIndexHtml(html) {
+          return html.replace(
+            /(<script type="module" crossorigin src="\/assets\/index-[^"]+\.js)("><\/script>)/,
+            `$1?v=${Date.now()}$2`
+          );
+        }
+      },
       VitePWA({
         registerType: 'autoUpdate',
         devOptions: { enabled: true },
         workbox: {
+          clientsClaim: true,
+          skipWaiting: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,ttf}'],
           globIgnores: ['server.js', 'server.cjs'],
           maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,

@@ -399,6 +399,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         
 
         const highlightLoop = () => {
+            if (!(window as any)._firstRafLog) {
+                console.log('[Frontend] highlightLoop started running!');
+                (window as any)._firstRafLog = true;
+            }
             if (currentSessionId !== playSessionIdRef.current || audio.paused || audio.ended) return;
 
             const currentTime = audio.currentTime;
@@ -434,8 +438,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                     let startAdjusted = start_time;
                     let endAdjusted = end_time;
 
-                    const wordSpan = document.getElementById(spanId);
-                const activeWordText = wordSpan ? wordSpan.innerText : 'unknown';
+                const activeWordText = span ? span.innerText : 'unknown';
                 if (!(window as any)._lastRafLog || Date.now() - (window as any)._lastRafLog > 1000) {
                     console.log('[Frontend] RAF – currentTime:', currentTime.toFixed(2), 'active word:', activeWordText, 'progress:', (span.style.background ? 'active' : 'inactive'));
                     (window as any)._lastRafLog = Date.now();
