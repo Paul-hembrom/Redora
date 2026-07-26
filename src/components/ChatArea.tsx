@@ -228,7 +228,7 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
   );
 }
 
-export default function ChatArea({ chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
+export default function ChatArea({ isFocusMode, chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
   const { user, isOffline } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [videoResults, setVideoResults] = useState<any[]>([]);
