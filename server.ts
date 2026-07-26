@@ -1935,10 +1935,10 @@ function createFloat32WavHeader(dataLength: number, sampleRate: number): Buffer 
 // - bm_george
 // - bm_lewis
 // - af_bella
-async function synthesizeKokoroSpeech(text: string, voice = "af_bella") {
+async function synthesizeKokoroSpeech(text: string, voice = "af_sarah") {
   // Ensure we map to a supported voice, default to af_bella
-  const supportedVoices = ["bf_emma", "bf_isabella", "bm_george", "bm_lewis", "af_bella"];
-  const kokoroVoice = supportedVoices.includes(voice) ? voice : "af_bella";
+  const supportedVoices = ["bf_emma", "bf_isabella", "bm_george", "bm_lewis", "af_bella", "af_sarah"];
+  const kokoroVoice = supportedVoices.includes(voice) ? voice : "af_sarah";
 
   let extractedText = typeof text === 'string' ? text : ((text as any)?.text || String(text));
   try {
