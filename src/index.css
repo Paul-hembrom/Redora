@@ -228,3 +228,35 @@ h1, h2, h3, h4, h5, h6 {
     @apply font-sans;
   }
 }
+@layer utilities {
+  .prose-3xl {
+    font-size: 1.875rem;
+    line-height: 1.4;
+  }
+  .prose-3xl h1 {
+    font-size: 3rem;
+    line-height: 1.1;
+    margin-top: 0;
+    margin-bottom: 0.8em;
+  }
+  .prose-3xl h2 {
+    font-size: 2.25rem;
+    line-height: 1.2;
+    margin-top: 1.5em;
+    margin-bottom: 0.8em;
+  }
+  .prose-3xl h3 {
+    font-size: 2rem;
+    line-height: 1.3;
+    margin-top: 1.5em;
+    margin-bottom: 0.8em;
+  }
+  .prose-3xl p, .prose-3xl ul, .prose-3xl ol {
+    margin-top: 1.2em;
+    margin-bottom: 1.2em;
+  }
+  .prose-3xl li {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+}

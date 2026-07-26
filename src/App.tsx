@@ -908,17 +908,18 @@ export default function App() {
             <input 
               type="range" 
               min="0" 
-              max="2" 
+              max="4" 
               step="1"
-              value={focusFontSize === 'base' ? 0 : focusFontSize === 'lg' ? 1 : 2}
+              value={focusFontSize === 'base' ? 0 : focusFontSize === 'lg' ? 1 : focusFontSize === 'xl' ? 2 : focusFontSize === '2xl' ? 3 : 4}
               onChange={(e) => {
-                const val = e.target.value;
-                setFocusFontSize(val === '0' ? 'base' : val === '1' ? 'lg' : 'xl');
+                const sizes = ['base', 'lg', 'xl', '2xl', '3xl'];
+                setFocusFontSize(sizes[e.target.value]);
               }}
-              className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+              className="w-24 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-cyan-400"
               title="Adjust Font Size"
             />
             <span className="text-lg font-semibold">A</span>
+            <span className="text-xs font-mono ml-2 opacity-50 w-8">{focusFontSize}</span>
           </div>
           <div className="w-px h-6 bg-white/10" />
           <button
