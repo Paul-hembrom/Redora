@@ -4,6 +4,7 @@ import { BookOpen, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { markdownComponents, QuestionContext } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
+import { cn } from '../lib/utils';
 import { ReadAloudButton } from './ReadAloudButton';
 import { smartNormalizeText } from '../lib/utils';
 // @ts-ignore
@@ -171,7 +172,7 @@ export default function DocumentReader({ isFocusMode, document, initialScrollCha
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-8 lg:p-12 scroll-smooth"
       >
-        <div className="max-w-4xl mx-auto space-y-16">
+        <div className={cn("space-y-16", isFocusMode ? "max-w-none px-4 md:px-12 mx-auto" : "max-w-4xl mx-auto")}>
           <div className="border-b border-white/10 pb-8 flex justify-between items-start">
             <h1 className="text-3xl font-display font-bold text-white mb-4">{document.name}</h1>
             {flatChapters.length > 0 && (
@@ -226,7 +227,7 @@ export default function DocumentReader({ isFocusMode, document, initialScrollCha
                       <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400">Summary</h4>
                       <ReadAloudButton text={chapter.summary} className="bg-transparent" iconSizeClasses="w-4 h-4" idPrefix="tts-summary-" />
                     </div>
-                    <div className="prose prose-invert prose-sm max-w-none text-white/70 font-light">
+                    <div className={cn("prose prose-invert max-w-none text-white/70 font-light", isFocusMode ? "prose-xl" : "prose-sm")}>
                       {(() => {
                         const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
                         let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
@@ -246,7 +247,7 @@ export default function DocumentReader({ isFocusMode, document, initialScrollCha
                     </div>
                   </div>
                 )}
-                <div className="prose prose-invert max-w-none text-white/80 font-serif leading-relaxed markdown-body">
+                <div className={cn("prose prose-invert max-w-none text-white/80 font-serif leading-relaxed markdown-body", isFocusMode ? "prose-xl" : "")}>
                   {(() => {
                     const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);

@@ -1211,7 +1211,7 @@ const handleFetchImages = async () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="flex gap-3 md:gap-6 max-w-4xl mx-auto w-full"
+          className={cn("flex gap-3 md:gap-6 w-full", isFocusMode ? "max-w-none px-4 md:px-12 mx-auto" : "max-w-4xl mx-auto")}
         >
           <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
             <Sparkles className="w-5 h-5" />
@@ -1220,7 +1220,7 @@ const handleFetchImages = async () => {
             {chapter.summary && (
               <div className="space-y-3">
                 <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
-                <div className="prose prose-invert prose-sm max-w-none text-white/70 leading-relaxed font-light break-words">
+                <div className={cn("prose prose-invert max-w-none text-white/70 leading-relaxed font-light break-words", isFocusMode ? "prose-xl" : "prose-sm")}>
                   {(() => {
                     const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
@@ -1257,7 +1257,7 @@ const handleFetchImages = async () => {
                       ? '📝 ' + (chapter.title || 'Chapter Summary')
                       : (chapter.title || 'Chapter Content')}
                 </div>
-                <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words">
+                <div className={cn("prose prose-invert max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words", isFocusMode ? "prose-xl" : "prose-sm")}>
                   {(() => {
                     const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
@@ -1368,7 +1368,7 @@ const handleFetchImages = async () => {
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
-              className={cn("flex gap-3 md:gap-6 max-w-4xl mx-auto w-full group", msg.role === 'user' ? "flex-row-reverse" : "")}
+              className={cn("flex gap-3 md:gap-6 w-full group", isFocusMode ? "max-w-none px-4 md:px-12 mx-auto" : "max-w-4xl mx-auto", msg.role === 'user' ? "flex-row-reverse" : "")}
             >
               <div className={cn(
                 "w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg text-sm md:text-base",
@@ -1385,7 +1385,7 @@ const handleFetchImages = async () => {
                     ? "bg-white/5 border border-white/10 text-white rounded-tr-sm hover:bg-white/10" 
                     : "bg-transparent text-white/80 hover:bg-white/[0.02]"
                 )}>
-                  <div className="prose prose-invert prose-sm max-w-none font-light leading-relaxed break-words">
+                  <div className={cn("prose prose-invert max-w-none font-light leading-relaxed break-words", isFocusMode ? "prose-xl" : "prose-sm")}>
                     {msg.type && msg.type !== 'text' && msg.type !== 'image_fallback' ? (
                       <p className="text-xs font-semibold uppercase tracking-wider opacity-50 mb-2">{msg.text}</p>
                     ) : (
@@ -1554,7 +1554,7 @@ const handleFetchImages = async () => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="flex gap-3 md:gap-6 max-w-4xl mx-auto w-full"
+            className={cn("flex gap-3 md:gap-6 w-full", isFocusMode ? "max-w-none px-4 md:px-12 mx-auto" : "max-w-4xl mx-auto")}
           >
             <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_15px_rgba(34,211,238,0.15)]">
               <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" />
@@ -1573,7 +1573,7 @@ const handleFetchImages = async () => {
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="max-w-4xl mx-auto w-full p-5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex flex-col items-start gap-3 shadow-sm"
+            className={cn("w-full p-5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex flex-col items-start gap-3 shadow-sm", isFocusMode ? "max-w-none px-4 md:px-12 mx-auto" : "max-w-4xl mx-auto")}
           >
             <div className="flex gap-3 items-start w-full">
               <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -1594,7 +1594,7 @@ const handleFetchImages = async () => {
       </div>
 
       <div className="p-4 md:p-6 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent shrink-0 relative z-10">
-        <div className="max-w-4xl mx-auto">
+        <div className={cn("transition-all duration-300", isFocusMode ? "max-w-none px-4 md:px-12 mx-auto w-full" : "max-w-4xl mx-auto")}>
           <form ref={formRef} onSubmit={handleSubmit} className="relative flex items-end gap-2 md:gap-3 bg-white/5 border border-white/10 rounded-2xl p-1.5 md:p-2 focus-within:border-cyan-500/50 focus-within:bg-white/[0.07] transition-all duration-300 shadow-lg backdrop-blur-sm">
             <textarea
               value={input}
