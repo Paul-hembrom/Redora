@@ -12,11 +12,12 @@ import html2pdf from 'html2pdf.js';
 
 interface Props {
   isFocusMode?: boolean;
+  focusFontSize?: string;
   document: Document;
   initialScrollChapterId?: string | null;
 }
 
-export default function DocumentReader({ isFocusMode, document, initialScrollChapterId }: Props) {
+export default function DocumentReader({ isFocusMode, focusFontSize = "xl", document, initialScrollChapterId }: Props) {
   const chapterRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readingProgress, setReadingProgress] = useState<Record<string, number>>({});
@@ -227,7 +228,7 @@ export default function DocumentReader({ isFocusMode, document, initialScrollCha
                       <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400">Summary</h4>
                       <ReadAloudButton text={chapter.summary} className="bg-transparent" iconSizeClasses="w-4 h-4" idPrefix="tts-summary-" />
                     </div>
-                    <div className={cn("prose prose-invert max-w-none text-white/70 font-light", isFocusMode ? "prose-xl" : "prose-sm")}>
+                    <div className={cn("prose prose-invert max-w-none text-white/70 font-light", isFocusMode ? `prose-${focusFontSize}` : "prose-sm")}>
                       {(() => {
                         const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
                         let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
@@ -247,7 +248,7 @@ export default function DocumentReader({ isFocusMode, document, initialScrollCha
                     </div>
                   </div>
                 )}
-                <div className={cn("prose prose-invert max-w-none text-white/80 font-serif leading-relaxed markdown-body", isFocusMode ? "prose-xl" : "")}>
+                <div className={cn("prose prose-invert max-w-none text-white/80 font-serif leading-relaxed markdown-body", isFocusMode ? `prose-${focusFontSize}` : "")}>
                   {(() => {
                     const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);

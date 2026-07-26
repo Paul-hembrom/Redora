@@ -148,6 +148,7 @@ const InteractiveQuiz = ({ questions, chapterTitle }: { questions: any[], chapte
 
 interface Props {
   isFocusMode?: boolean;
+  focusFontSize?: string;
   chapter: Chapter;
   documentId?: string;
   onClearChats: () => void;
@@ -228,7 +229,7 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
   );
 }
 
-export default function ChatArea({ isFocusMode, chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
+export default function ChatArea({ isFocusMode, focusFontSize = "xl", chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
   const { user, isOffline } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [videoResults, setVideoResults] = useState<any[]>([]);
@@ -1220,7 +1221,7 @@ const handleFetchImages = async () => {
             {chapter.summary && (
               <div className="space-y-3">
                 <p className="text-xs font-display font-semibold text-cyan-400 tracking-widest uppercase">Chapter Summary</p>
-                <div className={cn("prose prose-invert max-w-none text-white/70 leading-relaxed font-light break-words", isFocusMode ? "prose-xl" : "prose-sm")}>
+                <div className={cn("prose prose-invert max-w-none text-white/70 leading-relaxed font-light break-words", isFocusMode ? `prose-${focusFontSize}` : "prose-sm")}>
                   {(() => {
                     const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
@@ -1257,7 +1258,7 @@ const handleFetchImages = async () => {
                       ? '📝 ' + (chapter.title || 'Chapter Summary')
                       : (chapter.title || 'Chapter Content')}
                 </div>
-                <div className={cn("prose prose-invert max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words", isFocusMode ? "prose-xl" : "prose-sm")}>
+                <div className={cn("prose prose-invert max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap rounded-xl bg-white/[0.02] border border-white/5 p-6 break-words", isFocusMode ? `prose-${focusFontSize}` : "prose-sm")}>
                   {(() => {
                     const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
@@ -1385,7 +1386,7 @@ const handleFetchImages = async () => {
                     ? "bg-white/5 border border-white/10 text-white rounded-tr-sm hover:bg-white/10" 
                     : "bg-transparent text-white/80 hover:bg-white/[0.02]"
                 )}>
-                  <div className={cn("prose prose-invert max-w-none font-light leading-relaxed break-words", isFocusMode ? "prose-xl" : "prose-sm")}>
+                  <div className={cn("prose prose-invert max-w-none font-light leading-relaxed break-words", isFocusMode ? `prose-${focusFontSize}` : "prose-sm")}>
                     {msg.type && msg.type !== 'text' && msg.type !== 'image_fallback' ? (
                       <p className="text-xs font-semibold uppercase tracking-wider opacity-50 mb-2">{msg.text}</p>
                     ) : (

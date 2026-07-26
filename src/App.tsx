@@ -107,9 +107,13 @@ export default function App() {
     }
   };
   const [isFocusMode, setIsFocusMode] = useState(() => localStorage.getItem('readora_focus_mode') === 'true');
+  const [focusFontSize, setFocusFontSize] = useState(() => localStorage.getItem('readora_focus_font_size') || 'xl');
   useEffect(() => {
     localStorage.setItem('readora_focus_mode', isFocusMode.toString());
   }, [isFocusMode]);
+  useEffect(() => {
+    localStorage.setItem('readora_focus_font_size', focusFontSize);
+  }, [focusFontSize]);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isTerminologyModalOpen, setIsTerminologyModalOpen] = useState(false);
   const [terminologyDoc, setTerminologyDoc] = useState<Document | null>(null);
@@ -504,7 +508,7 @@ export default function App() {
           <button onClick={() => setShowLogin(true)} className="text-sm font-medium text-cyan-400 hover:text-cyan-300">Sign in to interact</button>
         </header>
         <div className="flex-1 overflow-hidden">
-          <DocumentReader isFocusMode={isFocusMode} document={sharedPublicDoc} initialScrollChapterId={initialScrollChapterId} />
+          <DocumentReader isFocusMode={isFocusMode} focusFontSize={focusFontSize} document={sharedPublicDoc} initialScrollChapterId={initialScrollChapterId} />
         </div>
       </div>
     );
@@ -898,13 +902,33 @@ export default function App() {
       )}
 
       {isFocusMode && (
-        <button
-          onClick={() => setIsFocusMode(false)}
-          className="fixed top-4 right-4 z-50 w-12 h-12 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:bg-black/80 transition-all shadow-xl shadow-black/50"
-          title="Exit Focus Mode"
-        >
-          <Minimize2 className="w-5 h-5" />
-        </button>
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-3 p-1.5 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 shadow-xl shadow-black/50">
+          <div className="flex items-center gap-2 px-3 text-white/60">
+            <span className="text-xs font-semibold">A</span>
+            <input 
+              type="range" 
+              min="0" 
+              max="2" 
+              step="1"
+              value={focusFontSize === 'base' ? 0 : focusFontSize === 'lg' ? 1 : 2}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFocusFontSize(val === '0' ? 'base' : val === '1' ? 'lg' : 'xl');
+              }}
+              className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+              title="Adjust Font Size"
+            />
+            <span className="text-lg font-semibold">A</span>
+          </div>
+          <div className="w-px h-6 bg-white/10" />
+          <button
+            onClick={() => setIsFocusMode(false)}
+            className="w-9 h-9 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-all"
+            title="Exit Focus Mode"
+          >
+            <Minimize2 className="w-4 h-4" />
+          </button>
+        </div>
       )}
       {isOffline && (
         <div className="bg-orange-500/10 border-b border-orange-500/20 px-4 py-2 flex items-center justify-center text-orange-400 text-xs md:text-sm font-medium w-full z-40 shrink-0">
@@ -1021,7 +1045,7 @@ export default function App() {
             }
 
             if (selectedChapterId === 'read_all' && selectedDoc) {
-              return <DocumentReader isFocusMode={isFocusMode} document={selectedDoc} initialScrollChapterId={initialScrollChapterId} />;
+              return <DocumentReader isFocusMode={isFocusMode} focusFontSize={focusFontSize} document={selectedDoc} initialScrollChapterId={initialScrollChapterId} />;
             }
 
             let hasPrevChapter = false;
@@ -1046,6 +1070,7 @@ export default function App() {
             return activeChapter ? (
               <ChatArea 
                 isFocusMode={isFocusMode}
+                focusFontSize={focusFontSize}
                 chapter={activeChapter}
                 documentId={selectedDoc?.id}
                 onClearChats={() => {
