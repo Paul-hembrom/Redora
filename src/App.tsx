@@ -865,7 +865,7 @@ export default function App() {
             )}
           </button>
           <button
-            onClick={() => setIsFocusMode(true)}
+            onClick={() => { setIsFocusMode(true); setFocusFontSize('3xl'); }}
             className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
             title="Enter Focus Mode"
           >
