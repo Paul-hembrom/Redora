@@ -418,9 +418,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                const doScroll = (el: Element) => {
                  if (isLargeFont) {
                    const rect = el.getBoundingClientRect();
-                   const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                   const targetY = rect.top + scrollTop - 20;
-                   window.scrollTo({ top: targetY, behavior: 'smooth' });
+                   if (rect.top > 0) {
+                     window.scrollBy({ top: rect.top - 8, behavior: 'smooth' });
+                   }
                  } else {
                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                  }
