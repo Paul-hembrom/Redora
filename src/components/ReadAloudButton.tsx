@@ -416,25 +416,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusSize);
                console.log('Auto-scroll mode:', isLargeFont ? 'push-up' : 'scrollIntoView', 'font size:', focusSize);
 
-               const doScroll = (el: Element) => {
-                 if (isLargeFont) {
-                   const rect = el.getBoundingClientRect();
-                   const container = el.closest('.overflow-y-auto') || el.closest('.custom-scrollbar');
-                   if (container) {
-                     const containerRect = container.getBoundingClientRect();
-                     const offset = rect.top - containerRect.top;
-                     container.scrollBy({ top: offset - 8, behavior: 'smooth' });
-                   } else {
-                     window.scrollBy({ top: rect.top - 8, behavior: 'smooth' });
-                   }
-                 } else {
-                   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+               const debouncedScroll = (el: Element) => {
+                 if ((window as any)._scrollTimeout) {
+                   clearTimeout((window as any)._scrollTimeout);
                  }
+                 (window as any)._scrollTimeout = setTimeout(() => {
+                   if (isLargeFont) {
+                     const rect = el.getBoundingClientRect();
+                     const absoluteTop = window.pageYOffset + rect.top;
+                     window.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
+                   } else {
+                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                   }
+                 }, 50);
                };
 
                const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
                if (sentenceSpan) {
-                 doScroll(sentenceSpan);
+                 debouncedScroll(sentenceSpan);
                } else {
                  const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
                  const scopeRoot = getScopeRoot();
@@ -443,7 +442,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                      fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
                  }
                  if (fallbackEl) {
-                     doScroll(fallbackEl);
+                     debouncedScroll(fallbackEl);
                  }
                }
             }

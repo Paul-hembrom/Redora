@@ -243,7 +243,7 @@ h1, h2, h3, h4, h5, h6 {
 
   .prose-3xl {
     font-size: 1.875rem;
-    line-height: 1.625;
+    line-height: 1.25;
   }
   .prose-3xl h1 { font-size: 3rem; line-height: 1.1; margin-top: 0; margin-bottom: 0.8em; }
   .prose-3xl h2 { font-size: 2.25rem; line-height: 1.2; margin-top: 1.5em; margin-bottom: 0.8em; }
@@ -253,7 +253,7 @@ h1, h2, h3, h4, h5, h6 {
 
   .prose-4xl {
     font-size: 2.25rem;
-    line-height: 1.625;
+    line-height: 1.25;
   }
   .prose-4xl h1 { font-size: 3.75rem; line-height: 1.1; margin-top: 0; margin-bottom: 0.8em; }
   .prose-4xl h2 { font-size: 3rem; line-height: 1.2; margin-top: 1.5em; margin-bottom: 0.8em; }
