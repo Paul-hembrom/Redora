@@ -410,9 +410,25 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             
             if (currentTime > 0.05 && !hasScrolled) {
                hasScrolled = true;
+
+               const isFocusMode = localStorage.getItem('readora_focus_mode') === 'true';
+               const focusSize = localStorage.getItem('readora_focus_font_size') || 'xl';
+               const isLargeFont = isFocusMode && ['3xl', '4xl', '5xl', '6xl'].includes(focusSize);
+
+               const doScroll = (el: Element) => {
+                 if (isLargeFont) {
+                   const rect = el.getBoundingClientRect();
+                   const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                   const targetY = rect.top + scrollTop - 20;
+                   window.scrollTo({ top: targetY, behavior: 'smooth' });
+                 } else {
+                   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                 }
+               };
+
                const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
                if (sentenceSpan) {
-                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                 doScroll(sentenceSpan);
                } else {
                  const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
                  const scopeRoot = getScopeRoot();
@@ -421,7 +437,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                      fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
                  }
                  if (fallbackEl) {
-                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                     doScroll(fallbackEl);
                  }
                }
             }
