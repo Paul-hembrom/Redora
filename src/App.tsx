@@ -102,6 +102,7 @@ export default function App() {
     if (!document.fullscreenElement) {
       await document.documentElement.requestFullscreen().catch(err => console.error(err));
       setIsDesktopSidebarCollapsed(true);
+      setFocusFontSize('3xl');
     } else {
       await document.exitFullscreen().catch(err => console.error(err));
     }

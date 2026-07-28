@@ -444,7 +444,30 @@ export default function ChatArea({ isFocusMode, focusFontSize = "3xl", chapter, 
   }, [messages, chapter.id, isOffline]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if ((window as any)._chatScrollTimeout) {
+      clearTimeout((window as any)._chatScrollTimeout);
+    }
+    (window as any)._chatScrollTimeout = setTimeout(() => {
+      if (messagesEndRef.current) {
+        const focusSize = focusFontSize ? focusFontSize.toLowerCase() : '3xl';
+        const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusSize);
+        console.log('ChatArea auto-scroll mode:', isLargeFont ? 'push-up' : 'scrollIntoView', 'font size:', focusSize);
+        if (isLargeFont) {
+          const rect = messagesEndRef.current.getBoundingClientRect();
+          const container = messagesEndRef.current.closest('.overflow-y-auto') || messagesEndRef.current.closest('.custom-scrollbar');
+          if (container) {
+            const containerRect = container.getBoundingClientRect();
+            const absoluteTop = container.scrollTop + (rect.top - containerRect.top);
+            container.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
+          } else {
+            const absoluteTop = window.pageYOffset + rect.top;
+            window.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
+          }
+        } else {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+    }, 50);
   };
 
   useEffect(() => {

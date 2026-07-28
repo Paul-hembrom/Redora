@@ -423,8 +423,15 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                  (window as any)._scrollTimeout = setTimeout(() => {
                    if (isLargeFont) {
                      const rect = el.getBoundingClientRect();
-                     const absoluteTop = window.pageYOffset + rect.top;
-                     window.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
+                     const container = el.closest('.overflow-y-auto') || el.closest('.custom-scrollbar');
+                     if (container) {
+                       const containerRect = container.getBoundingClientRect();
+                       const absoluteTop = container.scrollTop + (rect.top - containerRect.top);
+                       container.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
+                     } else {
+                       const absoluteTop = window.pageYOffset + rect.top;
+                       window.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
+                     }
                    } else {
                      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                    }
