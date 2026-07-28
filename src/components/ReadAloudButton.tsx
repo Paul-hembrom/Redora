@@ -419,7 +419,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                const doScroll = (el: Element) => {
                  if (isLargeFont) {
                    const rect = el.getBoundingClientRect();
-                   if (rect.top > 0) {
+                   const container = el.closest('.overflow-y-auto') || el.closest('.custom-scrollbar');
+                   if (container) {
+                     const containerRect = container.getBoundingClientRect();
+                     const offset = rect.top - containerRect.top;
+                     container.scrollBy({ top: offset - 8, behavior: 'smooth' });
+                   } else {
                      window.scrollBy({ top: rect.top - 8, behavior: 'smooth' });
                    }
                  } else {
