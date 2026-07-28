@@ -412,8 +412,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                hasScrolled = true;
 
                const isFocusMode = localStorage.getItem('readora_focus_mode') === 'true';
-               const focusSize = localStorage.getItem('readora_focus_font_size') || 'xl';
-               const isLargeFont = isFocusMode && ['3xl', '4xl', '5xl', '6xl'].includes(focusSize);
+               const focusSize = (localStorage.getItem('readora_focus_font_size') || 'xl').toLowerCase();
+               const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusSize);
+               console.log('Auto-scroll mode:', isLargeFont ? 'push-up' : 'scrollIntoView', 'font size:', focusSize);
 
                const doScroll = (el: Element) => {
                  if (isLargeFont) {
