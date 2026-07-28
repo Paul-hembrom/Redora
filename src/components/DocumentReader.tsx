@@ -17,7 +17,7 @@ interface Props {
   initialScrollChapterId?: string | null;
 }
 
-export default function DocumentReader({ isFocusMode, focusFontSize = "xl", document, initialScrollChapterId }: Props) {
+export default function DocumentReader({ isFocusMode, focusFontSize = "3xl", document, initialScrollChapterId }: Props) {
   const chapterRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readingProgress, setReadingProgress] = useState<Record<string, number>>({});

@@ -107,7 +107,7 @@ export default function App() {
     }
   };
   const [isFocusMode, setIsFocusMode] = useState(() => localStorage.getItem('readora_focus_mode') === 'true');
-  const [focusFontSize, setFocusFontSize] = useState(() => localStorage.getItem('readora_focus_font_size') || 'xl');
+  const [focusFontSize, setFocusFontSize] = useState(() => localStorage.getItem('readora_focus_font_size') || '3xl');
   useEffect(() => {
     localStorage.setItem('readora_focus_mode', isFocusMode.toString());
   }, [isFocusMode]);

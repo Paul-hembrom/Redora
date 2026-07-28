@@ -412,14 +412,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                hasScrolled = true;
 
                const isFocusMode = localStorage.getItem('readora_focus_mode') === 'true';
-               const focusSize = (localStorage.getItem('readora_focus_font_size') || 'xl').toLowerCase();
+               const focusSize = (localStorage.getItem('readora_focus_font_size') || '3xl').toLowerCase();
                const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusSize);
                console.log('Auto-scroll mode:', isLargeFont ? 'push-up' : 'scrollIntoView', 'font size:', focusSize);
 
                const doScroll = (el: Element) => {
                  if (isLargeFont) {
                    const rect = el.getBoundingClientRect();
-                   if (rect.top > 0) {
+                   const container = el.closest('.overflow-y-auto') || el.closest('.custom-scrollbar');
+                   if (container) {
+                     const containerRect = container.getBoundingClientRect();
+                     const offset = rect.top - containerRect.top;
+                     container.scrollBy({ top: offset - 8, behavior: 'smooth' });
+                   } else {
                      window.scrollBy({ top: rect.top - 8, behavior: 'smooth' });
                    }
                  } else {
