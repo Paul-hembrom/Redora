@@ -272,7 +272,8 @@ app.use(preventStudentModification);
 // Database readiness check
 app.use((req, res, next) => {
   const isTokenExchange = req.path === '/auth/token-exchange' || req.path === '/api/auth/token-exchange';
-  if (!dbReady && !isTokenExchange && (req.path.startsWith('/api/') || req.path.startsWith('/auth/'))) {
+  const isAuthExempt = ['/api/auth/login', '/api/auth/signup', '/api/auth/me', '/api/auth/logout'].includes(req.path);
+  if (!dbReady && !isTokenExchange && !isAuthExempt && (req.path.startsWith('/api/') || req.path.startsWith('/auth/'))) {
     return res.status(503).json({ error: 'Database service unavailable' });
   }
   next();
@@ -760,6 +761,9 @@ app.post('/api/auth/signup', async (req, res) => {
     const orgId = req.cookies['sb-org-id'] || null;
     res.json({ user: { id, name, email, role, org_id: orgId }, token });
   } catch (err: any) {
+    if (!dbReady) {
+      return res.status(503).json({ error: 'Our database is temporarily unavailable. Please try again in a few minutes.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -781,6 +785,9 @@ app.post('/api/auth/login', async (req, res) => {
     const orgId = req.cookies['sb-org-id'] || null;
     res.json({ user: { id: user.id, name: user.name, email: user.email, role, org_id: orgId }, token });
   } catch (err: any) {
+    if (!dbReady) {
+      return res.status(503).json({ error: 'Our database is temporarily unavailable. Please try again in a few minutes.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -805,6 +812,9 @@ app.get('/api/auth/me', async (req: any, res) => {
         user = users[0];
       }
     } catch (e) {
+      if (!dbReady) {
+        return res.status(503).json({ error: 'Our database is temporarily unavailable. Please try again in a few minutes.' });
+      }
       // Ignored
     }
 
