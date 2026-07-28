@@ -19,7 +19,6 @@ import { InteractiveLesson } from './InteractiveLesson';
 import { BetaBadge } from './BetaBadge';
 import { ExerciseCard } from './ExerciseCard';
 import { ReadAloudButton } from './ReadAloudButton';
-import { SentenceStack } from './SentenceStack';
 import { smartNormalizeText } from '../lib/utils';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -230,7 +229,7 @@ function YouTubeVideo({ video }: { video: { title: string, video_id: string } })
   );
 }
 
-export default function ChatArea({ isFocusMode, focusFontSize = "3xl", chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
+export default function ChatArea({ isFocusMode, focusFontSize = "xl", chapter, documentId, onClearChats, persona, onNavigateChapter, hasPrevChapter, hasNextChapter, isStudent }: Props) {
   const { user, isOffline } = useAuth();
   const [activeTab, setActiveTab] = useState<'chat' | 'video'>('chat');
   const [videoResults, setVideoResults] = useState<any[]>([]);
@@ -245,7 +244,6 @@ export default function ChatArea({ isFocusMode, focusFontSize = "3xl", chapter, 
   const [isGeneratingFollowUps, setIsGeneratingFollowUps] = useState(false);
   const [showInteractiveLesson, setShowInteractiveLesson] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const mainContainerRef = useRef<HTMLDivElement>(null);
   const currentChapterIdRef = useRef(chapter.id);
   useEffect(() => {
     currentChapterIdRef.current = chapter.id;
@@ -446,30 +444,7 @@ export default function ChatArea({ isFocusMode, focusFontSize = "3xl", chapter, 
   }, [messages, chapter.id, isOffline]);
 
   const scrollToBottom = () => {
-    if ((window as any)._chatScrollTimeout) {
-      clearTimeout((window as any)._chatScrollTimeout);
-    }
-    (window as any)._chatScrollTimeout = setTimeout(() => {
-      if (messagesEndRef.current) {
-        const focusSize = focusFontSize ? focusFontSize.toLowerCase() : '3xl';
-        const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusSize);
-        console.log('ChatArea auto-scroll mode:', isLargeFont ? 'push-up' : 'scrollIntoView', 'font size:', focusSize);
-        if (isLargeFont) {
-          const rect = messagesEndRef.current.getBoundingClientRect();
-          const container = messagesEndRef.current.closest('.overflow-y-auto') || messagesEndRef.current.closest('.custom-scrollbar');
-          if (container) {
-            const containerRect = container.getBoundingClientRect();
-            const absoluteTop = container.scrollTop + (rect.top - containerRect.top);
-            container.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
-          } else {
-            const absoluteTop = window.pageYOffset + rect.top;
-            window.scrollTo({ top: absoluteTop - 8, behavior: 'smooth' });
-          }
-        } else {
-          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-      }
-    }, 50);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -1232,7 +1207,7 @@ const handleFetchImages = async () => {
         </div>
       ) : (
       <>
-      <div ref={mainContainerRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 custom-scrollbar relative z-0">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 custom-scrollbar relative z-0">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1289,11 +1264,6 @@ const handleFetchImages = async () => {
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
                     if (!blocks.length) blocks = [content];
                     
-                    const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusFontSize ? focusFontSize.toLowerCase() : '3xl');
-                    if (isLargeFont) {
-                      return <SentenceStack blocks={blocks} idPrefix={`tts-chapter-${chapter.id}-`} isLargeFont={true} chapterId={chapter.title} />;
-                    }
-
                     return blocks.map((s, idx) => (
                       <QuestionContext.Provider key={idx} value={{
                         blockText: s,

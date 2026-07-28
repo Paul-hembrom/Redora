@@ -102,13 +102,12 @@ export default function App() {
     if (!document.fullscreenElement) {
       await document.documentElement.requestFullscreen().catch(err => console.error(err));
       setIsDesktopSidebarCollapsed(true);
-      setFocusFontSize('3xl');
     } else {
       await document.exitFullscreen().catch(err => console.error(err));
     }
   };
   const [isFocusMode, setIsFocusMode] = useState(() => localStorage.getItem('readora_focus_mode') === 'true');
-  const [focusFontSize, setFocusFontSize] = useState(() => localStorage.getItem('readora_focus_font_size') || '3xl');
+  const [focusFontSize, setFocusFontSize] = useState(() => localStorage.getItem('readora_focus_font_size') || 'xl');
   useEffect(() => {
     localStorage.setItem('readora_focus_mode', isFocusMode.toString());
   }, [isFocusMode]);
@@ -866,7 +865,7 @@ export default function App() {
             )}
           </button>
           <button
-            onClick={() => { setIsFocusMode(true); setFocusFontSize('3xl'); }}
+            onClick={() => setIsFocusMode(true)}
             className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
             title="Enter Focus Mode"
           >

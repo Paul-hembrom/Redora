@@ -40,13 +40,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const audioQueueRef = useRef<any[]>([]);
-  const chunksMapRef = useRef<Map<number, any>>(new Map());
-  const animationFrameIdRef = useRef<number | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const playSessionIdRef = useRef<number>(0);
+  const stopIntentRef = useRef(false);
 
   // Resolves the DOM root to search within. Falls back to `document` when no
   // containerRef is supplied, but scopes lookups to the given container/ref
@@ -60,7 +57,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
   useEffect(() => {
     return () => stopPlaying();
-  }, [text, idPrefix]);
+  }, []);
 
   useEffect(() => {
     const checkVoices = () => {
@@ -131,33 +128,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, []);
 
-  const clearAllHighlights = () => {
-    document.querySelectorAll('.tts-word').forEach((el) => {
-      const domSpan = el as HTMLElement;
-      domSpan.style.background = '';
-      domSpan.style.webkitBackgroundClip = '';
-      domSpan.style.backgroundClip = '';
-      domSpan.style.color = '';
-      domSpan.classList.remove('bg-amber-400/70');
-    });
-  };
-
   const stopPlaying = () => {
-    playSessionIdRef.current += 1;
-    if (animationFrameIdRef.current !== null) {
-      cancelAnimationFrame(animationFrameIdRef.current);
-      animationFrameIdRef.current = null;
-    }
-    clearAllHighlights();
-    
-    audioQueueRef.current = [];
-    chunksMapRef.current.clear();
-    
+    stopIntentRef.current = true;
     const highlightOverlay = document.getElementById('tts-highlight-overlay');
     if (highlightOverlay) highlightOverlay.style.opacity = '0';
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.src = '';
+      audioRef.current.currentTime = 0;
     }
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -167,7 +144,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   const tryCartesiaTTS = async () => {
-    const currentSessionId = playSessionIdRef.current;
     logInfo('Triggered: Attempting Cartesia TTS API call...');
     try {
       setIsLoading(true);
@@ -175,7 +151,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const res = await fetch('/api/tts/cartesia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, hq: highQuality })
+        body: JSON.stringify({ text, highQuality })
       });
       if (!res.ok || !res.body) {
         throw new Error(`API returned ${res.status}`);
@@ -186,8 +162,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       let buffer = '';
 
       let totalChunks = 0;
-      audioQueueRef.current = [];
-      chunksMapRef.current.clear();
+      const chunksMap = new Map<number, any>();
+      const audioQueue: any[] = [];
       let isQueuePlaying = false;
       let expectedIndex = 0;
 
@@ -200,13 +176,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       setIsPlaying(true);
 
       const playNextChunk = async () => {
-        if (currentSessionId !== playSessionIdRef.current) {
+        if (stopIntentRef.current) {
           setIsPlaying(false);
           isQueuePlaying = false;
           return;
         }
 
-        if (audioQueueRef.current.length === 0) {
+        if (audioQueue.length === 0) {
           isQueuePlaying = false;
           if (streamEnded && expectedIndex >= totalChunks) {
             if (playedChunks === 0 && failedChunks > 0) {
@@ -218,13 +194,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
 
         isQueuePlaying = true;
-        const chunk = audioQueueRef.current.shift();
+        const chunk = audioQueue.shift();
 
         // Pre-load the next audio chunk while the current one is playing
-        if (audioQueueRef.current.length > 0) {
+        if (audioQueue.length > 0) {
             const nextAudio = new Audio();
             nextAudio.preload = 'auto';
-            nextAudio.src = audioQueueRef.current[0].audioUrl;
+            nextAudio.src = audioQueue[0].audioUrl;
         }
 
         const i = chunk.index;
@@ -271,26 +247,20 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
         }
         
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.src = '';
-        }
-        if (!audioRef.current) {
-            audioRef.current = new Audio();
-            audioRef.current.style.display = 'none';
-            document.body.appendChild(audioRef.current);
-        }
-        const audio = audioRef.current;
-        audio.src = chunk.audioUrl;
+        const audio = new Audio();
         audio.playbackRate = playbackRate;
-        audio.defaultPlaybackRate = playbackRate;
-        
-        console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
-        console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
+        audio.src = chunk.audioUrl;
+        audioRef.current = audio;
 
-        audio.onloadedmetadata = () => console.log('[ReadAloud] Audio duration:', audio.duration);
-
-        
+        // Guard against sparse-array holes: the next chunk may not have
+        // arrived yet even though `chunks.length` already reflects a later
+        // index (chunks can arrive out of order over the network).
+        if (i + 1 < chunks.length && chunks[i + 1] && chunks[i + 1].audioUrl) {
+          const nextAudio = new Audio();
+          nextAudio.playbackRate = playbackRate;
+          nextAudio.src = chunks[i + 1].audioUrl;
+          nextAudio.preload = "auto";
+        }
 
         const wordSpans: (HTMLElement | null)[] = new Array(chunk.timestamps ? chunk.timestamps.length : 0).fill(null);
         let shouldHighlight = !disableSync;
@@ -385,34 +355,23 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             wordSpans.forEach((span, k) => {
                 let domSpan = document.getElementById(`tts-word-${i}-${k}`);
                 if (!domSpan) domSpan = span;
-                if (domSpan) {
-                    domSpan.classList.remove('bg-amber-400/70');
-                    domSpan.style.background = '';
-                    domSpan.style.webkitBackgroundClip = '';
-                    domSpan.style.backgroundClip = '';
-                    domSpan.style.color = '';
-                }
+                if (domSpan) domSpan.classList.remove('bg-amber-400/70');
             });
         };
 
-                let hasScrolled = false;
-        
+        let hasScrolled = false;
+        let animationFrameId: number;
 
         const highlightLoop = () => {
-            if (!(window as any)._firstRafLog) {
-                console.log('[Frontend] highlightLoop started running!');
-                (window as any)._firstRafLog = true;
-            }
-            if (currentSessionId !== playSessionIdRef.current || audio.paused || audio.ended) return;
+            if (stopIntentRef.current || audio.paused || audio.ended) return;
 
             const currentTime = audio.currentTime;
-            
             
             if (currentTime > 0.05 && !hasScrolled) {
                hasScrolled = true;
                const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
                if (sentenceSpan) {
-                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
                } else {
                  const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
                  const scopeRoot = getScopeRoot();
@@ -421,12 +380,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                      fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
                  }
                  if (fallbackEl) {
-                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                  }
                }
             }
 
-            if (chunk.timestamps && chunk.timestamps.length > 0) {
+            if (chunk.timestamps) {
                 chunk.timestamps.forEach((ts: any, k: number) => {
                     let span = document.getElementById(`tts-word-${i}-${k}`);
                     if (!span) span = wordSpans[k];
@@ -437,60 +396,45 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
                     let startAdjusted = start_time;
                     let endAdjusted = end_time;
+                    if (i === 0) {
+                        startAdjusted -= 0.150;
+                        endAdjusted -= 0.150;
+                    }
 
-                const activeWordText = span ? span.innerText : 'unknown';
-                if (!(window as any)._lastRafLog || Date.now() - (window as any)._lastRafLog > 1000) {
-                    console.log('[Frontend] RAF – currentTime:', currentTime.toFixed(2), 'active word:', activeWordText, 'progress:', (span.style.background ? 'active' : 'inactive'));
-                    (window as any)._lastRafLog = Date.now();
-                }
-
-                if (currentTime >= startAdjusted && currentTime < endAdjusted) {
-                        const duration = endAdjusted - startAdjusted;
-                        const progress = duration > 0 ? Math.max(0, Math.min(1, (currentTime - startAdjusted) / duration)) : 1;
-                        span.style.background = `linear-gradient(to right, #FBBF24 ${progress * 100}%, transparent ${progress * 100}%)`;
-                        span.style.webkitBackgroundClip = 'text';
-                        span.style.backgroundClip = 'text';
-                        span.style.color = 'transparent';
-                        span.classList.remove('bg-amber-400/70');
+                    if (currentTime >= startAdjusted && currentTime < endAdjusted) {
+                        span.classList.add('bg-amber-400/70');
                     } else {
-                        span.style.background = '';
-                        span.style.webkitBackgroundClip = '';
-                        span.style.backgroundClip = '';
-                        span.style.color = '';
                         span.classList.remove('bg-amber-400/70');
                     }
                 });
             }
 
-            animationFrameIdRef.current = requestAnimationFrame(highlightLoop);
+            animationFrameId = requestAnimationFrame(highlightLoop);
         };
 
         audio.onplay = () => {
-           console.log('[ReadAloud] Audio onplay fired');
            logInfo(`Chunk ${i} started playing.`);
            
-           if (!chunk.timestamps || currentSessionId !== playSessionIdRef.current) return;
-           animationFrameIdRef.current = requestAnimationFrame(highlightLoop);
+           
+
+           if (!chunk.timestamps || stopIntentRef.current) return;
+           animationFrameId = requestAnimationFrame(highlightLoop);
         };
 
         audio.onpause = () => {
-           console.log('[ReadAloud] Audio onpause fired');
            logInfo(`Chunk ${i} paused.`);
-           if (animationFrameIdRef.current !== null) { cancelAnimationFrame(animationFrameIdRef.current); animationFrameIdRef.current = null; }
+           cancelAnimationFrame(animationFrameId);
            removeHighlights();
         };
 
         audio.onended = () => {
-           console.log('[ReadAloud] Audio onended fired');
            logInfo(`Chunk ${i} ended natively.`);
-           if (animationFrameIdRef.current !== null) { cancelAnimationFrame(animationFrameIdRef.current); animationFrameIdRef.current = null; }
+           cancelAnimationFrame(animationFrameId);
            removeHighlights();
-
            playNextChunk();
         };
 
         audio.onerror = (e) => {
-          console.error('[ReadAloud] Audio error:', audio.error?.code, audio.error?.message);
           logError(`Chunk ${i} audio element error`, e);
           failedChunks++;
           if (failedChunks > Math.max(1, totalChunks / 2)) {
@@ -502,37 +446,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           }
         };
 
-        audio.playbackRate = playbackRate;
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-            playPromise.then(() => {
-                console.log('[Frontend] Audio playbackRate after play:', audio.playbackRate, 'src length:', audio.src.length);
-                console.log('[ReadAloud] Actual playbackRate:', audio.playbackRate);
-                console.log('[ReadAloud] play() succeeded');
-                playedChunks++;
-            }).catch(err => {
-                console.error('[ReadAloud] play() rejected:', err.name, err.message);
-                logError(`Chunk ${i} audio play threw error`, err);
-                
-                // Retry logic
-                setTimeout(async () => {
-                    try {
-                        await audio.play();
-                        console.log('[ReadAloud] retry play() succeeded');
-                        playedChunks++;
-                    } catch (retryErr: any) {
-                        console.error('[ReadAloud] retry play() rejected:', retryErr.message);
-                        failedChunks++;
-                        if (failedChunks > Math.max(1, totalChunks / 2)) {
-                           showError('Audio unavailable for this content. Please try again later.');
-                           setIsPlaying(false);
-                           isQueuePlaying = false;
-                        } else {
-                           playNextChunk();
-                        }
-                    }
-                }, 200);
-            });
+        try {
+          await audio.play();
+          playedChunks++;
+        } catch (e) {
+          logError(`Chunk ${i} audio play threw error`, e);
+          failedChunks++;
+          if (failedChunks > Math.max(1, totalChunks / 2)) {
+             showError('Audio unavailable for this content. Please try again later.');
+             setIsPlaying(false);
+             isQueuePlaying = false;
+          } else {
+             playNextChunk();
+          }
         }
       };
 
@@ -540,7 +466,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       (async () => {
         try {
           while (true) {
-            if (currentSessionId !== playSessionIdRef.current) break;
             const { done, value } = await reader.read();
             if (done) {
               streamEnded = true;
@@ -572,23 +497,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                   }
 
                 } else if (data.index !== undefined) {
+                  chunks[data.index] = data;
                   const isValid = data.audioUrl && data.audioUrl.startsWith('data:audio/');
                   logInfo(`Received chunk ${data.index}. Audio URL valid: ${!!isValid}`);
-                  if (data.timestamps && data.timestamps.length > 0) {
-                      console.log(`[Frontend] Chunk ${data.index} – first timestamp:`, JSON.stringify(data.timestamps[0]), 'last timestamp:', JSON.stringify(data.timestamps[data.timestamps.length - 1]));
-                  }
-                  chunksMapRef.current.set(data.index, data);
-                  
-                  let addedToQueue = false;
-                  while (chunksMapRef.current.has(expectedIndex)) {
-                      audioQueueRef.current.push(chunksMapRef.current.get(expectedIndex));
-                      chunksMapRef.current.delete(expectedIndex);
-                      expectedIndex++;
-                      addedToQueue = true;
-                  }
-                  
-                  if (addedToQueue && !isQueuePlaying) {
-                      playNextChunk();
+                  if (i === data.index && !isPlayingNext) {
+                    playNextChunk();
                   }
                 }
               }
@@ -597,28 +510,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (buffer.trim()) {
              const data = JSON.parse(buffer);
              if (data.index !== undefined) {
-                if (data.timestamps && data.timestamps.length > 0) {
-                    console.log(`[Frontend] Chunk ${data.index} – first timestamp:`, JSON.stringify(data.timestamps[0]), 'last timestamp:', JSON.stringify(data.timestamps[data.timestamps.length - 1]));
-                }
-                chunksMapRef.current.set(data.index, data);
-                let addedToQueue = false;
-                while (chunksMapRef.current.has(expectedIndex)) {
-                    audioQueueRef.current.push(chunksMapRef.current.get(expectedIndex));
-                    chunksMapRef.current.delete(expectedIndex);
-                    expectedIndex++;
-                    addedToQueue = true;
-                }
-                if (addedToQueue && !isQueuePlaying) {
-                    playNextChunk();
+                chunks[data.index] = data;
+                if (i === data.index && !isPlayingNext) {
+                  playNextChunk();
                 }
              }
           }
-          if (!isQueuePlaying && audioQueueRef.current.length > 0) {
+          if (!isPlayingNext && i < chunks.length) {
               playNextChunk();
           }
         } catch (err) {
           logError('Stream reading error:', err);
-          if (!isQueuePlaying) {
+          if (!isPlayingNext) {
             setIsPlaying(false);
             showError('Audio unavailable for this content. Please try again later.');
           }
@@ -642,25 +545,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       return;
     }
 
-    playSessionIdRef.current += 1;
-    
-    // Unlock audio context for mobile/safari
-    if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.src = '';
-        }
-        if (!audioRef.current) {
-        audioRef.current = new Audio();
-        audioRef.current.style.display = 'none';
-        document.body.appendChild(audioRef.current);
-    }
-    try {
-      audioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-      audioRef.current.play().catch(e => console.log('[ReadAloud] Unlock play caught:', e));
-    } catch (e) {
-      console.log('[ReadAloud] Audio context unlock error:', e);
-    }
-    
+    stopIntentRef.current = false;
     await tryCartesiaTTS();
   };
 
@@ -687,16 +572,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       btn.removeEventListener('click', handleClick);
       btn.removeEventListener('touchstart', handleTouchStart);
     };
-  }, [text, isPlaying, isLoading, voicesAvailable, highQuality]);
+  }, [text, isPlaying, isLoading, voicesAvailable]);
 
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = playbackRate;
-      audioRef.current.defaultPlaybackRate = playbackRate;
-    }
-  }, [playbackRate]);
-
-  
   const showError = (msg: string) => {
     setErrorMsg(msg);
     if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
@@ -744,9 +621,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         <button
           onClick={(e) => {
             e.stopPropagation();
-            const newHQ = !highQuality;
-            console.log('HQ toggled – now: ' + newHQ);
-            setHighQuality(newHQ);
+            setHighQuality(!highQuality);
           }}
           className={cn(
             "text-[10px] font-mono px-1 rounded transition-colors z-10 hidden sm:block",

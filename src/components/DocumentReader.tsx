@@ -6,7 +6,6 @@ import { markdownComponents, QuestionContext } from './MarkdownComponents';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../lib/utils';
 import { ReadAloudButton } from './ReadAloudButton';
-import { SentenceStack } from './SentenceStack';
 import { smartNormalizeText } from '../lib/utils';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
@@ -18,7 +17,7 @@ interface Props {
   initialScrollChapterId?: string | null;
 }
 
-export default function DocumentReader({ isFocusMode, focusFontSize = "3xl", document, initialScrollChapterId }: Props) {
+export default function DocumentReader({ isFocusMode, focusFontSize = "xl", document, initialScrollChapterId }: Props) {
   const chapterRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [readingProgress, setReadingProgress] = useState<Record<string, number>>({});
@@ -30,13 +29,6 @@ export default function DocumentReader({ isFocusMode, focusFontSize = "3xl", doc
       }, 500); // Give rendering a moment
     }
   }, [initialScrollChapterId, document.id]);
-
-  useEffect(() => {
-    const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes((focusFontSize || '3xl').toLowerCase());
-    if (isLargeFont && containerRef.current) {
-      containerRef.current.scrollTop = 0;
-    }
-  }, [isFocusMode, focusFontSize]);
 
   const handleScroll = () => {
     if (!containerRef.current) return;
@@ -242,11 +234,6 @@ export default function DocumentReader({ isFocusMode, focusFontSize = "3xl", doc
                         let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
                         if (!blocks.length) blocks = [content];
                         
-                        const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusFontSize.toLowerCase());
-                        if (isLargeFont) {
-                          return <SentenceStack blocks={blocks} idPrefix="tts-summary-" isLargeFont={true} chapterId={chapter.title} />;
-                        }
-                        
                         return blocks.map((s, idx) => (
                           <div key={idx} id={`tts-summary-${idx}`}>
                             <ReactMarkdown 
@@ -267,11 +254,6 @@ export default function DocumentReader({ isFocusMode, focusFontSize = "3xl", doc
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
                     if (!blocks.length) blocks = [content];
                     
-                    const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusFontSize.toLowerCase());
-                    if (isLargeFont) {
-                      return <SentenceStack blocks={blocks} idPrefix="tts-chapter-" isLargeFont={true} chapterId={chapter.title} />;
-                    }
-
                     return blocks.map((s, idx) => (
                       <QuestionContext.Provider key={idx} value={{
                         blockText: s,
