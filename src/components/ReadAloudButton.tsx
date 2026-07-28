@@ -2,52 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Square, Loader2, AudioLines, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-function smoothScrollTo(container: HTMLElement, target: number, duration = 350) {
-  const from = container.scrollTop;
-  const start = performance.now();
-
-  function tick(now: number) {
-    const elapsed = now - start;
-    const t = Math.min(elapsed / duration, 1);
-    const eased = 1 - Math.pow(1 - t, 3);
-    container.scrollTop = from + (target - from) * eased;
-    if (t < 1) {
-      requestAnimationFrame(tick);
-    }
-  }
-  requestAnimationFrame(tick);
-}
-
-function smoothScrollWindowTo(target: number, duration = 350) {
-  const from = window.pageYOffset;
-  const start = performance.now();
-
-  function tick(now: number) {
-    const elapsed = now - start;
-    const t = Math.min(elapsed / duration, 1);
-    const eased = 1 - Math.pow(1 - t, 3);
-    window.scrollTo(0, from + (target - from) * eased);
-    if (t < 1) {
-      requestAnimationFrame(tick);
-    }
-  }
-  requestAnimationFrame(tick);
-}
-
-function isInSafeZone(el: HTMLElement, container: HTMLElement | null, stickyHeight: number, zone = 0.35) {
-  const r = el.getBoundingClientRect();
-  if (container) {
-    const c = container.getBoundingClientRect();
-    const topBoundary = c.top + stickyHeight;
-    const bottomBoundary = topBoundary + c.height * zone;
-    return r.top >= topBoundary && r.top <= bottomBoundary;
-  } else {
-    const topBoundary = stickyHeight;
-    const bottomBoundary = topBoundary + window.innerHeight * zone;
-    return r.top >= topBoundary && r.top <= bottomBoundary;
-  }
-}
-
 
 interface Props {
   playbackRate?: number;
@@ -191,6 +145,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   const stopPlaying = () => {
+    window.dispatchEvent(new CustomEvent("tts-active-index", { detail: { idPrefix, index: -1, isLargeFont: true } }));
     playSessionIdRef.current += 1;
     if (animationFrameIdRef.current !== null) {
       cancelAnimationFrame(animationFrameIdRef.current);
@@ -201,6 +156,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     audioQueueRef.current = [];
     chunksMapRef.current.clear();
       lastScrolledSentenceIndexRef.current = -1;
+      window.dispatchEvent(new CustomEvent("tts-active-index", { detail: { idPrefix, index: -1, isLargeFont: true } }));
     
     const highlightOverlay = document.getElementById('tts-highlight-overlay');
     if (highlightOverlay) highlightOverlay.style.opacity = '0';
@@ -464,48 +420,25 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                const focusSize = (localStorage.getItem('readora_focus_font_size') || '3xl').toLowerCase();
                const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusSize);
 
-               const customScroll = (el: HTMLElement) => {
-                 if (isLargeFont) {
-                   const container = el.closest('.overflow-y-auto') || el.closest('.custom-scrollbar') as HTMLElement;
-                   const floatingHeader = document.querySelector('.focus-mode-header') || document.querySelector('.z-\\[100\\]');
-                   const stickyHeight = floatingHeader ? floatingHeader.getBoundingClientRect().height : 60;
-                   
-                   if (isInSafeZone(el, container as HTMLElement, stickyHeight, 0.35)) {
-                       return;
-                   }
+               const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
+               window.dispatchEvent(new CustomEvent('tts-active-index', { 
+                   detail: { idPrefix, index: domIndex, isLargeFont } 
+               }));
 
-                   const LINE_HEIGHT_CORRECTION: Record<string, number> = {
-                     '2xl': 4, '3xl': 6, '4xl': 8, '5xl': 10, '6xl': 12,
-                   };
-                   const correction = LINE_HEIGHT_CORRECTION[focusSize] ?? 0;
-                   const elRect = el.getBoundingClientRect();
-
-                   if (container) {
-                     const containerRect = container.getBoundingClientRect();
-                     const target = container.scrollTop + (elRect.top - containerRect.top) - stickyHeight - 8 - correction;
-                     smoothScrollTo(container as HTMLElement, target, 350);
+               if (!isLargeFont) {
+                   const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
+                   if (sentenceSpan) {
+                       sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'start' });
                    } else {
-                     const target = window.pageYOffset + elRect.top - stickyHeight - 8 - correction;
-                     smoothScrollWindowTo(target, 350);
+                       const scopeRoot = getScopeRoot();
+                       let fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement;
+                       if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
+                           fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`) as HTMLElement;
+                       }
+                       if (fallbackEl) {
+                           fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                       }
                    }
-                 } else {
-                   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                 }
-               };
-
-               const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
-               if (sentenceSpan) {
-                 customScroll(sentenceSpan);
-               } else {
-                 const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
-                 const scopeRoot = getScopeRoot();
-                 let fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement;
-                 if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
-                     fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`) as HTMLElement;
-                 }
-                 if (fallbackEl) {
-                     customScroll(fallbackEl);
-                 }
                }
             }
 

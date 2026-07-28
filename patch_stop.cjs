@@ -2,9 +2,8 @@ const fs = require('fs');
 let code = fs.readFileSync('src/components/ReadAloudButton.tsx', 'utf8');
 
 code = code.replace(
-  "if (audioRef.current) {",
-  "const highlightOverlay = document.getElementById('tts-highlight-overlay');\n    if (highlightOverlay) highlightOverlay.style.opacity = '0';\n    if (audioRef.current) {"
+  'const stopPlaying = () => {',
+  'const stopPlaying = () => {\n    window.dispatchEvent(new CustomEvent("tts-active-index", { detail: { idPrefix, index: -1, isLargeFont: true } }));'
 );
 
 fs.writeFileSync('src/components/ReadAloudButton.tsx', code);
-console.log('patched stopPlaying');

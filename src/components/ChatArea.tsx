@@ -19,6 +19,7 @@ import { InteractiveLesson } from './InteractiveLesson';
 import { BetaBadge } from './BetaBadge';
 import { ExerciseCard } from './ExerciseCard';
 import { ReadAloudButton } from './ReadAloudButton';
+import { SentenceStack } from './SentenceStack';
 import { smartNormalizeText } from '../lib/utils';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -244,6 +245,7 @@ export default function ChatArea({ isFocusMode, focusFontSize = "3xl", chapter, 
   const [isGeneratingFollowUps, setIsGeneratingFollowUps] = useState(false);
   const [showInteractiveLesson, setShowInteractiveLesson] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mainContainerRef = useRef<HTMLDivElement>(null);
   const currentChapterIdRef = useRef(chapter.id);
   useEffect(() => {
     currentChapterIdRef.current = chapter.id;
@@ -1230,7 +1232,7 @@ const handleFetchImages = async () => {
         </div>
       ) : (
       <>
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 custom-scrollbar relative z-0">
+      <div ref={mainContainerRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 md:space-y-8 custom-scrollbar relative z-0">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1287,6 +1289,11 @@ const handleFetchImages = async () => {
                     let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
                     if (!blocks.length) blocks = [content];
                     
+                    const isLargeFont = isFocusMode && ['2xl', '3xl', '4xl', '5xl', '6xl'].includes(focusFontSize ? focusFontSize.toLowerCase() : '3xl');
+                    if (isLargeFont) {
+                      return <SentenceStack blocks={blocks} idPrefix={`tts-chapter-${chapter.id}-`} isLargeFont={true} chapterId={chapter.title} />;
+                    }
+
                     return blocks.map((s, idx) => (
                       <QuestionContext.Provider key={idx} value={{
                         blockText: s,
