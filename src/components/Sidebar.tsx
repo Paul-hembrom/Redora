@@ -11,6 +11,17 @@ import remarkGfm from 'remark-gfm';
 import { ReadAloudButton } from './ReadAloudButton';
 import { useAuth } from '../contexts/AuthContext';
 import { smartNormalizeText } from '../lib/utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './ui/alert-dialog';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -988,13 +999,34 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                   </button>
                 )}
                 {!isStudent && onDeleteDocument && !isCurriculum && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onDeleteDocument(doc.id); }}
-                    className="p-1.5 text-white/30 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
-                    title="Delete document and chats"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); }}
+                        className="p-1.5 text-white/30 hover:text-red-400 hover:bg-white/5 rounded-md transition-all"
+                        title="Delete document and chats"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete "{doc.name}" and all of its associated chats and chapters. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => onDeleteDocument(doc.id)}
+                          className="bg-red-500 hover:bg-red-600 text-white"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 )}
               </div>
             </div>

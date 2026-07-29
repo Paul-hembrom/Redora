@@ -1142,7 +1142,7 @@ app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
     // With ON DELETE CASCADE in the schema, deleting the document will delete chapters and chats automatically.
     // However, to be safe and explicit (or if cascade isn't fully set up on existing DBs), we can delete manually:
     await sql.begin(async (tx: any) => {
-      await tx`DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ${docId})`;
+      await tx`DELETE FROM chats WHERE chapter_id IN (SELECT id::text FROM chapters WHERE document_id = ${docId})`;
       await tx`DELETE FROM chapters WHERE document_id = ${docId}`;
       await tx`DELETE FROM documents WHERE id = ${docId}`;
     });
@@ -2819,7 +2819,7 @@ app.delete('/api/chats/document/:docId', authenticate, async (req: any, res) => 
     const docs = await sql`SELECT id FROM documents WHERE id = ${docId} AND ${getDocUserFilter(req)}`;
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
 
-    await sql`DELETE FROM chats WHERE chapter_id IN (SELECT id FROM chapters WHERE document_id = ${docId})`;
+    await sql`DELETE FROM chats WHERE chapter_id IN (SELECT id::text FROM chapters WHERE document_id = ${docId})`;
     
     res.json({ success: true });
   } catch (err: any) {
