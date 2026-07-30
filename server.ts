@@ -10,7 +10,7 @@ import { v4 as uuidv4 } from 'uuid';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sql, { dbReady } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
-import { processVideoLessonJob, processSceneAssets } from './server/videoPipeline.js';
+import { processVideoLessonJob, processSceneAssets, processInteractiveProJob } from './server/videoPipeline.js';
 import { synthesizeSpeech } from './server/synthesizeSpeech.js';
 import { getUserRoleInOrg } from './server/roles.js';
 import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';
@@ -1304,6 +1304,49 @@ app.post('/api/chapters/:id/generate-lesson', authenticate, generateLessonLimite
     processVideoLessonJob(jobId, chapterId, org_id, document_id).catch(console.error);
 
     res.json({ job_id: jobId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/lessons/generate-pro', authenticate, generateLessonLimiter, async (req: any, res) => {
+  try {
+    const orgId = req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id'];
+    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    
+    // Gating Interactive Pro to admin/teachers, just like the regular video generation pipeline.
+    // Self-serve for students would be risky since every click triggers a DeepSeek call, Kokoro calls, and Veo/Manim renders.
+    // These heavy backend processes require rate limiting and real cost considerations.
+    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+    
+    try {
+      await verifyAndIncrementUsage(req.userId, 'video', orgId);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
+      throw e;
+    }
+    
+    const { chapterId } = req.body;
+    if (!chapterId) return res.status(400).json({ error: 'chapterId is required' });
+
+    let { org_id } = req.body;
+    if (!org_id || org_id === 'default') org_id = orgId || 'default_org';
+    
+    const chaps = await sql`SELECT document_id FROM chapters WHERE id = ${chapterId}`;
+    if (!chaps.length) return res.status(404).json({ error: 'Chapter not found' });
+    const document_id = chaps[0].document_id;
+    
+    const jobId = uuidv4();
+    await sql`
+      INSERT INTO generation_jobs (id, org_id, document_id, chapter_id, status, progress)
+      VALUES (${jobId}, ${org_id}, ${document_id}, ${chapterId}, 'pending', 0)
+    `;
+    
+    // Start background processing
+    processInteractiveProJob(jobId, chapterId, org_id, document_id).catch(console.error);
+    
+    // Return early, same job ID system as existing generation pipeline
+    res.status(202).json({ job_id: jobId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

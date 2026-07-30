@@ -711,6 +711,74 @@ const handleFetchImages = async () => {
     }
   };
 
+  const [isGeneratingPro, setIsGeneratingPro] = useState(false);
+  const [proProgress, setProProgress] = useState(0);
+  const [proStatus, setProStatus] = useState('');
+
+  const handleGenerateProLesson = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      setIsGeneratingPro(true);
+      setProStatus('Starting...');
+      setProProgress(0);
+
+      const res = await fetch(`/api/lessons/generate-pro`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ org_id: orgName || 'default', chapterId: chapter.id })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to start Pro lesson generation.');
+        setIsGeneratingPro(false);
+        return;
+      }
+      
+      window.dispatchEvent(new Event('usage-updated'));
+      
+      const jobId = data.job_id;
+      
+      // Poll for job completion
+      const pollTimer = setInterval(async () => {
+        try {
+          const pollRes = await fetch(`/api/chapters/${chapter.id}/generation-job`, {
+            headers: {
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            }
+          });
+          if (pollRes.ok) {
+            const pollData = await pollRes.json();
+            if (pollData.job && pollData.job.id === jobId) {
+              setProProgress(pollData.job.progress || 0);
+              setProStatus(pollData.job.status);
+              
+              if (pollData.job.status === 'completed') {
+                clearInterval(pollTimer);
+                setIsGeneratingPro(false);
+                setShowInteractiveLesson(true);
+              } else if (pollData.job.status === 'failed') {
+                clearInterval(pollTimer);
+                setIsGeneratingPro(false);
+                setError('Pro lesson generation failed.');
+              }
+            }
+          }
+        } catch (e) {
+          // ignore network error during polling
+        }
+      }, 3000);
+
+    } catch (err: any) {
+      console.error(err);
+      setError('An error occurred while starting Pro lesson generation.');
+      setIsGeneratingPro(false);
+    }
+  };
+
   const handleGenerateVideoLesson = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -1115,6 +1183,15 @@ const handleFetchImages = async () => {
                   title="Start Interactive Lesson"
                 >
                   <PlayCircle className="w-3.5 h-3.5" /> Interactive Lesson <BetaBadge />
+                </button>
+                <button 
+                  onClick={handleGenerateProLesson}
+                  disabled={isGeneratingPro}
+                  className="text-xs font-medium px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 shrink-0 bg-indigo-500 hover:bg-indigo-400 text-white shadow-[0_0_10px_rgba(99,102,241,0.2)] disabled:opacity-50"
+                  title="Generate Pro Lesson"
+                >
+                  {isGeneratingPro ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                  {isGeneratingPro ? `Generating (${proProgress}%)...` : 'Generate Pro'}
                 </button>
                 <button 
                   onClick={() => setActiveTab(activeTab === 'chat' ? 'video' : 'chat')} 
