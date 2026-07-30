@@ -3546,6 +3546,17 @@ async function startServer() {
     });
   }
 
+  // --- Temporary HF Space Health Check ---
+  try {
+    console.log('[Startup] Pinging HF Space Manim endpoint...');
+    const hfRes = await fetch('https://paulhemb-redora.hf.space/render', {
+      method: 'GET' // usually HF spaces return 405 Method Not Allowed for GET, which still means it's reachable.
+    });
+    console.log(`[Startup] HF Space ping status: ${hfRes.status} ${hfRes.statusText}`);
+  } catch (err: any) {
+    console.error('[Startup] HF Space ping failed:', err.message);
+  }
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });

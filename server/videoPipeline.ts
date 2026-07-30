@@ -94,9 +94,14 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
   ];
 
   let renderer = 'veo';
-  if (manimKeywords.some(k => text.includes(k))) {
+  const detectedKeywords = manimKeywords.filter(k => text.includes(k));
+  if (detectedKeywords.length > 0) {
     renderer = 'manim';
   }
+
+  console.log('[Manim Pipeline] Scene:', scene_id, 'visual_prompt:', visual_prompt?.substring(0, 100));
+  console.log('[Manim Pipeline] Detected keywords:', detectedKeywords);
+  console.log('[Manim Pipeline] Assigned renderer:', renderer);
 
   let image_url = 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?w=800&q=80';
   let model_used = 'fallback_image';

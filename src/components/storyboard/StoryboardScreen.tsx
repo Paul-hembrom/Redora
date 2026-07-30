@@ -3,6 +3,7 @@ import { Film, PlayCircle, Plus, Download } from 'lucide-react';
 import VideoPlayer from './VideoPlayer';
 import ProgressBar from './ProgressBar';
 import SceneCard from './SceneCard';
+import GenerationQueue from './GenerationQueue';
 import { useAuth } from '../../contexts/AuthContext';
 import JSZip from 'jszip';
 import { BetaBadge } from '../BetaBadge';
@@ -168,7 +169,10 @@ export default function StoryboardScreen({ chapterId, isStudent }: StoryboardScr
       </div>
 
       {isProcessing && (
-        <ProgressBar progress={job.progress || 0} status={job.status} />
+        <div className="mb-12">
+          <ProgressBar progress={job.progress || 0} status={job.status} />
+          {scenes.length > 0 && <GenerationQueue scenes={scenes} jobStatus={job.status} />}
+        </div>
       )}
 
       {job.status === 'failed' && (
@@ -183,7 +187,7 @@ export default function StoryboardScreen({ chapterId, isStudent }: StoryboardScr
         </div>
       )}
 
-      {scenes.length > 0 && (
+      {scenes.length > 0 && !isProcessing && (
         <div>
           <h3 className="text-xl font-semibold text-white mb-6 tracking-tight border-b border-white/10 pb-2 inline-block">Scene Breakdown</h3>
           <div className="space-y-6">
