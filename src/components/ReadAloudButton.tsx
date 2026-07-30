@@ -506,20 +506,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             
             
             if (currentTime > 0.05 && !hasScrolled) {
-               hasScrolled = true;
-               const sentenceSpan = document.getElementById(`tts-sentence-${i}`);
-               if (sentenceSpan) {
-                 sentenceSpan.scrollIntoView({ behavior: 'smooth', block: 'start' });
-               } else {
+               let targetEl: HTMLElement | null = document.getElementById(`tts-sentence-${i}`);
+               if (!targetEl) {
                  const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
                  const scopeRoot = getScopeRoot();
-                 let fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`);
-                 if (!fallbackEl && idPrefix.startsWith("tts-explanation-")) {
-                     fallbackEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`);
+                 targetEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement | null;
+                 if (!targetEl && idPrefix.startsWith("tts-explanation-")) {
+                     targetEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`) as HTMLElement | null;
                  }
-                 if (fallbackEl) {
-                     fallbackEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                 }
+               }
+               if (targetEl) {
+                 hasScrolled = true;
+                 targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                }
             }
 
