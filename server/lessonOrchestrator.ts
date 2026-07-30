@@ -1,6 +1,5 @@
-import OpenAI from "openai";
 import sql from "./db.js";
-import { synthesizeElevenLabsSpeech } from "../src/lib/gemini.js";
+import { synthesizeElevenLabsSpeech, callLLM } from "../src/lib/gemini.js";
 import { v4 as uuidv4 } from "uuid";
 import { getStudentMemory } from "./studentMemory.js";
 
@@ -119,14 +118,8 @@ export async function createInteractiveLesson(topicId: string, orgId: string, us
     });
   }
 
-  // Now, rewrite narration using DeepSeek for Maya persona
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (apiKey && steps.length > 0) {
-     const deepseek = new OpenAI({
-       apiKey,
-       baseURL: "https://api.deepseek.com",
-     });
-
+  // Now, rewrite narration using LLM for Maya persona
+  if (steps.length > 0) {
      const prompt = `You are "Maya", a warm, witty, and encouraging teacher. Your goal is to make this lesson highly engaging, just like VideoTutor.io.
 Your personality rules:
 - Warm and friendly, like a favorite teacher.
@@ -157,21 +150,9 @@ Respond with valid json only, matching exactly this shape (no markdown, no comme
 {"steps": [{"id": "string", "narrationText": "string", "emotion": "string", "type": "string", "humor": null}]}`;
 
      try {
-       const response = await deepseek.chat.completions.create({
-         model: "deepseek-v4-flash",
-         messages: [
-           { role: "system", content: "You output only valid json matching the shape the user requests. Never include markdown formatting or commentary outside the json object." },
-           { role: "user", content: prompt }
-         ],
-         response_format: { type: "json_object" },
-         max_tokens: 8192,
-         // This is a straightforward rewrite/formatting task, not a reasoning task,
-         // so thinking mode is disabled for lower latency and cost.
-         // @ts-ignore - `thinking` is a DeepSeek-specific field passed through extra_body
-         extra_body: { thinking: { type: "disabled" } }
-       });
-
-       const raw = response.choices[0]?.message?.content;
+       const systemInstruction = "You output only valid json matching the shape the user requests. Never include markdown formatting or commentary outside the json object.";
+       const raw = await callLLM(prompt, systemInstruction, 'json_object', 8192);
+       
        const parsed = raw ? JSON.parse(raw) : { steps: [] };
        const parsedParts = Array.isArray(parsed) ? parsed : (parsed.steps || []);
 
