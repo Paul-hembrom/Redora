@@ -1,4 +1,4 @@
-import { GoogleGenAI, Schema, Type } from "@google/genai";
+import OpenAI from "openai";
 import sql from "./db.js";
 import { synthesizeElevenLabsSpeech } from "../src/lib/gemini.js";
 import { v4 as uuidv4 } from "uuid";
@@ -119,11 +119,15 @@ export async function createInteractiveLesson(topicId: string, orgId: string, us
     });
   }
 
-  // Now, rewrite narration using Gemini for Maya persona
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Now, rewrite narration using DeepSeek for Maya persona
+  const apiKey = process.env.DEEPSEEK_API_KEY;
   if (apiKey && steps.length > 0) {
-     const ai = new GoogleGenAI({ apiKey });
-     const prompt = `You are "Maya", a warm, witty, and encouraging science teacher. Your goal is to make this lesson highly engaging, just like VideoTutor.io.
+     const deepseek = new OpenAI({
+       apiKey,
+       baseURL: "https://api.deepseek.com",
+     });
+
+     const prompt = `You are "Maya", a warm, witty, and encouraging teacher. Your goal is to make this lesson highly engaging, just like VideoTutor.io.
 Your personality rules:
 - Warm and friendly, like a favorite teacher.
 - Humor: Sprinkle in some light, topic-relevant jokes or puns to keep attention.
@@ -142,47 +146,35 @@ Task:
 3. Ensure the first 'intro' step is extremely welcoming ("Hello! I'm Maya...").
 4. Return an updated array of objects.
 
-For each step in the input, return exactly ONE object in the array with:
+For each step in the input, return exactly ONE object with:
 - id: string
 - narrationText: string
 - emotion: string (one of 'neutral', 'smiling', 'thinking', 'excited', 'curious')
 - type: string (you may optionally change an 'image' step to 'joke' or 'fun_fact' if you are inserting pure humor here, otherwise keep original)
-- humor: optional object ({setup: string, punchline: string}) if this step contains a distinct joke.
+- humor: an object ({"setup": string, "punchline": string}) if this step contains a distinct joke, otherwise null.
 
-Output valid JSON only.`;
+Respond with valid json only, matching exactly this shape (no markdown, no commentary, no code fences):
+{"steps": [{"id": "string", "narrationText": "string", "emotion": "string", "type": "string", "humor": null}]}`;
 
      try {
-       const response = await ai.models.generateContent({
-         model: "gemini-2.5-flash",
-         contents: prompt,
-         config: {
-           responseMimeType: "application/json",
-           responseSchema: {
-             type: Type.ARRAY,
-             items: {
-               type: Type.OBJECT,
-               properties: {
-                 id: { type: Type.STRING },
-                 narrationText: { type: Type.STRING },
-                 emotion: { type: Type.STRING },
-                 type: { type: Type.STRING },
-                 humor: { 
-                   type: Type.OBJECT, 
-                   nullable: true,
-                   properties: {
-                     setup: { type: Type.STRING },
-                     punchline: { type: Type.STRING }
-                   }
-                 }
-               },
-               required: ["id", "narrationText", "emotion", "type"]
-             }
-           }
-         }
+       const response = await deepseek.chat.completions.create({
+         model: "deepseek-v4-flash",
+         messages: [
+           { role: "system", content: "You output only valid json matching the shape the user requests. Never include markdown formatting or commentary outside the json object." },
+           { role: "user", content: prompt }
+         ],
+         response_format: { type: "json_object" },
+         max_tokens: 8192,
+         // This is a straightforward rewrite/formatting task, not a reasoning task,
+         // so thinking mode is disabled for lower latency and cost.
+         // @ts-ignore - `thinking` is a DeepSeek-specific field passed through extra_body
+         extra_body: { thinking: { type: "disabled" } }
        });
-       
-       const parsedParts = JSON.parse(response.text);
-       
+
+       const raw = response.choices[0]?.message?.content;
+       const parsed = raw ? JSON.parse(raw) : { steps: [] };
+       const parsedParts = Array.isArray(parsed) ? parsed : (parsed.steps || []);
+
        for (const part of parsedParts) {
          const match = steps.find(s => s.id === part.id);
          if (match) {
@@ -237,4 +229,3 @@ Output valid JSON only.`;
 
   return steps;
 }
-
