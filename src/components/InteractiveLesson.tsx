@@ -26,12 +26,13 @@ interface LessonStep {
 interface InteractiveLessonProps {
   topicId: string;
   topicTitle: string;
+  topicContent?: string;
   onClose: () => void;
 }
 
 type LessonState = 'init' | 'launch' | 'playing' | 'paused' | 'asking' | 'ended';
 
-export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveLessonProps) {
+export function InteractiveLesson({ topicId, topicTitle, topicContent, onClose }: InteractiveLessonProps) {
   const [steps, setSteps] = useState<LessonStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [lessonState, setLessonState] = useState<LessonState>('init');
@@ -68,7 +69,7 @@ export function InteractiveLesson({ topicId, topicTitle, onClose }: InteractiveL
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ orgId: 'demo' })
+          body: JSON.stringify({ orgId: 'demo', title: topicTitle, content: topicContent })
         });
         if (res.ok) {
           const data = await res.json();

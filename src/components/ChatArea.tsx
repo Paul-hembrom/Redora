@@ -1690,6 +1690,7 @@ const handleFetchImages = async () => {
           <InteractiveLesson 
             topicId={chapter.id} 
             topicTitle={chapter.title} 
+            topicContent={chapter.content || chapter.summary || ''}
             onClose={() => setShowInteractiveLesson(false)} 
           />
         )}

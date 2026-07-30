@@ -2550,7 +2550,7 @@ app.post('/api/topics/:id/memory', authenticate, async (req: any, res) => {
 app.post('/api/topics/:id/start-lesson', authenticate, startLessonLimiter, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { orgId } = req.body;
+    const { orgId, title, content } = req.body;
     
     // Default orgId if missing, or we can use a dummy
     const actualOrgId = orgId || req.userId || req.cookies?.['sb-org-id'] || 'default_org';
@@ -2562,7 +2562,7 @@ app.post('/api/topics/:id/start-lesson', authenticate, startLessonLimiter, async
       throw e;
     }
 
-    const steps = await createInteractiveLesson(id, actualOrgId, req.userId);
+    const steps = await createInteractiveLesson(id, actualOrgId, req.userId, title, content);
     res.json({ steps });
   } catch (err: any) {
     console.error("Error starting lesson:", err);

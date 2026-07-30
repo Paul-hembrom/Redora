@@ -3,119 +3,151 @@ import { synthesizeElevenLabsSpeech, callLLM } from "../src/lib/gemini.js";
 import { v4 as uuidv4 } from "uuid";
 import { getStudentMemory } from "./studentMemory.js";
 
-export async function createInteractiveLesson(topicId: string, orgId: string, userId: string = 'default') {
-  // Check if topicId is a sub-topic (has a parent_id)
-  const chaptersInfo = await sql`SELECT id, parent_id, title, summary, content FROM chapters WHERE id = ${topicId}`;
-  
-  if (chaptersInfo.length === 0) return [];
-  
-  const targetChapter = chaptersInfo[0];
-  const lookupChapterId = targetChapter.parent_id || targetChapter.id;
-
-  // Fetch memory
-  const memoryContext = await getStudentMemory(userId, lookupChapterId);
-
-  // Try to find an existing storyboard for this topic/chapter
-  const storyboards = await sql`
-    SELECT id FROM storyboards 
-    WHERE chapter_id = ${lookupChapterId} AND status = 'completed'
-    ORDER BY created_at DESC 
-    LIMIT 1
-  `;
-
+export async function createInteractiveLesson(topicId: string, orgId: string, userId: string = 'default', providedTitle?: string, providedContent?: string) {
   let steps: any[] = [];
+  let memoryContext = '';
 
-  // 1. We already fetched the topic content above
-  const chapters = chaptersInfo;
-  
-  if (storyboards.length > 0) {
-    const storyboardId = storyboards[0].id;
-
-    // Fetch related scenes
-    const scenes = await sql`
-      SELECT s.*, 
-             v.image_url, v.model_used,
-             n.asset_url as narration_url, n.duration_ms
-      FROM scenes s
-      LEFT JOIN visual_metadata v ON s.id = v.scene_id
-      LEFT JOIN narration_assets n ON s.id = n.scene_id
-      WHERE s.storyboard_id = ${storyboardId}
-      ORDER BY s.scene_number ASC
-    `;
-
-    for (const scene of scenes) {
-      if (scene.video_url) {
-        steps.push({
-          id: scene.id || uuidv4(),
-          type: 'video',
-          url: scene.video_url,
-          narrationText: scene.narration || '',
-          narration_audio_url: scene.narration_url || null,
-          duration: scene.estimated_duration_seconds || 15
-        });
-      } else if (scene.image_url) {
-        const isVideo = scene.model_used?.startsWith('veo') || scene.image_url.endsWith('.mp4');
-        steps.push({
-          id: scene.id || uuidv4(),
-          type: isVideo ? 'video' : 'image',
-          url: scene.image_url,
-          caption: scene.narration || scene.visual_prompt || '',
-          narrationText: scene.narration || '',
-          narration_audio_url: scene.narration_url || null,
-          duration: scene.estimated_duration_seconds || 10
-        });
-      }
-    }
-  }
-
-  // If no storyboard exists, construct a simple lesson from the chapter text.
-  if (steps.length === 0 && chapters.length > 0) {
-    const chapter = chapters[0];
+  if (topicId.startsWith('topic_curr_') || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(topicId)) {
+    const title = providedTitle || "New Topic";
+    const content = providedContent || "";
     
-    // First step: Short Intro
     steps.push({
       id: uuidv4(),
       type: 'intro',
-      caption: chapter.title,
-      narrationText: "Welcome to today's lesson on " + chapter.title + ". Let's dive right in!",
+      caption: title,
+      narrationText: "Welcome to today's lesson on " + title + ". Let's dive right in!",
       narration_audio_url: null,
       emotion: 'smiling',
       duration: 5
     });
 
-    // Content step (shortened instead of dump)
     steps.push({
       id: uuidv4(),
       type: 'image',
-      caption: chapter.title + " Overview",
-      narrationText: "Here's the main idea: " + chapter.summary.substring(0, 200) + "...",
+      caption: title + " Overview",
+      narrationText: "Here's the main idea: " + content.substring(0, 200) + "...",
       narration_audio_url: null,
       emotion: 'neutral',
       duration: 15
     });
 
-    // Question
     steps.push({
       id: uuidv4(),
       type: 'question',
-      text: "Based on what we just reviewed, what do you think is the most important concept in " + chapter.title + "?"
+      text: "Based on what we just reviewed, what do you think is the most important concept in " + title + "?"
     });
-  } else if (chapters.length > 0) {
-     // Prepend Intro if not present, and append a question
-     const chapter = chapters[0];
-     steps.unshift({
+  } else {
+    // Check if topicId is a sub-topic (has a parent_id)
+    const chaptersInfo = await sql`SELECT id, parent_id, title, summary, content FROM chapters WHERE id = ${topicId}`;
+    
+    if (chaptersInfo.length === 0) return [];
+    
+    const targetChapter = chaptersInfo[0];
+    const lookupChapterId = targetChapter.parent_id || targetChapter.id;
+
+    // Fetch memory
+    memoryContext = await getStudentMemory(userId, lookupChapterId);
+
+    // Try to find an existing storyboard for this topic/chapter
+    const storyboards = await sql`
+      SELECT id FROM storyboards 
+      WHERE chapter_id = ${lookupChapterId} AND status = 'completed'
+      ORDER BY created_at DESC 
+      LIMIT 1
+    `;
+
+    // 1. We already fetched the topic content above
+    const chapters = chaptersInfo;
+    
+    if (storyboards.length > 0) {
+      const storyboardId = storyboards[0].id;
+
+      // Fetch related scenes
+      const scenes = await sql`
+        SELECT s.*, 
+               v.image_url, v.model_used,
+               n.asset_url as narration_url, n.duration_ms
+        FROM scenes s
+        LEFT JOIN visual_metadata v ON s.id = v.scene_id
+        LEFT JOIN narration_assets n ON s.id = n.scene_id
+        WHERE s.storyboard_id = ${storyboardId}
+        ORDER BY s.scene_number ASC
+      `;
+
+      for (const scene of scenes) {
+        if (scene.video_url) {
+          steps.push({
+            id: scene.id || uuidv4(),
+            type: 'video',
+            url: scene.video_url,
+            narrationText: scene.narration || '',
+            narration_audio_url: scene.narration_url || null,
+            duration: scene.estimated_duration_seconds || 15
+          });
+        } else if (scene.image_url) {
+          const isVideo = scene.model_used?.startsWith('veo') || scene.image_url.endsWith('.mp4');
+          steps.push({
+            id: scene.id || uuidv4(),
+            type: isVideo ? 'video' : 'image',
+            url: scene.image_url,
+            caption: scene.narration || scene.visual_prompt || '',
+            narrationText: scene.narration || '',
+            narration_audio_url: scene.narration_url || null,
+            duration: scene.estimated_duration_seconds || 10
+          });
+        }
+      }
+    }
+
+    // If no storyboard exists, construct a simple lesson from the chapter text.
+    if (steps.length === 0 && chapters.length > 0) {
+      const chapter = chapters[0];
+      
+      // First step: Short Intro
+      steps.push({
         id: uuidv4(),
         type: 'intro',
         caption: chapter.title,
-        narrationText: "Welcome to today's lesson! We'll be looking at " + chapter.title + ". Let's get started.",
-        emotion: 'smiling'
-     });
+        narrationText: "Welcome to today's lesson on " + chapter.title + ". Let's dive right in!",
+        narration_audio_url: null,
+        emotion: 'smiling',
+        duration: 5
+      });
 
-     steps.push({
-      id: uuidv4(),
-      type: 'question',
-      text: "Let's pause here. Do you have any questions before we continue?"
-    });
+      // Content step (shortened instead of dump)
+      steps.push({
+        id: uuidv4(),
+        type: 'image',
+        caption: chapter.title + " Overview",
+        narrationText: "Here's the main idea: " + (chapter.summary || chapter.content || '').substring(0, 200) + "...",
+        narration_audio_url: null,
+        emotion: 'neutral',
+        duration: 15
+      });
+
+      // Question
+      steps.push({
+        id: uuidv4(),
+        type: 'question',
+        text: "Based on what we just reviewed, what do you think is the most important concept in " + chapter.title + "?"
+      });
+    } else if (chapters.length > 0) {
+       // Prepend Intro if not present, and append a question
+       const chapter = chapters[0];
+       steps.unshift({
+          id: uuidv4(),
+          type: 'intro',
+          caption: chapter.title,
+          narrationText: "Welcome to today's lesson! We'll be looking at " + chapter.title + ". Let's get started.",
+          emotion: 'smiling'
+       });
+
+       steps.push({
+        id: uuidv4(),
+        type: 'question',
+        text: "Let's pause here. Do you have any questions before we continue?"
+      });
+    }
   }
 
   // Now, rewrite narration using LLM for Maya persona
