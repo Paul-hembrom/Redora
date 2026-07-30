@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Volume2, Square, Loader2, AudioLines, Info } from 'lucide-react';
+import { Volume2, Square, Loader2, AudioLines, Info, Pause, Play } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -31,6 +31,7 @@ const logError = (msg: string, data?: any) => {
 
 export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-", playbackRate = 0.8 }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [voicesAvailable, setVoicesAvailable] = useState(true);
@@ -39,7 +40,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const actionButtonRef = useRef<HTMLButtonElement>(null);
+  const pausedStateRef = useRef<{ chunkIndex: number, wordIndex: number, currentTime: number } | null>(null);
+  const resumeStateRef = useRef<{ chunkIndex: number, wordIndex: number } | null>(null);
+  const currentChunkRef = useRef<any>(null);
+  const playNextChunkRef = useRef<((chunkOverride?: any, wordIndexOverride?: number) => void) | null>(null);
   const audioQueueRef = useRef<any[]>([]);
   const chunksMapRef = useRef<Map<number, any>>(new Map());
   const animationFrameIdRef = useRef<number | null>(null);
@@ -163,7 +169,76 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       window.speechSynthesis.cancel();
     }
     setIsPlaying(false);
+    setIsPaused(false);
     setIsLoading(false);
+    pausedStateRef.current = null;
+    resumeStateRef.current = null;
+    currentChunkRef.current = null;
+  };
+
+  const handlePause = () => {
+    if (!audioRef.current || !currentChunkRef.current) return;
+    const currentTime = audioRef.current.currentTime;
+    audioRef.current.pause();
+    
+    let lastSpokenWordIndex = -1;
+    const timestamps = currentChunkRef.current.timestamps;
+    
+    if (timestamps && timestamps.length > 0) {
+       for (let k = 0; k < timestamps.length; k++) {
+          const start_time = timestamps[k].start_time !== undefined ? timestamps[k].start_time : timestamps[k].start;
+          if (currentTime >= start_time) {
+             lastSpokenWordIndex = k;
+          } else {
+             break;
+          }
+       }
+    }
+    
+    let chunkIndex = currentChunkRef.current.index;
+    if (timestamps && lastSpokenWordIndex === timestamps.length - 1) {
+       chunkIndex++;
+       lastSpokenWordIndex = -1;
+    }
+
+    pausedStateRef.current = { chunkIndex, wordIndex: lastSpokenWordIndex, currentTime };
+    setIsPaused(true);
+    if (animationFrameIdRef.current !== null) {
+      cancelAnimationFrame(animationFrameIdRef.current);
+      animationFrameIdRef.current = null;
+    }
+  };
+
+  const handleResume = () => {
+    setIsPaused(false);
+    if (pausedStateRef.current) {
+       const { chunkIndex, wordIndex } = pausedStateRef.current;
+       const targetWordIndex = wordIndex + 1;
+       
+       let targetChunk = null;
+       if (currentChunkRef.current && currentChunkRef.current.index === chunkIndex) {
+          targetChunk = currentChunkRef.current;
+       } else {
+          while (audioQueueRef.current.length > 0 && audioQueueRef.current[0].index < chunkIndex) {
+             audioQueueRef.current.shift();
+          }
+          if (audioQueueRef.current.length > 0 && audioQueueRef.current[0].index === chunkIndex) {
+             targetChunk = audioQueueRef.current.shift();
+          }
+       }
+       
+       if (targetChunk) {
+          if (playNextChunkRef.current) {
+             playNextChunkRef.current(targetChunk, targetWordIndex);
+          }
+       } else {
+          resumeStateRef.current = { chunkIndex, wordIndex: targetWordIndex };
+          if (playNextChunkRef.current) {
+             playNextChunkRef.current();
+          }
+       }
+       pausedStateRef.current = null;
+    }
   };
 
   const tryCartesiaTTS = async () => {
@@ -199,26 +274,40 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       setIsLoading(false);
       setIsPlaying(true);
 
-      const playNextChunk = async () => {
+      const playNextChunk = async (chunkOverride?: any, wordIndexOverride?: number) => {
         if (currentSessionId !== playSessionIdRef.current) {
           setIsPlaying(false);
           isQueuePlaying = false;
           return;
         }
 
-        if (audioQueueRef.current.length === 0) {
-          isQueuePlaying = false;
-          if (streamEnded && expectedIndex >= totalChunks) {
-            if (playedChunks === 0 && failedChunks > 0) {
-              showError('Audio unavailable for this content. Please try again later.');
-            }
-            setIsPlaying(false);
-          }
-          return;
-        }
+        let chunk;
+        let resumeWordIndex = wordIndexOverride;
 
-        isQueuePlaying = true;
-        const chunk = audioQueueRef.current.shift();
+        if (chunkOverride) {
+            chunk = chunkOverride;
+            isQueuePlaying = true;
+        } else {
+            if (audioQueueRef.current.length === 0) {
+              isQueuePlaying = false;
+              if (streamEnded && expectedIndex >= totalChunks) {
+                if (playedChunks === 0 && failedChunks > 0) {
+                  showError('Audio unavailable for this content. Please try again later.');
+                }
+                setIsPlaying(false);
+              }
+              return;
+            }
+            isQueuePlaying = true;
+            chunk = audioQueueRef.current.shift();
+            
+            if (resumeStateRef.current && resumeStateRef.current.chunkIndex === chunk.index) {
+                resumeWordIndex = resumeStateRef.current.wordIndex;
+                resumeStateRef.current = null;
+            }
+        }
+        
+        currentChunkRef.current = chunk;
 
         // Pre-load the next audio chunk while the current one is playing
         if (audioQueueRef.current.length > 0) {
@@ -238,9 +327,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         if (!sentenceEl) {
             sentenceEl = document.getElementById(`tts-sentence-${i}`) as HTMLElement | null;
         }
-        if (!sentenceEl && buttonRef.current) {
+        if (!sentenceEl && wrapperRef.current) {
             // Fallback for ChatArea chat message bubbles
-            const bubble = buttonRef.current.closest('.group\\/bubble');
+            const bubble = wrapperRef.current.closest('.group\\/bubble');
             if (bubble) {
                 sentenceEl = bubble.querySelector('.prose') as HTMLElement | null;
             }
@@ -284,6 +373,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         audio.src = chunk.audioUrl;
         audio.playbackRate = playbackRate;
         audio.defaultPlaybackRate = playbackRate;
+
+        if (resumeWordIndex !== undefined && chunk.timestamps && chunk.timestamps.length > resumeWordIndex) {
+           const ts = chunk.timestamps[resumeWordIndex];
+           const targetTime = ts.start_time !== undefined ? ts.start_time : ts.start;
+           audio.onloadedmetadata = () => {
+               audio.currentTime = targetTime;
+           }
+        }
         
         console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
         console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
@@ -537,6 +634,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       };
 
       // Start reading the stream
+      playNextChunkRef.current = playNextChunk;
       (async () => {
         try {
           while (true) {
@@ -564,7 +662,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                   const fallbackElements = document.querySelectorAll('[id^="tts-sentence-"]').length;
                   if (expectedElements === 0 && fallbackElements === 0 && !idPrefix.startsWith("tts-explanation-")) {
                     // Try to see if we have a fallback bubble
-                    const bubble = buttonRef.current?.closest('.group\\/bubble');
+                    const bubble = wrapperRef.current?.closest('.group\\/bubble');
                     if (!bubble) {
                         logWarning(`No DOM elements found matching ${idPrefix} or fallback. Disabling sync.`);
                         disableSync = true;
@@ -665,7 +763,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   useEffect(() => {
-    const btn = buttonRef.current;
+    const btn = actionButtonRef.current;
     if (!btn) return;
 
     const handleTouchStart = (e: TouchEvent) => {
@@ -716,29 +814,46 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   };
 
   return (
-    <div className="relative inline-flex items-center gap-1">
-      <button
-        ref={buttonRef}
-        className={cn(
-          "relative p-1.5 bg-black/20 hover:bg-black/40 rounded text-white/50 hover:text-cyan-400 disabled:opacity-50 transition-colors flex items-center justify-center touch-manipulation z-10",
-          "before:absolute before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:min-w-[48px] before:min-h-[48px] before:content-['']",
-          isPlaying && "text-cyan-400 bg-black/40",
-          className
-        )}
-        title={isPlaying ? "Stop Reading" : "Read Aloud"}
-        disabled={isLoading}
-      >
-        {isLoading ? (
-          <Loader2 className={cn("animate-spin", iconSizeClasses)} />
-        ) : isPlaying ? (
-          <div className="flex items-center gap-1">
-            <AudioLines className={cn("animate-pulse text-cyan-400", iconSizeClasses)} />
-            <Square className="w-2.5 h-2.5 fill-current opacity-70" />
+    <div className="relative inline-flex items-center gap-1" ref={wrapperRef}>
+      {isPlaying ? (
+          <div className={cn("flex items-center rounded bg-black/40 text-cyan-400 z-10 min-h-[48px]", className)}>
+             {isLoading ? (
+                <button className="p-1.5 touch-manipulation min-w-[48px] flex items-center justify-center" disabled>
+                   <Loader2 className={cn("animate-spin", iconSizeClasses)} />
+                </button>
+             ) : (
+                <>
+                    <button 
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); isPaused ? handleResume() : handlePause(); }}
+                        className="p-1.5 touch-manipulation min-w-[48px] flex items-center justify-center hover:bg-black/20 hover:text-cyan-300 transition-colors rounded-l"
+                        title={isPaused ? "Resume" : "Pause"}
+                    >
+                        {isPaused ? <Play className={iconSizeClasses} /> : <Pause className={iconSizeClasses} />}
+                    </button>
+                    <div className="w-[1px] h-6 bg-white/10" />
+                    <button 
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); stopPlaying(); }}
+                        className="p-1.5 touch-manipulation min-w-[48px] flex items-center justify-center hover:bg-black/20 hover:text-red-400 transition-colors rounded-r"
+                        title="Stop"
+                    >
+                        <Square className="w-3.5 h-3.5 fill-current opacity-70" />
+                    </button>
+                </>
+             )}
           </div>
-        ) : (
-          <Volume2 className={iconSizeClasses} />
-        )}
-      </button>
+      ) : (
+         <button
+            ref={actionButtonRef}
+            className={cn(
+              "relative p-1.5 bg-black/20 hover:bg-black/40 rounded text-white/50 hover:text-cyan-400 disabled:opacity-50 transition-colors flex items-center justify-center touch-manipulation z-10 min-w-[48px] min-h-[48px]",
+              className
+            )}
+            title="Read Aloud"
+            disabled={isLoading}
+         >
+            {isLoading ? <Loader2 className={cn("animate-spin", iconSizeClasses)} /> : <Volume2 className={iconSizeClasses} />}
+         </button>
+      )}
 
       {!isPlaying && !isLoading && (
         <button
