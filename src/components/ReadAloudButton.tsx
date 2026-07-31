@@ -509,40 +509,22 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             });
         };
 
-                let hasScrolled = false;
-        
+        // 1. ADD THIS: Separate initial sentence scroll state from active word scroll state
+        let hasScrolledInitial = false;
+        let lastActiveSpan: HTMLElement | null = null;
 
         const highlightLoop = () => {
-            if (!(window as any)._firstRafLog) {
-                console.log('[Frontend] highlightLoop started running!');
-                (window as any)._firstRafLog = true;
-            }
             if (currentSessionId !== playSessionIdRef.current || audio.paused || audio.ended) return;
 
             const currentTime = audio.currentTime;
             
-            
-            if (currentTime > 0.05 && !hasScrolled) {
-               hasScrolled = true;
-               // FOLLOW-UP FIX: scrolling `sentenceEl` itself only produces a
-               // *real* scroll the first time a new container is reached. In
-               // focus mode several chunks (sentences) commonly share one
-               // containing element -- e.g. a whole paragraph is a single DOM
-               // node -- so every chunk after the first one in that paragraph
-               // finds the container already sitting exactly where 'start'
-               // left it, and nothing moves even though the word actually
-               // being spoken has moved further down. At xl a paragraph
-               // usually still fits on screen so this is invisible; at 3xl+ a
-               // paragraph is often taller than the screen, so it looked like
-               // scrolling only happened "paragraph by paragraph". Scrolling
-               // to this chunk's own first word span (already resolved above
-               // for highlighting) tracks the real reading position instead,
-               // and only scrolls when that position isn't already
-               // comfortably on screen.
+            // 2. CHANGE THIS: Initial jump to ensure the start of the sentence is on screen
+            if (currentTime > 0.05 && !hasScrolledInitial) {
+               hasScrolledInitial = true;
                const scrollTarget: HTMLElement | null = wordSpans[0] || sentenceEl;
                if (scrollTarget) {
                  const rect = scrollTarget.getBoundingClientRect();
-                 const margin = 60;
+                 const margin = 80;
                  const alreadyVisible = rect.top >= margin && rect.bottom <= window.innerHeight - margin;
                  if (!alreadyVisible) {
                    scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -562,13 +544,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                     let startAdjusted = start_time;
                     let endAdjusted = end_time;
 
-                const activeWordText = span ? span.innerText : 'unknown';
-                if (!(window as any)._lastRafLog || Date.now() - (window as any)._lastRafLog > 1000) {
-                    console.log('[Frontend] RAF – currentTime:', currentTime.toFixed(2), 'active word:', activeWordText, 'progress:', (span.style.background ? 'active' : 'inactive'));
-                    (window as any)._lastRafLog = Date.now();
-                }
-
-                if (currentTime >= startAdjusted && currentTime < endAdjusted) {
+                    if (currentTime >= startAdjusted && currentTime < endAdjusted) {
                         const duration = endAdjusted - startAdjusted;
                         const progress = duration > 0 ? Math.max(0, Math.min(1, (currentTime - startAdjusted) / duration)) : 1;
                         span.style.background = `linear-gradient(to right, #FBBF24 ${progress * 100}%, transparent ${progress * 100}%)`;
@@ -576,6 +552,20 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                         span.style.backgroundClip = 'text';
                         span.style.color = 'transparent';
                         span.classList.remove('bg-amber-400/70');
+
+                        // 3. ADD THIS: Active Tracking (The crucial fix for 3xl / Smartboards)
+                        // If the word changes, check if it's falling off screen and recenter
+                        if (span !== lastActiveSpan) {
+                            lastActiveSpan = span;
+                            const rect = span.getBoundingClientRect();
+                            const margin = 120; // Generous margin for 3xl text
+                            
+                            // If the actively read word is too close to the top or bottom edges, recenter it dynamically
+                            if (rect.bottom > window.innerHeight - margin || rect.top < margin) {
+                                span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }
+
                     } else {
                         span.style.background = '';
                         span.style.webkitBackgroundClip = '';
