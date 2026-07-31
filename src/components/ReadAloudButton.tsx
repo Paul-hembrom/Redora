@@ -523,24 +523,30 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             
             
             if (currentTime > 0.05 && !hasScrolled) {
-               // BUGFIX: this used to re-derive its own scroll target via
-               // `document.getElementById('tts-sentence-'+i)` as the FIRST
-               // choice -- an unscoped, whole-document lookup -- instead of
-               // reusing the same domIndex/idPrefix-scoped element already
-               // resolved above for word-highlighting (`sentenceEl`). If any
-               // other element elsewhere in the DOM happens to share that id
-               // (e.g. a non-focus-mode copy of the same sentence still
-               // mounted but hidden), the unscoped lookup could silently grab
-               // the WRONG element, so scrollIntoView had no visible effect.
-               // This bug doesn't care about font size, but at small sizes
-               // enough sentences still fit on screen that a missed scroll
-               // goes unnoticed -- at 3xl+, a single missed scroll leaves the
-               // next sentence half off-screen until a later scroll (e.g. at
-               // the next paragraph) happens to catch up. Reusing the same
-               // correctly-scoped `sentenceEl` fixes this.
-               if (sentenceEl) {
-                 hasScrolled = true;
-                 sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+               hasScrolled = true;
+               // FOLLOW-UP FIX: scrolling `sentenceEl` itself only produces a
+               // *real* scroll the first time a new container is reached. In
+               // focus mode several chunks (sentences) commonly share one
+               // containing element -- e.g. a whole paragraph is a single DOM
+               // node -- so every chunk after the first one in that paragraph
+               // finds the container already sitting exactly where 'start'
+               // left it, and nothing moves even though the word actually
+               // being spoken has moved further down. At xl a paragraph
+               // usually still fits on screen so this is invisible; at 3xl+ a
+               // paragraph is often taller than the screen, so it looked like
+               // scrolling only happened "paragraph by paragraph". Scrolling
+               // to this chunk's own first word span (already resolved above
+               // for highlighting) tracks the real reading position instead,
+               // and only scrolls when that position isn't already
+               // comfortably on screen.
+               const scrollTarget: HTMLElement | null = wordSpans[0] || sentenceEl;
+               if (scrollTarget) {
+                 const rect = scrollTarget.getBoundingClientRect();
+                 const margin = 60;
+                 const alreadyVisible = rect.top >= margin && rect.bottom <= window.innerHeight - margin;
+                 if (!alreadyVisible) {
+                   scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                 }
                }
             }
 
