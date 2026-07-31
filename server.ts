@@ -2981,7 +2981,19 @@ app.post('/api/search-news', authenticate, async (req: any, res) => {
       return res.status(500).json({ error: 'SERPER_API_KEY is not configured' });
     }
 
-    const response = await fetch(`https://google.serper.dev/news?q=${encodeURIComponent(query)}&apiKey=${apiKey}`);
+    const response = await fetch("https://google.serper.dev/news", {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        q: query,
+        gl: "us",
+        hl: "en",
+        tbs: "qdr:m",
+      }),
+    });
     if (!response.ok) {
       console.error('Serper News API error:', await response.text());
       return res.json({ summary: "Failed to fetch news." });
@@ -3010,11 +3022,23 @@ app.post('/api/search-news', authenticate, async (req: any, res) => {
 
     const { callLLM } = await import('./src/lib/gemini.js');
 
-    const snippetsText = topNews.map((n, i) => `[${i + 1}] Source: ${n.source}\nTitle: ${n.title}\nLink: ${n.link}\nDate: ${n.date}\nSnippet: ${n.snippet}`).join('\n\n');
+    const systemPrompt = `You are an engaging classroom news assistant.
+Your goal is to help students see how what they are learning in class connects to exciting developments, ongoing research, and cutting-edge projects happening in the world today.
 
-    const systemPrompt = `You are a classroom news assistant. Given a topic and a set of recent news snippets, write a concise, engaging summary suitable for students. Embed source links naturally in the text using Markdown: [source name](URL). Do not add any information not present in the snippets. Keep the summary to 200-300 words. At the end of the summary, add a horizontal rule (---) and a "### Sources" list with the links used.`;
+TOPIC/CHAPTER CONTEXT:
+"${topicTitle || query}"
 
-    const userPrompt = `Topic Title: ${topicTitle || query}\nKey Concepts: ${keyConcepts || 'N/A'}\n\nNews Snippets:\n${snippetsText}\n\nPlease generate the summary.`;
+RECENT NEWS ARTICLES:
+${JSON.stringify(topNews)}
+
+INSTRUCTIONS:
+1. **The Bridge (1-2 sentences)**: Start with an inspiring opening that links the textbook concept to today's news. (e.g., "While your textbook explores how computers evolved from mechanical gears to room-sized vacuum tubes, today's computer history is being written in quantum labs!")
+2. **Current Developments**: Summarize 2-3 of the most exciting ongoing projects or technological breakthroughs from the provided news articles in an easy-to-understand way.
+3. **Tone & Structure**: Keep it engaging and suitable for students (200-300 words). Embed source links naturally in the body text like [Source Name](URL).
+4. **Sources Section**: End with a horizontal rule (---) followed by a "### Sources" bulleted list of all articles referenced.
+`;
+
+    const userPrompt = `Please generate the summary based on the provided news articles and topic.`;
 
     const summaryText = await callLLM(userPrompt, systemPrompt, "text", 1024, 0.7);
 
@@ -3587,17 +3611,6 @@ async function startServer() {
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
-  }
-
-  // --- Temporary HF Space Health Check ---
-  try {
-    console.log('[Startup] Pinging HF Space Manim endpoint...');
-    const hfRes = await fetch('https://paulhemb-redora.hf.space/render', {
-      method: 'GET' // usually HF spaces return 405 Method Not Allowed for GET, which still means it's reachable.
-    });
-    console.log(`[Startup] HF Space ping status: ${hfRes.status} ${hfRes.statusText}`);
-  } catch (err: any) {
-    console.error('[Startup] HF Space ping failed:', err.message);
   }
 
   app.listen(PORT, '0.0.0.0', () => {

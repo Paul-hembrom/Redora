@@ -1467,12 +1467,22 @@ const handleFetchImages = async () => {
                     {msg.type && msg.type !== 'text' && msg.type !== 'image_fallback' ? (
                       <p className="text-xs font-semibold uppercase tracking-wider opacity-50 mb-2">{msg.text}</p>
                     ) : (
-                      <ReactMarkdown 
-                        remarkPlugins={[remarkGfm]}
-                        components={markdownComponents}
-                      >
-                        {smartNormalizeText(msg.text)}
-                      </ReactMarkdown>
+                      (() => {
+                        const content = smartNormalizeText(msg.text);
+                        let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
+                        if (!blocks.length) blocks = [content];
+                        
+                        return blocks.map((s, idx) => (
+                          <div key={idx} id={`tts-msg-${msg.id}-${idx}`} className="mb-4 last:mb-0">
+                            <ReactMarkdown 
+                              remarkPlugins={[remarkGfm]}
+                              components={markdownComponents}
+                            >
+                              {s}
+                            </ReactMarkdown>
+                          </div>
+                        ));
+                      })()
                     )}
                   </div>
                   {msg.type === 'image_fallback' && (
@@ -1501,7 +1511,8 @@ const handleFetchImages = async () => {
                         text={msg.text} 
                         iconSizeClasses="w-3.5 h-3.5" 
                         className="bg-black/20 hover:bg-black/40"
-                        playbackRate={playbackRate} 
+                        playbackRate={playbackRate}
+                        idPrefix={`tts-msg-${msg.id}-`}
                       />
                     )}
                     {msg.role === 'model' && (

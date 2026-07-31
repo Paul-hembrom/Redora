@@ -1489,11 +1489,33 @@ export async function generateNewsSearchQuery(
   content: string
 ): Promise<string> {
   const contentSnippet = content ? content.substring(0, 1000) : '';
-  const prompt = `Generate a concise, highly specific news search query based on the following educational topic. The query should return recent, relevant news articles that a teacher could use in a classroom.
+  const prompt = `You are an expert STEM and educational curriculum specialist.
+Your goal is to bridge textbook educational concepts to REAL-WORLD CURRENT NEWS, modern breakthroughs, ongoing research, and cutting-edge projects happening RIGHT NOW.
 
-Topic title: ${subtopicTitle}
-Content summary: ${contentSnippet}
-Return ONLY the query string, no other text.`;
+CHAPTER TITLE: "${subtopicTitle}"
+CHAPTER CONTENT: "${contentSnippet}"
+
+TASK:
+1. Identify the core domain/field of study (e.g., Computing Hardware, Bio-Energy, Astronomy, Genetics).
+2. Determine the modern cutting-edge trajectory or current real-world frontier of this domain.
+   - DO NOT search for historical facts, ancient tools, or historical figures mentioned in the content (e.g., if the text mentions Abacus, ENIAC, or Babbage, DO NOT search for news about them).
+   - INSTEAD, map the topic to where this field is heading TODAY (e.g., Quantum Computing, Neuromorphic Processing, Photonic Chips, AI Hardware).
+3. Generate a concise, highly specific news search query (3-6 words) that will return recent, real-time ongoing projects or technological breakthroughs in this domain.
+
+OUTPUT RULES:
+- Output ONLY the search query string. 
+- No commentary, quotes, or conversational filler.
+
+EXAMPLES:
+- Content: History of computers (Abacus -> Pascaline -> ENIAC)
+  Output: quantum computing breakthrough research project
+- Content: Plant Cell Photosynthesis & Chloroplasts
+  Output: artificial photosynthesis breakthrough solar energy project
+- Content: Newton's Laws and Gravity
+  Output: space propulsion technology breakthrough experiment
+- Content: Structure of DNA & Genetics
+  Output: CRISPR gene editing clinical trial research
+`;
   try {
     const text = await callLLM(prompt, undefined, undefined, undefined, 0.3);
     return text.replace(/["']/g, '').trim();

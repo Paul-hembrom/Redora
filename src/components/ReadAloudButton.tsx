@@ -450,7 +450,26 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 const word = ts.word ? ts.word.trim() : "";
                 if (!word) continue;
 
-                let matchIdx = fullText.indexOf(word, searchIndex);
+                let matchIdx = -1;
+                try {
+                    const wordEscaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    let regexPattern = wordEscaped;
+                    if (/^\w/.test(word)) regexPattern = `\\b${regexPattern}`;
+                    if (/\w$/.test(word)) regexPattern = `${regexPattern}\\b`;
+                    
+                    const regex = new RegExp(regexPattern, "gi");
+                    regex.lastIndex = searchIndex;
+                    const match = regex.exec(fullText);
+                    if (match) {
+                        matchIdx = match.index;
+                    }
+                } catch (e) {
+                    // Ignore regex errors
+                }
+
+                if (matchIdx === -1) {
+                    matchIdx = fullText.indexOf(word, searchIndex);
+                }
                 if (matchIdx === -1) {
                     matchIdx = fullText.toLowerCase().indexOf(word.toLowerCase(), searchIndex);
                 }
