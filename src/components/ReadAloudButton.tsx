@@ -196,9 +196,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     }
     
     let chunkIndex = currentChunkRef.current.index;
+    // BUGFIX: this used to advance to the next chunk as soon as `currentTime`
+    // passed the START of the last word, even if that word was still being
+    // spoken. That meant pausing while the last word of a sentence was
+    // mid-pronunciation would skip straight to the next sentence and clip the
+    // tail of the word you were still hearing. Now we only treat the sentence
+    // as "done" once we're past the last word's END time.
     if (timestamps && lastSpokenWordIndex === timestamps.length - 1) {
-       chunkIndex++;
-       lastSpokenWordIndex = -1;
+       const lastTs = timestamps[lastSpokenWordIndex];
+       const lastEndTime = lastTs.end_time !== undefined ? lastTs.end_time : lastTs.end;
+       if (lastEndTime === undefined || currentTime >= lastEndTime) {
+          chunkIndex++;
+          lastSpokenWordIndex = -1;
+       }
     }
 
     pausedStateRef.current = { chunkIndex, wordIndex: lastSpokenWordIndex, currentTime };
@@ -374,18 +384,25 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         audio.playbackRate = playbackRate;
         audio.defaultPlaybackRate = playbackRate;
 
-        if (resumeWordIndex !== undefined && chunk.timestamps && chunk.timestamps.length > resumeWordIndex) {
-           const ts = chunk.timestamps[resumeWordIndex];
-           const targetTime = ts.start_time !== undefined ? ts.start_time : ts.start;
-           audio.onloadedmetadata = () => {
-               audio.currentTime = targetTime;
-           }
-        }
-        
         console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
         console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
 
-        audio.onloadedmetadata = () => console.log('[ReadAloud] Audio duration:', audio.duration);
+        // BUGFIX: `onloadedmetadata` used to be assigned TWICE -- once here to
+        // seek to the resume word's timestamp, and then again a few lines
+        // below just to log the duration. Since onloadedmetadata is a single
+        // property (not an addEventListener list), the second assignment
+        // silently clobbered the first every time, so the seek-to-resume-
+        // position logic never actually ran. That's why resuming always
+        // sounded like it restarted the sentence from the beginning instead
+        // of continuing where you left off. Merged into one handler below.
+        audio.onloadedmetadata = () => {
+            console.log('[ReadAloud] Audio duration:', audio.duration);
+            if (resumeWordIndex !== undefined && chunk.timestamps && chunk.timestamps.length > resumeWordIndex) {
+                const ts = chunk.timestamps[resumeWordIndex];
+                const targetTime = ts.start_time !== undefined ? ts.start_time : ts.start;
+                audio.currentTime = targetTime;
+            }
+        };
 
         
 
@@ -506,18 +523,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             
             
             if (currentTime > 0.05 && !hasScrolled) {
-               let targetEl: HTMLElement | null = document.getElementById(`tts-sentence-${i}`);
-               if (!targetEl) {
-                 const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
-                 const scopeRoot = getScopeRoot();
-                 targetEl = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement | null;
-                 if (!targetEl && idPrefix.startsWith("tts-explanation-")) {
-                     targetEl = scopeRoot.querySelector(`[id="${idPrefix}0"]`) as HTMLElement | null;
-                 }
-               }
-               if (targetEl) {
+               // BUGFIX: this used to re-derive its own scroll target via
+               // `document.getElementById('tts-sentence-'+i)` as the FIRST
+               // choice -- an unscoped, whole-document lookup -- instead of
+               // reusing the same domIndex/idPrefix-scoped element already
+               // resolved above for word-highlighting (`sentenceEl`). If any
+               // other element elsewhere in the DOM happens to share that id
+               // (e.g. a non-focus-mode copy of the same sentence still
+               // mounted but hidden), the unscoped lookup could silently grab
+               // the WRONG element, so scrollIntoView had no visible effect.
+               // This bug doesn't care about font size, but at small sizes
+               // enough sentences still fit on screen that a missed scroll
+               // goes unnoticed -- at 3xl+, a single missed scroll leaves the
+               // next sentence half off-screen until a later scroll (e.g. at
+               // the next paragraph) happens to catch up. Reusing the same
+               // correctly-scoped `sentenceEl` fixes this.
+               if (sentenceEl) {
                  hasScrolled = true;
-                 targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                 sentenceEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
                }
             }
 
