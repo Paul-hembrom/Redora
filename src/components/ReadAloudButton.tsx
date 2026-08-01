@@ -196,12 +196,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     }
     
     let chunkIndex = currentChunkRef.current.index;
-    // BUGFIX: this used to advance to the next chunk as soon as `currentTime`
-    // passed the START of the last word, even if that word was still being
-    // spoken. That meant pausing while the last word of a sentence was
-    // mid-pronunciation would skip straight to the next sentence and clip the
-    // tail of the word you were still hearing. Now we only treat the sentence
-    // as "done" once we're past the last word's END time.
     if (timestamps && lastSpokenWordIndex === timestamps.length - 1) {
        const lastTs = timestamps[lastSpokenWordIndex];
        const lastEndTime = lastTs.end_time !== undefined ? lastTs.end_time : lastTs.end;
@@ -387,14 +381,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
         console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
 
-        // BUGFIX: `onloadedmetadata` used to be assigned TWICE -- once here to
-        // seek to the resume word's timestamp, and then again a few lines
-        // below just to log the duration. Since onloadedmetadata is a single
-        // property (not an addEventListener list), the second assignment
-        // silently clobbered the first every time, so the seek-to-resume-
-        // position logic never actually ran. That's why resuming always
-        // sounded like it restarted the sentence from the beginning instead
-        // of continuing where you left off. Merged into one handler below.
         audio.onloadedmetadata = () => {
             console.log('[ReadAloud] Audio duration:', audio.duration);
             if (resumeWordIndex !== undefined && chunk.timestamps && chunk.timestamps.length > resumeWordIndex) {
@@ -450,21 +436,51 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 const word = ts.word ? ts.word.trim() : "";
                 if (!word) continue;
 
+                const wordEscaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                let regexPattern = wordEscaped;
+                if (/^\w/.test(word)) regexPattern = `\\b${regexPattern}`;
+                if (/\w$/.test(word)) regexPattern = `${regexPattern}\\b`;
+
                 let matchIdx = -1;
+
+                // FIX (word drift on repeated/short words -- e.g. math
+                // content using single-letter set names A, B, C, D, E):
+                // try an EXACT case-sensitive match first. Going straight to
+                // a case-INSENSITIVE regex meant a timestamp word like "A"
+                // (a set name) matched just as happily against the everyday
+                // lowercase article "a" -- which shows up constantly in
+                // ordinary sentences -- long before it ever reached the real
+                // "A" being referred to. Since "a" is far more common than
+                // "A" in this kind of content, that wrong-but-earlier match
+                // is what dragged the search position backwards and caused
+                // everything after it in the sentence to drift. Trying an
+                // exact-case match first fixes that, while still falling
+                // through to case-insensitive (and then plain substring
+                // search) for legitimate case differences -- so nothing that
+                // used to match stops matching, it's just no longer the
+                // FIRST thing tried.
                 try {
-                    const wordEscaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    let regexPattern = wordEscaped;
-                    if (/^\w/.test(word)) regexPattern = `\\b${regexPattern}`;
-                    if (/\w$/.test(word)) regexPattern = `${regexPattern}\\b`;
-                    
-                    const regex = new RegExp(regexPattern, "gi");
-                    regex.lastIndex = searchIndex;
-                    const match = regex.exec(fullText);
+                    const regexCaseSensitive = new RegExp(regexPattern, "g");
+                    regexCaseSensitive.lastIndex = searchIndex;
+                    const match = regexCaseSensitive.exec(fullText);
                     if (match) {
                         matchIdx = match.index;
                     }
                 } catch (e) {
                     // Ignore regex errors
+                }
+
+                if (matchIdx === -1) {
+                    try {
+                        const regexCaseInsensitive = new RegExp(regexPattern, "gi");
+                        regexCaseInsensitive.lastIndex = searchIndex;
+                        const match = regexCaseInsensitive.exec(fullText);
+                        if (match) {
+                            matchIdx = match.index;
+                        }
+                    } catch (e) {
+                        // Ignore regex errors
+                    }
                 }
 
                 if (matchIdx === -1) {
