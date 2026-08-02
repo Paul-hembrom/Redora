@@ -1859,11 +1859,11 @@ function normalizeTextForCartesia(text: string): string {
     let bulletCounter = 1;
     
     // For numbered lists (add a spoken pause by ensuring the previous line ended with a period, and formatting as "1: ")
-    t = t.replace(/([.!?])\s*\s*(\d+)\.\s+/g, (match, punct, num) => {
+    t = t.replace(/([.!?])\s*\n\s*(\d+)\.\s+/g, (match, punct, num) => {
         bulletCounter = 1; // reset bullet counter
         return `${punct} ${num}: `;
     });
-    t = t.replace(/(^|[^.!?])\s*\s*(\d+)\.\s+/g, (match, prevChar, num) => {
+    t = t.replace(/(^|[^.!?])\s*\n\s*(\d+)\.\s+/g, (match, prevChar, num) => {
         bulletCounter = 1;
         return `${prevChar}. ${num}: `; // Add a period for spoken pause before the number
     });
@@ -1873,17 +1873,17 @@ function normalizeTextForCartesia(text: string): string {
     });
     
     // For bullet lists: replace with "Point X: "
-    t = t.replace(/([.!?])\s*\s*([-*•])\s+/g, (match, punct) => {
+    t = t.replace(/([.!?])\s*\n\s*([-*•])\s+/g, (match, punct) => {
         return `${punct} Point ${bulletCounter++}: `;
     });
-    t = t.replace(/(^|[^.!?])\s*\s*([-*•])\s+/g, (match, prevChar) => {
+    t = t.replace(/(^|[^.!?])\s*\n\s*([-*•])\s+/g, (match, prevChar) => {
         return `${prevChar}. Point ${bulletCounter++}: `; // Add period for pause
     });
     t = t.replace(/^\s*([-*•])\s+/g, () => {
         return `Point ${bulletCounter++}: `;
     });
     
-    // Also handle flattened lists (where chunkDocumentText replaced  with space after a period)
+    // Also handle flattened lists (where chunkDocumentText replaced \n with space after a period)
     t = t.replace(/([.!?])\s+([-*•])\s+/g, (match, punct) => {
         return `${punct} Point ${bulletCounter++}: `;
     });
@@ -2102,118 +2102,17 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_sarah") {
   };
 }
 
-
-async function synthesizeKokoroStream(text: string, voice = "af_sarah", onChunk: (chunk: any) => void) {
-  const supportedVoices = ["bf_emma", "bf_isabella", "bm_george", "bm_lewis", "af_bella", "af_sarah"];
-  const kokoroVoice = supportedVoices.includes(voice) ? voice : "af_sarah";
-  
-  let cleanText = text.replace(/[^a-zA-Z0-9\s.,!?\-:;()]/g, ' ');
-  cleanText = cleanText.replace(/\s+/g, ' ').trim();
-
-  const response = await fetch("https://paulhemb-redora.hf.space/v1/speech/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: cleanText, voice: kokoroVoice, speed: 1.0 })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Kokoro streaming TTS failed: ${response.statusText}`);
-  }
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("No readable stream");
-
-  const decoder = new TextDecoder();
-  let buffer = '';
-  
-  while (true) {
-    const { done, value } = await reader.read();
-    if (value) {
-      buffer += decoder.decode(value, { stream: true });
-      let newlineIdx;
-      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        if (line) {
-          try {
-            const chunk = JSON.parse(line);
-            onChunk(chunk);
-          } catch (e) {
-            console.error("Failed to parse chunk:", line.substring(0, 100));
-          }
-        }
-      }
-    }
-    if (done) break;
-  }
-  if (buffer.trim()) {
-    const lines = buffer.split('\n');
-    for (const line of lines) {
-      if (line.trim()) {
-        try {
-            const chunk = JSON.parse(line.trim());
-            onChunk(chunk);
-        } catch (e) {
-            console.error("Failed to parse final chunk:", line.trim().substring(0, 100));
-        }
-      }
-    }
-  }
-}
-
 app.post('/api/tts/cartesia', async (req, res) => {
   try {
     const { text, hq } = req.body;
     if (!text) return res.status(400).json({ error: 'Missing text' });
 
-
-
-    
-    // Try Kokoro streaming first
-    try {
-      let headersSent = false;
-      let chunkIndex = 0;
-      await synthesizeKokoroStream(text, "af_sarah", (chunk) => {
-        if (!headersSent) {
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Connection', 'keep-alive');
-          headersSent = true;
-        }
-        if (chunk.totalChunks !== undefined) {
-           res.write(JSON.stringify({ totalChunks: chunk.totalChunks }) + '\n');
-        } else {
-           res.write(JSON.stringify({
-              index: chunk.index !== undefined ? chunk.index : chunkIndex,
-              domIndex: chunk.index !== undefined ? chunk.index : chunkIndex,
-              text: chunk.text || "",
-              audioUrl: chunk.audioUrl,
-              timestamps: chunk.timestamps
-           }) + '\n');
-           chunkIndex++;
-        }
-      });
-      if (headersSent) {
-        res.end();
-        return;
-      } else {
-        throw new Error("No chunks received from Kokoro stream");
-      }
-    } catch (kokoroErr) {
-      console.error('Kokoro stream TTS failed, falling back to original pipeline:', kokoroErr.message);
     const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) {
       console.error('ELEVENLABS_API_KEY is not set');
       return res.status(500).json({ error: 'ElevenLabs API key missing' });
     }
 
-      if (res.headersSent) {
-         res.end();
-         return;
-      }
-    }
-    
-    // Fallback logic
     const chunks = chunkDocumentText(text);
     let responseStream: any;
 
@@ -3634,28 +3533,28 @@ app.get('/api/curriculum-test', (req, res) => {
        let fullContent = row.content || '';
 
        if (videos.length > 0) {
-         fullContent += '### Related Videos';
+         fullContent += '\n\n### Related Videos\n\n';
          videos.forEach((vid: any) => {
-           fullContent += `- [${(vid.title || 'Video').replace(/\[|\]/g, '')}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})`;
+           fullContent += `- [${(vid.title || 'Video').replace(/\[|\]/g, '')}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
          });
        }
 
        if (questions.length > 0) {
-         fullContent += '### Practice Questions';
+         fullContent += '\n\n### Practice Questions\n\n';
          questions.forEach((q: any, i: number) => {
-           fullContent += `**Q${i+1}: ${q.question}**`;
+           fullContent += `**Q${i+1}: ${q.question}**\n`;
            if (q.options) {
-             q.options.forEach((opt: string) => { fullContent += `- ${opt}`; });
+             q.options.forEach((opt: string) => { fullContent += `- ${opt}\n`; });
            }
-           fullContent += `*Answer: ${q.answer}*`;
+           fullContent += `*Answer: ${q.answer}*\n\n`;
          });
        } else {
-         fullContent += '### Practice Questions';
+         fullContent += '\n\n### Practice Questions\n\n';
          const firstSentence = (row.content || '').split(/[.?!]/)[0].trim();
          if (firstSentence) {
-           fullContent += `**Q1: True or False: ${firstSentence}?***Answer: True*`;
+           fullContent += `**Q1: True or False: ${firstSentence}?**\n*Answer: True*\n\n`;
          } else {
-           fullContent += `**Q1: What is the main idea of this section?***Answer: Review the content above to formulate your own answer.*`;
+           fullContent += `**Q1: What is the main idea of this section?**\n*Answer: Review the content above to formulate your own answer.*\n\n`;
          }
        }
 
@@ -3692,7 +3591,7 @@ app.get('/api/curriculum-test', (req, res) => {
 });
 
 async function startServer() {
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   // --- Vite Middleware ---
   app.use(express.static(path.join(process.cwd(), 'public')));

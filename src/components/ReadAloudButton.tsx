@@ -150,7 +150,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
   const stopPlaying = () => {
     playSessionIdRef.current += 1;
-    globalSearchIndexRef.current = 0;
     if (animationFrameIdRef.current !== null) {
       cancelAnimationFrame(animationFrameIdRef.current);
       animationFrameIdRef.current = null;
@@ -419,8 +418,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 fullText += txt;
             }
 
-            let searchIndex = globalSearchIndexRef.current;
-            let chunkOffset = chunk.text ? fullText.indexOf(chunk.text, searchIndex) : -1;
+            let searchIndex = 0;
+            let chunkOffset = fullText.indexOf(chunk.text);
             if (chunkOffset === -1) chunkOffset = fullText.toLowerCase().indexOf(chunk.text.toLowerCase());
             if (chunkOffset !== -1) {
                 searchIndex = chunkOffset;
@@ -497,7 +496,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 }
             }
 
-            globalSearchIndexRef.current = searchIndex;
             // Pass 2: wrap matches in *descending* start-offset order so
             // that mutating a later match's text node never invalidates the
             // node/offset references of matches earlier in the sentence
