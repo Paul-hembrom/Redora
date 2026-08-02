@@ -1021,10 +1021,10 @@ export default function App() {
           {isFullscreen ? (
             <button
               onClick={toggleFullscreen}
-              className="absolute top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 bg-black/60 hover:bg-black/80 backdrop-blur-md text-white/70 hover:text-white border border-white/10 px-4 py-2 rounded-full shadow-lg transition-all"
+              className="absolute top-4 left-1/2 -translate-x-1/2 lg:left-4 lg:translate-x-0 z-[100] flex items-center gap-2 bg-black/60 hover:bg-black/80 backdrop-blur-md text-white/70 hover:text-white border border-white/10 px-4 py-2 lg:px-5 lg:py-3 rounded-full shadow-lg transition-all min-h-[48px]"
             >
-              <Minimize className="w-4 h-4" />
-              <span className="text-sm font-medium">Exit Full Screen</span>
+              <Minimize className="w-4 h-4 lg:w-5 lg:h-5" />
+              <span className="text-sm lg:text-base font-medium">Exit Full Screen</span>
             </button>
           ) : (
             <button
