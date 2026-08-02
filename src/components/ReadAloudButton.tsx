@@ -29,6 +29,37 @@ const logError = (msg: string, data?: any) => {
 };
 
 
+
+const MATH_ALIASES: Record<string, string[]> = {
+    "squared": ["^2"],
+    "cubed": ["^3"],
+    "plus": ["+"],
+    "minus": ["-"],
+    "equals": ["="],
+    "times": ["*", "\\times", "\\cdot"],
+    "divided": ["/", "\\div"],
+    "pi": ["π", "\\pi"],
+    "alpha": ["\\alpha"],
+    "beta": ["\\beta"],
+    "gamma": ["\\gamma"],
+    "theta": ["\\theta"],
+    "infinity": ["∞", "\\infty"],
+    "sine": ["\\sin"],
+    "cosine": ["\\cos"],
+    "tangent": ["\\tan"],
+    "cosecant": ["\\csc"],
+    "secant": ["\\sec"],
+    "cotangent": ["\\cot"],
+    "integral": ["\\int"],
+    "sum": ["\\sum"],
+    "less": ["<", "≤", "\\leq"],
+    "greater": [">", "≥", "\\geq"],
+    "approximately": ["≈", "\\approx"],
+    "equivalent": ["\\equiv"],
+    "sub": ["_"],
+    "root": ["\\sqrt"]
+};
+
 export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-", playbackRate = 0.8 }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -435,11 +466,16 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 const ts = chunk.timestamps[tsIdx];
                 const word = ts.word ? ts.word.trim() : "";
                 if (!word) continue;
-
                 const wordEscaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 let regexPattern = wordEscaped;
-                if (/^\w/.test(word)) regexPattern = `\\b${regexPattern}`;
-                if (/\w$/.test(word)) regexPattern = `${regexPattern}\\b`;
+                const aliases = MATH_ALIASES[word.toLowerCase()];
+                if (aliases) {
+                    const aliasPattern = aliases.map(a => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+                    regexPattern = `(${regexPattern}|${aliasPattern})`;
+                } else {
+                    if (/^\w/.test(word)) regexPattern = `\\b${regexPattern}`;
+                    if (/\w$/.test(word)) regexPattern = `${regexPattern}\\b`;
+                }
 
                 let matchIdx = -1;
 

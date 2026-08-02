@@ -17,6 +17,7 @@ import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/l
 import { normalizeTextWithLLM } from './src/lib/llmNormalizer.js';
 import { createConcurrencyLimit } from './src/lib/documentProcessor.js';
 import { safeParseJSON } from './src/lib/utils.js';
+import { latexToPhonetic } from './src/lib/mathTTS.js';
 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
@@ -2119,7 +2120,12 @@ app.post('/api/tts/cartesia', async (req, res) => {
           const chunk = chunks[i];
           
           const cleanChunk = normalizeTextForCartesia(chunk.text);
-          let spokenText = await normalizeTextWithLLM(cleanChunk);
+          // 1. Convert math symbols to phonetics so Kokoro reads them properly
+          let spokenText = latexToPhonetic(cleanChunk);
+          
+          // 2. Optionally pass to LLM for final polish if needed (we'll stick to latexToPhonetic for precise timestamp matching)
+          // spokenText = await normalizeTextWithLLM(spokenText); // Disabled to prevent word drift
+          
 
           try {
             if (i > 0) {
