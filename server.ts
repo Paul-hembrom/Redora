@@ -2131,7 +2131,7 @@ async function synthesizeKokoroStream(text: string, voice = "af_sarah", onChunk:
     if (value) {
       buffer += decoder.decode(value, { stream: true });
       let newlineIdx;
-      while ((newlineIdx = buffer.indexOf('')) !== -1) {
+      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, newlineIdx).trim();
         buffer = buffer.slice(newlineIdx + 1);
         if (line) {
@@ -2296,7 +2296,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
                    const { done, value } = await reader.read();
                    if (done) break;
                    buffer += decoder.decode(value, { stream: true });
-                   let boundary = buffer.indexOf('');
+                   let boundary = buffer.indexOf('\n');
                    while (boundary !== -1) {
                        const line = buffer.slice(0, boundary).trim();
                        buffer = buffer.slice(boundary + 1);
@@ -2311,7 +2311,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
                                }
                            } catch(e) {}
                        }
-                       boundary = buffer.indexOf('');
+                       boundary = buffer.indexOf('\n');
                    }
                }
 
@@ -2486,7 +2486,7 @@ app.post('/api/tts/stream', async (req, res) => {
                    if (done) break;
                    buffer += decoder.decode(value, { stream: true });
                    
-                   let boundary = buffer.indexOf('');
+                   let boundary = buffer.indexOf('\n');
                    while (boundary !== -1) {
                        const line = buffer.slice(0, boundary).trim();
                        buffer = buffer.slice(boundary + 1);
@@ -2501,7 +2501,7 @@ app.post('/api/tts/stream', async (req, res) => {
                                }
                            } catch(e) {}
                        }
-                       boundary = buffer.indexOf('');
+                       boundary = buffer.indexOf('\n');
                    }
                }
                
