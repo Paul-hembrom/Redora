@@ -1925,13 +1925,6 @@ function normalizeTextForCartesia(text: string): string {
     t = t.replace(/≤/g, ' less than or equal to ');
     t = t.replace(/≥/g, ' greater than or equal to ');
 
-    // Basic math operators
-    t = t.replace(/\s+\+\s+/g, ' plus ');
-    t = t.replace(/\s+-\s+/g, ' minus ');
-    t = t.replace(/\s+=\s+/g, ' equals ');
-    t = t.replace(/\s+\/\s+/g, ' divided by ');
-    t = t.replace(/\s+\*\s+/g, ' times ');
-
     // Clean up extra spaces
     t = t.replace(/\s+/g, ' ').trim();
 
@@ -2126,7 +2119,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
           const chunk = chunks[i];
           
           const cleanChunk = normalizeTextForCartesia(chunk.text);
-          let spokenText = await normalizeTextWithLLM(cleanChunk);
+          let spokenText = cleanChunk;
 
           try {
             if (i > 0) {
