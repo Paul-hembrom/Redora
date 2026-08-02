@@ -2130,7 +2130,6 @@ async function synthesizeKokoroStream(text: string, voice = "af_sarah", onChunk:
     const { done, value } = await reader.read();
     if (value) {
       buffer += decoder.decode(value, { stream: true });
-      buffer = buffer.replace(/\}\s*\{/g, '}\n{');
       let newlineIdx;
       while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, newlineIdx).trim();
@@ -2140,7 +2139,7 @@ async function synthesizeKokoroStream(text: string, voice = "af_sarah", onChunk:
             const chunk = JSON.parse(line);
             onChunk(chunk);
           } catch (e) {
-            console.error("Failed to parse chunk:", line);
+            console.error("Failed to parse chunk:", line.substring(0, 100));
           }
         }
       }
@@ -2148,7 +2147,6 @@ async function synthesizeKokoroStream(text: string, voice = "af_sarah", onChunk:
     if (done) break;
   }
   if (buffer.trim()) {
-    buffer = buffer.replace(/\}\s*\{/g, '}\n{');
     const lines = buffer.split('\n');
     for (const line of lines) {
       if (line.trim()) {
