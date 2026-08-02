@@ -491,8 +491,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 }
 
                 if (matchIdx !== -1) {
-                    matches.push({ tsIndex: tsIdx, start: matchIdx, end: matchIdx + word.length - 1 });
-                    searchIndex = matchIdx + word.length;
+                    // Prevent word drift: if the match is too far ahead, it's likely a false positive
+                    // from LLM normalization (e.g. LLM added "squared" and it matched a "squared" 100 chars later).
+                    if (matchIdx - searchIndex > 80) {
+                        matchIdx = -1; // Ignore this match, it's too far
+                    } else {
+                        matches.push({ tsIndex: tsIdx, start: matchIdx, end: matchIdx + word.length - 1 });
+                        searchIndex = matchIdx + word.length;
+                    }
                 }
             }
 

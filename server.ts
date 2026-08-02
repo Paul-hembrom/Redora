@@ -2119,7 +2119,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
           const chunk = chunks[i];
           
           const cleanChunk = normalizeTextForCartesia(chunk.text);
-          let spokenText = cleanChunk;
+          let spokenText = await normalizeTextWithLLM(cleanChunk);
 
           try {
             if (i > 0) {
