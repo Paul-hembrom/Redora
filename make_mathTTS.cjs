@@ -1,7 +1,6 @@
 const fs = require('fs');
 
-const code = `
-export const MATH_TRANSFORMATIONS: Record<string, string> = {
+const fileContent = `export const MATH_TRANSFORMATIONS: Record<string, string> = {
     // --- Basic Arithmetic and Operators ---
     '\\\\+': ' plus ',
     '-': ' minus ',
@@ -180,20 +179,20 @@ export function latexToPhonetic(text: string): string {
     t = t.replace(/\\$(.*?)\\$/g, ' $1 ');
 
     // 1. Process parameterized LaTeX constructs via Regex
-    // Fractions \frac{a}{b} -> a over b
+    // Fractions \\frac{a}{b} -> a over b
     t = t.replace(/\\\\frac\\{([^}]+)\\}\\{([^}]+)\\}/g, ' $1 over $2 ');
     
-    // Square roots \sqrt{a} -> the square root of a
+    // Square roots \\sqrt{a} -> the square root of a
     t = t.replace(/\\\\sqrt\\{([^}]+)\\}/g, ' the square root of $1 ');
     
-    // Limits with bounds \lim_{x \to \infty} -> limit as x approaches infinity
+    // Limits with bounds \\lim_{x \\to \\infty} -> limit as x approaches infinity
     t = t.replace(/\\\\lim_\\{([^}]+)\\\\to([^}]+)\\}/g, ' limit as $1 approaches $2 of ');
     
-    // Integrals with bounds \int_{a}^{b} -> integral from a to b
+    // Integrals with bounds \\int_{a}^{b} -> integral from a to b
     t = t.replace(/\\\\int_\\{([^}]+)\\}\\^\\{([^}]+)\\}/g, ' integral from $1 to $2 of ');
     t = t.replace(/\\\\int_([a-zA-Z0-9]+)\\^([a-zA-Z0-9]+)/g, ' integral from $1 to $2 of ');
     
-    // Sums with bounds \sum_{i=1}^{n} -> sum from i equals 1 to n
+    // Sums with bounds \\sum_{i=1}^{n} -> sum from i equals 1 to n
     t = t.replace(/\\\\sum_\\{([^}]+)\\}\\^\\{([^}]+)\\}/g, ' sum from $1 to $2 of ');
     t = t.replace(/\\\\sum_([a-zA-Z0-9]+)\\^([a-zA-Z0-9]+)/g, ' sum from $1 to $2 of ');
 
@@ -223,14 +222,14 @@ export function latexToPhonetic(text: string): string {
     t = t.replace(/\\\\frac\\{\\\\partial([a-zA-Z]+)\\}\\{\\\\partial([a-zA-Z]+)\\}/g, ' partial derivative of $1 with respect to $2 ');
 
     // 2. Process static symbols from MATH_TRANSFORMATIONS
-    // We sort keys by length descending to match longest sequences first (e.g., \subseteq before \subset)
+    // We sort keys by length descending to match longest sequences first (e.g., \\subseteq before \\subset)
     const sortedKeys = Object.keys(MATH_TRANSFORMATIONS).sort((a, b) => b.length - a.length);
     
     for (const key of sortedKeys) {
         // Escape regex characters in key just in case, though they are mostly word characters and backslashes
         const escapedKey = key.replace(/[.*+?^$\{}()|[\\]\\\\]/g, '\\\\$&');
         
-        // Use word boundary for alphabetic latex commands to avoid partial matching (e.g. \int matching inside \integral)
+        // Use word boundary for alphabetic latex commands to avoid partial matching (e.g. \\int matching inside \\integral)
         // If the key starts with backslash and ends with letter, we can use a word boundary
         let regexStr = escapedKey;
         if (/^[a-zA-Z]$/.test(key.slice(-1))) {
@@ -255,4 +254,4 @@ export function latexToPhonetic(text: string): string {
 }
 `;
 
-fs.writeFileSync('src/lib/mathTTS.ts', code);
+fs.writeFileSync('src/lib/mathTTS.ts', fileContent);

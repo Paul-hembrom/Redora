@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Square, Loader2, AudioLines, Info, Pause, Play } from 'lucide-react';
+import { PHONETIC_TRANSFORMATIONS } from '../lib/ttsDictionary';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -29,82 +30,6 @@ const logError = (msg: string, data?: any) => {
 };
 
 
-
-const MATH_ALIASES: Record<string, string[]> = {
-    // Basic Arithmetic and Algebra
-    "squared": ["^2"],
-    "cubed": ["^3"],
-    "plus": ["+"],
-    "minus": ["-"],
-    "equals": ["="],
-    "times": ["*", "\\times", "\\cdot"],
-    "divided": ["/", "\\div"],
-    "less": ["<", "≤", "\\leq"],
-    "greater": [">", "≥", "\\geq"],
-    "approximately": ["≈", "\\approx"],
-    "equivalent": ["\\equiv"],
-    "sub": ["_"],
-    "root": ["\\sqrt"],
-    "proportional": ["\\propto"],
-    
-    // Greek Letters
-    "pi": ["π", "\\pi"],
-    "alpha": ["\\alpha"],
-    "beta": ["\\beta"],
-    "gamma": ["\\gamma"],
-    "theta": ["\\theta"],
-    "mu": ["\\mu"],
-    "sigma": ["\\sigma"],
-    "omega": ["\\omega", "\\Omega"],
-    "delta": ["\\Delta"],
-    "lambda": ["\\lambda"],
-    "rho": ["\\rho"],
-    "phi": ["\\phi"],
-
-    // Calculus and Advanced Math
-    "infinity": ["∞", "\\infty"],
-    "integral": ["\\int", "\\iint", "\\iiint", "\\oint"],
-    "sum": ["\\sum"],
-    "product": ["\\prod"],
-    "limit": ["\\lim"],
-    "approaches": ["\\to", "\\rightarrow"],
-    "partial": ["\\partial"],
-    "del": ["\\nabla"],
-    "determinant": ["\\det"],
-
-    // Trigonometry
-    "sine": ["\\sin"],
-    "cosine": ["\\cos"],
-    "tangent": ["\\tan"],
-    "cosecant": ["\\csc"],
-    "secant": ["\\sec"],
-    "cotangent": ["\\cot"],
-    
-    // Sets and Logic
-    "union": ["\\cup"],
-    "intersection": ["\\cap"],
-    "subset": ["\\subset", "\\subseteq"],
-    "superset": ["\\supset", "\\supseteq"],
-    "element": ["\\in"],
-    "empty": ["\\emptyset", "\\varnothing"],
-    "implies": ["\\implies"],
-    
-    // Geometry
-    "angle": ["\\angle"],
-    "triangle": ["\\triangle"],
-    "parallel": ["\\parallel"],
-    "perpendicular": ["\\perp"],
-    "degrees": ["°", "\\circ"],
-    "similar": ["\\sim"],
-    "congruent": ["\\cong"],
-    
-    // Number Systems
-    "natural": ["\\mathbb{N}"],
-    "integers": ["\\mathbb{Z}"],
-    "rational": ["\\mathbb{Q}"],
-    "real": ["\\mathbb{R}"],
-    "complex": ["\\mathbb{C}"]
-};
 
 export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-", playbackRate = 0.8 }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -514,7 +439,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 if (!word) continue;
                 const wordEscaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 let regexPattern = wordEscaped;
-                const aliases = MATH_ALIASES[word.toLowerCase()];
+                const aliases = PHONETIC_TRANSFORMATIONS[word.toLowerCase()];
                 if (aliases) {
                     const aliasPattern = aliases.map(a => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
                     regexPattern = `(${regexPattern}|${aliasPattern})`;

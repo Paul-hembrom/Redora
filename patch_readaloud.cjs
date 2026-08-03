@@ -1,21 +1,17 @@
 const fs = require('fs');
+
 let code = fs.readFileSync('src/components/ReadAloudButton.tsx', 'utf-8');
 
-const oldLogic = `                if (matchIdx !== -1) {
-                    matches.push({ tsIndex: tsIdx, start: matchIdx, end: matchIdx + word.length - 1 });
-                    searchIndex = matchIdx + word.length;
-                }`;
+// 1. Remove MATH_ALIASES block
+code = code.replace(/const MATH_ALIASES: Record<string, string\[\]> = \{[\s\S]*?\};\n\n/, '');
 
-const newLogic = `                if (matchIdx !== -1) {
-                    // Prevent word drift: if the match is too far ahead, it's likely a false positive
-                    // from LLM normalization (e.g. LLM added "squared" and it matched a "squared" 100 chars later).
-                    if (matchIdx - searchIndex > 80) {
-                        matchIdx = -1; // Ignore this match, it's too far
-                    } else {
-                        matches.push({ tsIndex: tsIdx, start: matchIdx, end: matchIdx + word.length - 1 });
-                        searchIndex = matchIdx + word.length;
-                    }
-                }`;
+// 2. Add import for PHONETIC_TRANSFORMATIONS
+code = code.replace(
+    /(import \{ [\s\S]*? \} from 'lucide-react';)/,
+    "$1\nimport { PHONETIC_TRANSFORMATIONS } from '../lib/ttsDictionary';"
+);
 
-code = code.replace(oldLogic, newLogic);
+// 3. Update the usage
+code = code.replace(/MATH_ALIASES\[/g, 'PHONETIC_TRANSFORMATIONS[');
+
 fs.writeFileSync('src/components/ReadAloudButton.tsx', code);
