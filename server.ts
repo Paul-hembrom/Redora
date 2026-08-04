@@ -742,15 +742,6 @@ app.get('/api/me/context', authenticate, async (req: any, res) => {
   }
 });
 
-app.post('/api/log-client-error', express.json(), (req, res) => {
-  const { message, stack, source } = req.body;
-  console.error(`[Client Error] ${source || 'Unknown Source'}:`, message);
-  if (stack) {
-    console.error(stack);
-  }
-  res.status(200).json({ status: 'logged' });
-});
-
 app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'All fields are required' });
@@ -2637,6 +2628,71 @@ async function synthesizeElevenLabsChunk(spokenText: string, hq: boolean, apiKey
   };
 }
 
+// ---------------------------------------------------------------------------
+// Kokoro BATCH streaming client (opt-in).
+//
+// Set KOKORO_BATCH=1 to use this instead of the one-POST-per-sentence loop.
+// Default is OFF so the currently-working /v1/speech path is untouched until
+// you have tested this on your Space.
+//
+// Calls /v1/speech/batch once with every pre-split chunk and invokes onChunk()
+// as each result lands. The HF endpoint guarantees exactly one line per input
+// index (see its docstring), so `index` here always refers to OUR chunk index
+// -- which is what keeps domIndex and the word alignment coherent.
+// ---------------------------------------------------------------------------
+const KOKORO_BASE = process.env.KOKORO_URL || 'https://paulhemb-redora.hf.space';
+
+async function streamKokoroBatch(
+  texts: string[],
+  voice: string,
+  onChunk: (index: number, data: any) => void
+): Promise<Set<number>> {
+  const delivered = new Set<number>();
+
+  const response = await fetch(`${KOKORO_BASE}/v1/speech/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chunks: texts, voice, speed: 1.0 }),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`Kokoro batch failed: ${response.status}`);
+  }
+
+  const reader = (response.body as any).getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const absorb = (line: string) => {
+    if (!line.trim()) return;
+    let data: any;
+    try { data = JSON.parse(line); } catch (e) { return; }
+    if (data.totalChunks !== undefined) return;
+    if (data.index === undefined) return;
+    if (data.error) {
+      console.warn(`[TTS batch] chunk ${data.index} errored: ${data.error}`);
+      return;
+    }
+    delivered.add(data.index);
+    onChunk(data.index, data);
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary = buffer.indexOf('\n');
+    while (boundary !== -1) {
+      absorb(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 1);
+      boundary = buffer.indexOf('\n');
+    }
+  }
+  if (buffer.trim()) absorb(buffer);
+
+  return delivered;
+}
+
 app.post('/api/tts/cartesia', async (req, res) => {
   try {
     const { text, hq } = req.body;
@@ -2691,7 +2747,54 @@ app.post('/api/tts/cartesia', async (req, res) => {
       })
     );
 
+    // -------------------------------------------------------------------
+    // OPT-IN BATCH PATH (KOKORO_BATCH=1).
+    //
+    // Sends every normalized chunk to /v1/speech/batch in a single request and
+    // forwards each result to the browser as it arrives. Falls through to the
+    // per-chunk loop below for anything the batch call did not deliver, so a
+    // partial batch degrades instead of losing audio -- and the emit-always
+    // contract still holds because the loop below runs for every index that
+    // was not already emitted.
+    // -------------------------------------------------------------------
+    const emittedIndices = new Set<number>();
+
+    if (process.env.KOKORO_BATCH === '1') {
+      try {
+        const normalizedTexts = await Promise.all(normalizedPromises);
+        await streamKokoroBatch(normalizedTexts, 'af_sarah', (index, data) => {
+          const chunk = chunks[index];
+          if (!chunk || emittedIndices.has(index)) return;
+          if (!data.audio_base64) return;
+
+          const spokenTimestamps = (data.timestamps || []).map((t: any) => ({
+            word: t.word,
+            start: t.start !== undefined ? t.start : t.start_time,
+            end: t.end !== undefined ? t.end : t.end_time,
+          }));
+
+          const aligned = alignTimestampsToOriginalText(
+            chunk.text, spokenTimestamps, data.playbackDuration || 0
+          );
+
+          res.write(JSON.stringify({
+            index,
+            domIndex: chunk.domIndex,
+            text: chunk.text,
+            audioUrl: `data:audio/wav;base64,${data.audio_base64}`,
+            timestamps: aligned,
+            playbackDuration: data.playbackDuration || 0,
+          }) + '\n');
+          emittedIndices.add(index);
+        });
+        console.log(`[TTS] Batch path delivered ${emittedIndices.size}/${chunks.length} chunks.`);
+      } catch (batchErr: any) {
+        console.warn(`[TTS] Batch path failed (${batchErr?.message}); falling back to per-chunk synthesis.`);
+      }
+    }
+
     for (let i = 0; i < chunks.length; i++) {
+      if (emittedIndices.has(i)) continue;
       const chunk = chunks[i];
       let emitted = false;
 
