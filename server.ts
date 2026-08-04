@@ -742,6 +742,15 @@ app.get('/api/me/context', authenticate, async (req: any, res) => {
   }
 });
 
+app.post('/api/log-client-error', express.json(), (req, res) => {
+  const { message, stack, source } = req.body;
+  console.error(`[Client Error] ${source || 'Unknown Source'}:`, message);
+  if (stack) {
+    console.error(stack);
+  }
+  res.status(200).json({ status: 'logged' });
+});
+
 app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'All fields are required' });

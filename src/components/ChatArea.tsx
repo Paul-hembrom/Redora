@@ -1015,7 +1015,7 @@ const handleFetchImages = async () => {
         downloadAnchor.setAttribute('download', `glossary-${chapter.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`);
         document.body.appendChild(downloadAnchor);
         downloadAnchor.click();
-        downloadAnchor.remove();
+        try { downloadAnchor.remove(); } catch (e) {}
       };
 
       const exportGlossaryCSV = (tList: any[]) => {
@@ -1032,7 +1032,7 @@ const handleFetchImages = async () => {
         downloadAnchor.setAttribute('download', `anki-${chapter.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.csv`);
         document.body.appendChild(downloadAnchor);
         downloadAnchor.click();
-        downloadAnchor.remove();
+        try { downloadAnchor.remove(); } catch (e) {}
         URL.revokeObjectURL(url);
       };
 

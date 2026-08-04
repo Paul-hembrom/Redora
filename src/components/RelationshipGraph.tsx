@@ -39,14 +39,14 @@ export default function RelationshipGraph({ data }: Props) {
 
   useEffect(() => {
     if (!svgRef.current || filteredData.length === 0) {
-      if (svgRef.current) d3.select(svgRef.current).selectAll("*").remove();
+      if (svgRef.current) try { d3.select(svgRef.current).selectAll("*").remove(); } catch(e) {}
       return;
     }
 
     const width = 400;
     const height = 300;
 
-    d3.select(svgRef.current).selectAll("*").remove();
+    try { d3.select(svgRef.current).selectAll("*").remove(); } catch(e) {}
 
     const nodesMap = new Map<string, Node>();
     filteredData.forEach(d => {

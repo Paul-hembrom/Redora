@@ -140,7 +140,7 @@ export default function TerminologyExtractorModal({ isOpen, onClose, document: d
     downloadAnchor.setAttribute('download', `glossary-${doc.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`);
     window.document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
-    downloadAnchor.remove();
+    try { downloadAnchor.remove(); } catch (e) {}
   };
 
   const exportCSVForAnki = () => {
@@ -159,7 +159,7 @@ export default function TerminologyExtractorModal({ isOpen, onClose, document: d
     downloadAnchor.setAttribute('download', `anki-${doc.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.csv`);
     window.document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
-    downloadAnchor.remove();
+    try { downloadAnchor.remove(); } catch (e) {}
     URL.revokeObjectURL(url);
   };
 

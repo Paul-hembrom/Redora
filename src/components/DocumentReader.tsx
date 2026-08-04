@@ -79,10 +79,10 @@ export default function DocumentReader({ isFocusMode, focusFontSize = "xl", docu
     // Remove the download button and navigation links from the clone
     const navLinks = clone.querySelector('.pdf-exclude');
     if (navLinks) {
-        navLinks.remove();
+        try { navLinks.remove(); } catch (e) {}
     }
     const downloadBtns = clone.querySelectorAll('.download-btn');
-    downloadBtns.forEach(btn => btn.remove());
+    downloadBtns.forEach(btn => { try { btn.remove(); } catch(e) {} });
 
     html2pdf().set(opt).from(clone).save();
   };
