@@ -1256,7 +1256,9 @@ const handleFetchImages = async () => {
               a.download = `chat-${chapter.title.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.txt`;
               document.body.appendChild(a);
               a.click();
-              document.body.removeChild(a);
+              try {
+                a.remove();
+              } catch (e) {}
               URL.revokeObjectURL(url);
             }}
             className="p-2 text-white/40 hover:text-cyan-400 hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2"

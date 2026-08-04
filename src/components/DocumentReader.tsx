@@ -128,7 +128,9 @@ export default function DocumentReader({ isFocusMode, focusFontSize = "xl", docu
     a.download = `${document.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_exercises.md`;
     window.document.body.appendChild(a);
     a.click();
-    window.document.body.removeChild(a);
+    try {
+      a.remove();
+    } catch (e) {}
     URL.revokeObjectURL(url);
   };
 

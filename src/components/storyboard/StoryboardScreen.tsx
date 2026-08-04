@@ -138,7 +138,9 @@ export default function StoryboardScreen({ chapterId, isStudent }: StoryboardScr
       a.download = `storyboard_assets_${chapterId}.zip`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      try {
+        a.remove();
+      } catch (e) {}
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error(e);

@@ -466,7 +466,9 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
     a.download = doc.name.endsWith('.txt') ? doc.name : `${doc.name}.txt`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    try {
+      a.remove();
+    } catch (e) {}
     URL.revokeObjectURL(url);
   };
 

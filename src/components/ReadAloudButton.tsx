@@ -171,10 +171,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     const touchedParents = new Set<Node>();
     spans.forEach((span) => {
       if (!span || !span.parentNode) return;
-      const parent = span.parentNode;
-      while (span.firstChild) parent.insertBefore(span.firstChild, span);
-      parent.removeChild(span);
-      touchedParents.add(parent);
+      try {
+        const parent = span.parentNode;
+        while (span.firstChild) parent.insertBefore(span.firstChild, span);
+        span.remove();
+        touchedParents.add(parent);
+      } catch (err: any) {
+        console.error('[ReadAloud] Error unwrapping span:', err);
+        fetch('/api/log-client-error', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: err.message || 'Error unwrapping span', stack: err.stack, source: 'unwrapSpans' })
+        }).catch(() => {});
+      }
     });
     // normalize() merges the split text nodes back together. Doing it once per
     // parent instead of once per span keeps this cheap.
@@ -878,7 +887,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       releaseAudioElement(preloadAudioRef.current);
       releaseAudioElement(audioRef.current);
       if (audioRef.current && audioRef.current.parentNode) {
-        audioRef.current.parentNode.removeChild(audioRef.current);
+        try {
+          audioRef.current.remove();
+        } catch (err: any) {
+          console.error('[ReadAloud] Error removing audio:', err);
+        }
       }
       audioRef.current = null;
       preloadAudioRef.current = null;

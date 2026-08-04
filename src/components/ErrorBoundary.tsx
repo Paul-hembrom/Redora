@@ -24,6 +24,15 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Workspace crash:', error, errorInfo);
+    fetch('/api/log-client-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        message: error.message, 
+        stack: error.stack, 
+        source: 'ErrorBoundary' 
+      })
+    }).catch(() => {});
   }
 
   public render() {
