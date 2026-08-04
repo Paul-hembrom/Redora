@@ -17,7 +17,6 @@ import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/l
 import { normalizeTextWithLLM } from './src/lib/llmNormalizer.js';
 import { createConcurrencyLimit } from './src/lib/documentProcessor.js';
 import { safeParseJSON } from './src/lib/utils.js';
-import { latexToPhonetic } from './src/lib/mathTTS.js';
 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
@@ -1919,12 +1918,45 @@ function normalizeTextForCartesia(text: string): string {
     t = t.replace(/([a-zA-Z0-9]+)\^3/g, '$1 cubed');
     t = t.replace(/([a-zA-Z0-9]+)\^\{([^}]+)\}/g, '$1 to the power of $2');
 
+    // General exponent (must stay AFTER the ^{...} form above)
+    t = t.replace(/([a-zA-Z0-9]+)\^([a-zA-Z0-9]+)/g, '$1 to the power of $2');
+
     // Common math symbols
     t = t.replace(/π/g, ' pi ');
     t = t.replace(/∞/g, ' infinity ');
     t = t.replace(/±/g, ' plus or minus ');
     t = t.replace(/≤/g, ' less than or equal to ');
     t = t.replace(/≥/g, ' greater than or equal to ');
+
+    // Set-theory notation. Previously these characters survived this function
+    // untouched and were then DELETED by the sanitizer in
+    // synthesizeKokoroSpeech (which only whitelists a-zA-Z0-9 .,!?-:;() ),
+    // so "A ⊆ B" reached the model as "A B" and "{a, e, i, o, u}" as
+    // "a, e, i, o, u". Spelling them out keeps the narration correct.
+    t = t.replace(/⊆/g, ' is a subset of ');
+    t = t.replace(/⊄/g, ' is not a subset of ');
+    t = t.replace(/⊂/g, ' is a proper subset of ');
+    t = t.replace(/∉/g, ' is not an element of ');
+    t = t.replace(/∈/g, ' is an element of ');
+    t = t.replace(/∪/g, ' union ');
+    t = t.replace(/∩/g, ' intersection ');
+    t = t.replace(/∅/g, ' the empty set ');
+    t = t.replace(/≠/g, ' is not equal to ');
+    t = t.replace(/≈/g, ' is approximately ');
+    t = t.replace(/×/g, ' times ');
+    t = t.replace(/÷/g, ' divided by ');
+    t = t.replace(/→/g, ' gives ');
+
+    // Braces: empty set first, then roster-notation sets.
+    t = t.replace(/\{\s*\}/g, ' the empty set ');
+    t = t.replace(/\{([^{}]*)\}/g, ' the set containing $1 ');
+
+    // Basic math operators
+    t = t.replace(/\s+\+\s+/g, ' plus ');
+    t = t.replace(/\s+-\s+/g, ' minus ');
+    t = t.replace(/\s*=\s*/g, ' equals ');
+    t = t.replace(/\s+\/\s+/g, ' divided by ');
+    t = t.replace(/\s+\*\s+/g, ' times ');
 
     // Clean up extra spaces
     t = t.replace(/\s+/g, ' ').trim();
@@ -1941,6 +1973,17 @@ function chunkDocumentText(text: string, maxChunkSize = 300) {
         sentences.forEach((s: string) => {
             const t = s.trim();
             if (t.length > 0) {
+                // Emit the very first sentence of the passage as its own chunk.
+                // Time-to-first-audio is gated entirely on chunk 0 finishing
+                // synthesis, so letting chunk 0 grow to maxChunkSize (~3-4
+                // sentences) makes the user wait for 3-4 sentences of CPU
+                // inference before hearing anything. /api/tts/stream already
+                // does this ("force the first sentence to be short"); this
+                // brings the Kokoro path in line.
+                if (chunks.length === 0 && currentChunk.length === 0 && domIndex === 0) {
+                    chunks.push({ text: t, domIndex });
+                    return;
+                }
                 if (currentChunk.length + t.length > maxChunkSize && currentChunk.length > 0) {
                     chunks.push({ text: currentChunk.trim(), domIndex });
                     currentChunk = t;
@@ -1954,6 +1997,181 @@ function chunkDocumentText(text: string, maxChunkSize = 300) {
         }
     });
     return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// Word-timestamp alignment  (fixes highlight drift)
+//
+// THE PROBLEM: the text we SPEAK is not the text we DISPLAY. Before synthesis
+// each chunk goes through normalizeTextForCartesia() (n(A) -> "n of A",
+// "=" -> "equals", "x^2" -> "x squared", bullets -> "Point 1:") and then
+// through normalizeTextWithLLM(), which rewrites it again. So the timestamps
+// coming back describe words like "of" / "equals" / "squared" / "Point" that
+// do not exist in the original text -- yet the frontend is handed
+// `text: chunk.text` (the ORIGINAL) and searches the rendered DOM for those
+// spoken words.
+//
+// Because the frontend matches sequentially with an advancing searchIndex,
+// one bad match poisons everything after it: searching for the inserted "of"
+// finds the next *literal* "of" further down the paragraph, jumps searchIndex
+// past everything in between, and every subsequent word then matches too far
+// ahead. Math content is dense with these rewrites, which is why it drifts
+// worst, and repeated short words ("a", "of", "is", "set") give the runaway
+// search plenty of wrong places to land.
+//
+// THE FIX: align the spoken timestamps back onto the ORIGINAL chunk text here,
+// on the server, and emit timestamps whose `word` values ARE the original
+// tokens, in order. Tokens with no spoken counterpart get their timing
+// interpolated between the surrounding matched anchors. The frontend then
+// cannot drift, because every word it is asked to find genuinely exists in
+// the DOM at that position.
+// ---------------------------------------------------------------------------
+
+function normalizeTokenForMatch(t: string): string {
+    return (t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// Strip markdown emphasis/code markers that exist in the raw markdown but not
+// in the rendered DOM the frontend searches (e.g. "**Q1:**" renders as "Q1:").
+function cleanTokenForDom(t: string): string {
+    return (t || '').replace(/^[*_`~]+/, '').replace(/[*_`~]+$/, '');
+}
+
+function estimateSyllables(word: string): number {
+    const w = (word || '').toLowerCase();
+    const groups = w.match(/[aeiouy]+/g);
+    let n = groups ? groups.length : 0;
+    if (w.endsWith('e') && n > 1) n -= 1;
+    return Math.max(n, 1);
+}
+
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+function distributeAcrossTokens(tokens: string[], totalDuration: number) {
+    const weights = tokens.map(estimateSyllables);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let cursor = 0;
+    return tokens.map((word, i) => {
+        const dur = totalWeight > 0
+            ? (totalDuration * weights[i]) / totalWeight
+            : (totalDuration / Math.max(tokens.length, 1));
+        const start = cursor;
+        cursor += dur;
+        return {
+            word,
+            start: round4(start),
+            end: round4(cursor),
+            start_time: round4(start),
+            end_time: round4(cursor)
+        };
+    });
+}
+
+function alignTimestampsToOriginalText(
+    originalText: string,
+    spokenTimestamps: Array<{ word: string; start: number; end: number }> | undefined,
+    totalDuration: number
+) {
+    const rawTokens = (originalText || '').match(/\S+/g) || [];
+    const tokens = rawTokens.map(cleanTokenForDom).filter((t) => t.length > 0);
+    if (tokens.length === 0) return [];
+
+    const spoken = (spokenTimestamps || []).filter(
+        (s) => s && typeof s.start === 'number' && typeof s.end === 'number'
+    );
+    if (spoken.length === 0) {
+        return distributeAcrossTokens(tokens, totalDuration || 0);
+    }
+
+    const duration = totalDuration || spoken[spoken.length - 1].end || 0;
+
+    const normTokens = tokens.map(normalizeTokenForMatch);
+    const normSpoken = spoken.map((s) => normalizeTokenForMatch(s.word));
+
+    // Greedy in-order match with a bounded lookahead. The lookahead is what
+    // keeps an inserted word ("of", "equals", "Point") from dragging the
+    // search pointer far down the chunk the way the frontend's unbounded
+    // indexOf did.
+    const LOOKAHEAD = 10;
+    const matchIdx: number[] = new Array(tokens.length).fill(-1);
+    let sPtr = 0;
+
+    for (let i = 0; i < tokens.length; i++) {
+        const target = normTokens[i];
+        if (!target) continue;
+        const limit = Math.min(normSpoken.length, sPtr + LOOKAHEAD);
+        let found = -1;
+        for (let j = sPtr; j < limit; j++) {
+            if (normSpoken[j] === target) { found = j; break; }
+        }
+        if (found === -1) {
+            // Partial match catches expansions like "n(A)" -> spoken "n","of","a"
+            for (let j = sPtr; j < limit; j++) {
+                const ns = normSpoken[j];
+                if (ns && (target.startsWith(ns) || ns.startsWith(target))) { found = j; break; }
+            }
+        }
+        if (found !== -1) {
+            matchIdx[i] = found;
+            sPtr = found + 1;
+        }
+    }
+
+    const matchedCount = matchIdx.filter((m) => m !== -1).length;
+    // If the rewrite was so aggressive that almost nothing lines up, an even
+    // spread is more honest than a mostly-guessed alignment.
+    if (matchedCount < Math.max(1, Math.floor(tokens.length * 0.25))) {
+        console.warn(`[TTS align] Only ${matchedCount}/${tokens.length} tokens matched; falling back to even distribution.`);
+        return distributeAcrossTokens(tokens, duration);
+    }
+
+    const out = tokens.map((word) => ({ word, start: 0, end: 0 }));
+    for (let i = 0; i < tokens.length; i++) {
+        if (matchIdx[i] !== -1) {
+            out[i].start = spoken[matchIdx[i]].start;
+            out[i].end = spoken[matchIdx[i]].end;
+        }
+    }
+
+    // Interpolate runs of unmatched tokens between matched anchors.
+    let i = 0;
+    while (i < tokens.length) {
+        if (matchIdx[i] !== -1) { i++; continue; }
+        let j = i;
+        while (j < tokens.length && matchIdx[j] === -1) j++;
+
+        const prevEnd = i > 0 ? out[i - 1].end : 0;
+        const nextStart = j < tokens.length ? out[j].start : Math.max(prevEnd, duration);
+        const span = Math.max(0, nextStart - prevEnd);
+
+        const runTokens = tokens.slice(i, j);
+        const weights = runTokens.map(estimateSyllables);
+        const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+        let cursor = prevEnd;
+        for (let k = 0; k < runTokens.length; k++) {
+            const dur = totalWeight > 0 ? (span * weights[k]) / totalWeight : span / runTokens.length;
+            out[i + k].start = cursor;
+            out[i + k].end = cursor + dur;
+            cursor += dur;
+        }
+        i = j;
+    }
+
+    // Clamp monotonic so the frontend's "currentTime >= start && < end" test
+    // can never match two spans at once.
+    for (let k = 1; k < out.length; k++) {
+        if (out[k].start < out[k - 1].end) out[k].start = out[k - 1].end;
+        if (out[k].end < out[k].start) out[k].end = out[k].start;
+    }
+
+    return out.map((o) => ({
+        word: o.word,
+        start: round4(o.start),
+        end: round4(o.end),
+        start_time: round4(o.start),
+        end_time: round4(o.end)
+    }));
 }
 
 function createFloat32WavHeader(dataLength: number, sampleRate: number): Buffer {
@@ -1997,8 +2215,12 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_sarah") {
     // Not JSON, ignore
   }
 
-  // Remove any JSON braces, brackets, or other non-speakable characters
-  let cleanText = extractedText.replace(/[^a-zA-Z0-9\s.,!?\-:;()]/g, ' ');
+  // Remove any JSON braces, brackets, or other non-speakable characters.
+  // NOTE: normalizeTextForCartesia() has already spelled out set/math symbols
+  // by this point, so this is now a last-resort guard rather than the thing
+  // silently deleting "=", "{", "}", "⊆" etc. from the narration. Apostrophes
+  // and percent are whitelisted so contractions and "50%" survive.
+  let cleanText = extractedText.replace(/[^a-zA-Z0-9\s.,!?\-:;()'%]/g, ' ');
   cleanText = cleanText.replace(/\s+/g, ' ').trim();
 
   const response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
@@ -2096,195 +2318,254 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_sarah") {
   };
 }
 
+// ---------------------------------------------------------------------------
+// ElevenLabs single-chunk helper (used as the Kokoro fallback below).
+// Extracted so the fallback path can RETURN a result instead of writing to the
+// response inline -- the old inline version had `continue` / silent-skip exits
+// that dropped the chunk entirely (see the emit-always contract below).
+// ---------------------------------------------------------------------------
+async function synthesizeElevenLabsChunk(spokenText: string, hq: boolean, apiKey: string) {
+  if (!apiKey) return null;
+
+  const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
+  const modelId = hq ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
+  console.log(`[TTS] ElevenLabs fallback model: ${modelId} (${hq ? 'HQ' : 'Standard'})`);
+
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'xi-api-key': apiKey,
+    },
+    body: JSON.stringify({
+      text: spokenText,
+      model_id: modelId,
+      voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+    }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => 'could not read error body');
+    console.error(`[TTS] ElevenLabs streaming API error (${response.status}): ${errBody}`);
+    return null;
+  }
+
+  const decoder = new TextDecoder();
+  const reader = (response.body as any).getReader();
+  let buffer = '';
+  let finalAudioBase64 = '';
+  const chars: string[] = [];
+  const startTimes: number[] = [];
+  const durations: number[] = [];
+
+  const absorb = (line: string) => {
+    try {
+      const data = JSON.parse(line);
+      if (data.audio_base64) finalAudioBase64 += data.audio_base64;
+      if (data.alignment) {
+        if (data.alignment.chars) chars.push(...data.alignment.chars);
+        if (data.alignment.charStartTimesMs) startTimes.push(...data.alignment.charStartTimesMs);
+        if (data.alignment.charDurationsMs) durations.push(...data.alignment.charDurationsMs);
+      }
+    } catch (e) {}
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary = buffer.indexOf('\n');
+    while (boundary !== -1) {
+      const line = buffer.slice(0, boundary).trim();
+      buffer = buffer.slice(boundary + 1);
+      if (line) absorb(line);
+      boundary = buffer.indexOf('\n');
+    }
+  }
+  if (buffer.trim()) absorb(buffer.trim());
+
+  if (!finalAudioBase64) return null;
+
+  const timestamps: any[] = [];
+  let currentWord = '';
+  let wordStart: number | null = null;
+  let wordEnd = 0;
+
+  for (let j = 0; j < chars.length; j++) {
+    const char = chars[j];
+    const start = startTimes[j];
+    const duration = durations[j];
+
+    if (char.trim() === '') {
+      if (currentWord.length > 0) {
+        timestamps.push({ word: currentWord, start: (wordStart as number) / 1000, end: wordEnd / 1000 });
+        currentWord = '';
+        wordStart = null;
+      }
+    } else {
+      if (currentWord.length === 0) wordStart = start;
+      currentWord += char;
+      wordEnd = start + duration;
+    }
+  }
+  if (currentWord.length > 0) {
+    timestamps.push({ word: currentWord, start: (wordStart as number) / 1000, end: wordEnd / 1000 });
+  }
+
+  const duration = timestamps.length > 0 ? timestamps[timestamps.length - 1].end : 0;
+
+  return {
+    audioUrl: `data:audio/mpeg;base64,${finalAudioBase64}`,
+    timestamps,
+    duration
+  };
+}
+
 app.post('/api/tts/cartesia', async (req, res) => {
   try {
     const { text, hq } = req.body;
     if (!text) return res.status(400).json({ error: 'Missing text' });
 
+    // NOTE: no longer a hard 500 when the ElevenLabs key is absent. Kokoro is
+    // the primary engine on this route; ElevenLabs is only the fallback, so a
+    // missing key should degrade the fallback, not kill the whole request.
     const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) {
-      console.error('ELEVENLABS_API_KEY is not set');
-      return res.status(500).json({ error: 'ElevenLabs API key missing' });
+      console.warn('[TTS] ELEVENLABS_API_KEY not set - Kokoro failures will have no fallback.');
     }
 
     const chunks = chunkDocumentText(text);
-    let responseStream: any;
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    // Correct content type for newline-delimited JSON (this was previously
+    // labelled text/event-stream even though the body is NDJSON, and some
+    // proxies buffer SSE). X-Accel-Buffering + flushHeaders push chunk 0 out
+    // immediately instead of letting a proxy sit on it.
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders();
+
     res.write(JSON.stringify({ totalChunks: chunks.length }) + '\n');
 
-    try {
-      for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          
-          const cleanChunk = normalizeTextForCartesia(chunk.text);
-          // 1. Convert math symbols to phonetics so Kokoro reads them properly
-          let spokenText = latexToPhonetic(cleanChunk);
-          
-          // 2. Optionally pass to LLM for final polish if needed (we'll stick to latexToPhonetic for precise timestamp matching)
-          // spokenText = await normalizeTextWithLLM(spokenText); // Disabled to prevent word drift
-          
+    // ---------------------------------------------------------------------
+    // Kick off text normalization for EVERY chunk up front, in parallel.
+    //
+    // Two bugs fixed here:
+    //  1. normalizeTextWithLLM() used to be awaited inside the loop but
+    //     OUTSIDE the inner try/catch, so a single LLM failure propagated to
+    //     the outer catch, aborted the whole for-loop and ended the response
+    //     -- silently losing every remaining sentence. It now has its own
+    //     fallback and can never abort the loop.
+    //  2. Doing one LLM round-trip per chunk strictly in series put an LLM
+    //     call on the critical path before every single sentence. Starting
+    //     them all now overlaps that latency with TTS synthesis.
+    // ---------------------------------------------------------------------
+    const normalizeLimiter = createConcurrencyLimit(4);
+    const normalizedPromises = chunks.map((chunk) =>
+      normalizeLimiter(async () => {
+        const base = normalizeTextForCartesia(chunk.text);
+        try {
+          const out = await normalizeTextWithLLM(base);
+          return (out && out.trim()) ? out : base;
+        } catch (e: any) {
+          console.warn(`[TTS] normalizeTextWithLLM failed, using rule-based text: ${e?.message}`);
+          return base;
+        }
+      })
+    );
 
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      let emitted = false;
+
+      // EMIT-ALWAYS CONTRACT
+      // ---------------------
+      // The frontend drains its queue with:
+      //     while (chunksMap.has(expectedIndex)) { push; expectedIndex++ }
+      // so a MISSING index permanently stalls expectedIndex and strands every
+      // later chunk in the map, unplayed. The old code had three silent-skip
+      // paths (`continue` on a non-ok ElevenLabs response, no `else` when
+      // finalAudioBase64 was empty, and the loop-aborting normalizer above),
+      // each of which killed all remaining audio. Every index now emits
+      // exactly one line, even on total failure.
+      const emit = (audioUrl: string | null, spokenTimestamps: any[], duration: number) => {
+        const aligned = audioUrl
+          ? alignTimestampsToOriginalText(chunk.text, spokenTimestamps, duration)
+          : [];
+        res.write(JSON.stringify({
+          index: i,
+          domIndex: chunk.domIndex,
+          text: chunk.text,
+          audioUrl,
+          timestamps: aligned,
+          playbackDuration: duration
+        }) + '\n');
+        emitted = true;
+      };
+
+      try {
+        const spokenText = await normalizedPromises[i];
+
+        if (!spokenText || !spokenText.trim()) {
+          console.warn(`[TTS] Chunk ${i} normalized to empty text; emitting silent placeholder.`);
+          emit(null, [], 0);
+        } else {
           try {
-            if (i > 0) {
-              await new Promise(resolve => setTimeout(resolve, 40)); // 40ms delay
-            }
-
-            // Try Kokoro first
             let kokoroResult = await synthesizeKokoroSpeech(spokenText);
-            
-            // Check for empty audio OR empty timestamps
-            const hasValidAudio = kokoroResult.audioUrl && kokoroResult.audioUrl.length >= 300;
-            const hasValidTimestamps = kokoroResult.timestamps && kokoroResult.timestamps.length > 0;
+            let ok = !!kokoroResult.audioUrl
+              && kokoroResult.audioUrl.length >= 300
+              && !!kokoroResult.timestamps
+              && kokoroResult.timestamps.length > 0;
 
-            if (!hasValidAudio || !hasValidTimestamps) {
-              console.warn(
-                `[Kokoro] Chunk ${i} invalid - audio: ${!!hasValidAudio}, timestamps: ${kokoroResult.timestamps?.length || 0}, retrying...`
-              );
-              await new Promise(resolve => setTimeout(resolve, 1000));
+            if (!ok) {
+              console.warn(`[Kokoro] Chunk ${i} invalid - audio: ${!!kokoroResult.audioUrl}, timestamps: ${kokoroResult.timestamps?.length || 0}, retrying...`);
+              await new Promise((resolve) => setTimeout(resolve, 800));
               kokoroResult = await synthesizeKokoroSpeech(spokenText);
-
-              const retryAudio = kokoroResult.audioUrl && kokoroResult.audioUrl.length >= 300;
-              const retryTimestamps = kokoroResult.timestamps && kokoroResult.timestamps.length > 0;
-
-              if (!retryAudio || !retryTimestamps) {
-                throw new Error("Kokoro returned empty audio or timestamps after retry");
-              }
+              ok = !!kokoroResult.audioUrl
+                && kokoroResult.audioUrl.length >= 300
+                && !!kokoroResult.timestamps
+                && kokoroResult.timestamps.length > 0;
             }
-            res.write(JSON.stringify({
-                index: i,
-                domIndex: chunk.domIndex,
-                text: chunk.text,
-                audioUrl: kokoroResult.audioUrl,
-                timestamps: kokoroResult.timestamps,
-                rawDuration: kokoroResult.rawDuration,
-                playbackDuration: kokoroResult.playbackDuration
-            }) + '\n');
-          } catch (kokoroErr) {
-            console.error('Kokoro TTS failed, falling back to Cartesia:', kokoroErr.message);
-            
-            // Fallback to ElevenLabs
-            const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
-            const modelId = hq ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
-            console.log(`[TTS] ElevenLabs model: ${modelId} (${hq ? 'HQ' : 'Standard'})`);
 
-            const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`;
-            try {
-               const response = await fetch(url, {
-                 method: 'POST',
-                 headers: {
-                   'Content-Type': 'application/json',
-                   'xi-api-key': apiKey,
-                 },
-                 body: JSON.stringify({
-                   text: spokenText,
-                   model_id: modelId,
-                   voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-                 }),
-               });
-               
-               if (!response.ok) {
-                 console.error("ElevenLabs streaming API error:", await response.text());
-                 continue;
-               }
+            if (!ok) throw new Error('Kokoro returned empty audio or timestamps after retry');
 
-               const decoder = new TextDecoder();
-               const reader = response.body.getReader();
-               let buffer = '';
-               let finalAudioBase64 = '';
-               let chars = [];
-               let startTimes = [];
-               let durations = [];
-
-               while (true) {
-                   const { done, value } = await reader.read();
-                   if (done) break;
-                   buffer += decoder.decode(value, { stream: true });
-                   let boundary = buffer.indexOf('\n');
-                   while (boundary !== -1) {
-                       const line = buffer.slice(0, boundary).trim();
-                       buffer = buffer.slice(boundary + 1);
-                       if (line) {
-                           try {
-                               const data = JSON.parse(line);
-                               if (data.audio_base64) finalAudioBase64 += data.audio_base64;
-                               if (data.alignment) {
-                                   if (data.alignment.chars) chars.push(...data.alignment.chars);
-                                   if (data.alignment.charStartTimesMs) startTimes.push(...data.alignment.charStartTimesMs);
-                                   if (data.alignment.charDurationsMs) durations.push(...data.alignment.charDurationsMs);
-                               }
-                           } catch(e) {}
-                       }
-                       boundary = buffer.indexOf('\n');
-                   }
-               }
-
-               if (buffer.trim()) {
-                   try {
-                       const data = JSON.parse(buffer);
-                       if (data.audio_base64) finalAudioBase64 += data.audio_base64;
-                       if (data.alignment) {
-                           if (data.alignment.chars) chars.push(...data.alignment.chars);
-                           if (data.alignment.charStartTimesMs) startTimes.push(...data.alignment.charStartTimesMs);
-                           if (data.alignment.charDurationsMs) durations.push(...data.alignment.charDurationsMs);
-                       }
-                   } catch(e) {}
-               }
-
-               let timestamps = [];
-               let currentWord = "";
-               let wordStart = null;
-               let wordEnd = null;
-
-               for (let j = 0; j < chars.length; j++) {
-                   const char = chars[j];
-                   const start = startTimes[j];
-                   const duration = durations[j];
-
-                   if (char.trim() === "") {
-                       if (currentWord.length > 0) {
-                           timestamps.push({ word: currentWord, start: wordStart / 1000, end: wordEnd / 1000, start_time: wordStart / 1000, end_time: wordEnd / 1000 });
-                           currentWord = "";
-                           wordStart = null;
-                       }
-                   } else {
-                       if (currentWord.length === 0) wordStart = start;
-                       currentWord += char;
-                       wordEnd = start + duration;
-                   }
-               }
-               if (currentWord.length > 0) {
-                   timestamps.push({ word: currentWord, start: wordStart / 1000, end: wordEnd / 1000, start_time: wordStart / 1000, end_time: wordEnd / 1000 });
-               }
-
-               if (finalAudioBase64) {
-                 const audioUrl = `data:audio/mpeg;base64,${finalAudioBase64}`;
-                 res.write(JSON.stringify({
-                    index: i,
-                    domIndex: chunk.domIndex,
-                    text: chunk.text,
-                    audioUrl: audioUrl,
-                    timestamps: timestamps
-                 }) + '\n');
-               }
-            } catch (elErr: any) {
-               console.error("ElevenLabs fallback failed:", elErr.message);
-            }
+            emit(kokoroResult.audioUrl, kokoroResult.timestamps, kokoroResult.playbackDuration);
+          } catch (kokoroErr: any) {
+            console.error(`[TTS] Kokoro failed for chunk ${i}, falling back to ElevenLabs:`, kokoroErr?.message);
+            const el = await synthesizeElevenLabsChunk(spokenText, !!hq, apiKey as string)
+              .catch((e: any) => {
+                console.error(`[TTS] ElevenLabs fallback threw for chunk ${i}:`, e?.message);
+                return null;
+              });
+            if (el) emit(el.audioUrl, el.timestamps, el.duration);
           }
+        }
+      } catch (chunkErr: any) {
+        console.error(`[TTS] Unexpected error on chunk ${i}:`, chunkErr?.message);
       }
-    } catch (wsLoopErr) {
-      console.error('Cartesia chunk streaming error:', wsLoopErr);
-    } finally {
-      try { responseStream?.close?.(); } catch (e) {}
-      res.end();
+
+      if (!emitted) {
+        console.error(`[TTS] Chunk ${i} produced no audio; emitting null placeholder to keep indices contiguous.`);
+        res.write(JSON.stringify({
+          index: i,
+          domIndex: chunk.domIndex,
+          text: chunk.text,
+          audioUrl: null,
+          timestamps: []
+        }) + '\n');
+      }
     }
-  } catch (err: any) {
-    console.error("Cartesia TTS error:", err);
+
     res.end();
+  } catch (err: any) {
+    console.error('Cartesia TTS error:', err);
+    try { res.end(); } catch (e) {}
   }
 });
+
 
 app.post('/api/tts/stream', async (req, res) => {
   try {
