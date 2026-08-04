@@ -55,7 +55,7 @@ ${chapter.text || chapter.summary}
 Output only the JSON array without markdown formatting.`;
 
     const rawResponse = await callLLM(prompt, "You are a helpful AI assistant.", "json_object");
-    let scenesData = [];
+    let scenesData: any = [];
     try {
         let text = rawResponse.trim();
         if (text.startsWith("```json")) {

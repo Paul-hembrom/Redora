@@ -2458,7 +2458,11 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_sarah") {
     console.log(`[Kokoro] First native timestamp: ${JSON.stringify(mappedTimestamps[0])}`);
   }
 
-  const audioUrl = `data:audio/wav;base64,${data.audio_base64}`;
+  // The backend now reports its container (`mime`). It falls back to WAV when
+  // MP3 encoding isn't available, and older responses omit the field, so
+  // defaulting to audio/wav keeps this backward compatible.
+  const audioMime = data.mime || 'audio/wav';
+  const audioUrl = `data:${audioMime};base64,${data.audio_base64}`;
 
   const audioBuffer = Buffer.from(data.audio_base64, 'base64');
   const audioBytes = audioBuffer.length;
@@ -2466,7 +2470,9 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_sarah") {
   let numChannels = 1;
   let sampleRate = 24000;
   let bitsPerSample = 16;
-  if (audioBytes > 44) {
+  // Only a WAV has a 44-byte RIFF header; reading these offsets out of an MP3
+  // would yield nonsense, so skip it unless we actually got WAV back.
+  if (audioMime === 'audio/wav' && audioBytes > 44) {
     numChannels = audioBuffer.readUInt16LE(22);
     sampleRate = audioBuffer.readUInt32LE(24);
     bitsPerSample = audioBuffer.readUInt16LE(34);
@@ -2706,7 +2712,12 @@ app.post('/api/tts/cartesia', async (req, res) => {
       console.warn('[TTS] ELEVENLABS_API_KEY not set - Kokoro failures will have no fallback.');
     }
 
-    const chunks = chunkDocumentText(text);
+    // Smaller chunks on constrained clients: fewer bytes resident per buffered
+    // chunk, which lowers peak memory on 4GB smartboards. The frontend sets
+    // this from navigator.deviceMemory / hardwareConcurrency.
+    const lowMemory = req.body?.lowMemory === true;
+    const chunks = chunkDocumentText(text, lowMemory ? 180 : 300);
+    if (lowMemory) console.log('[TTS] lowMemory client: using 180-char chunks.');
 
     // Correct content type for newline-delimited JSON (this was previously
     // labelled text/event-stream even though the body is NDJSON, and some
@@ -2781,7 +2792,7 @@ app.post('/api/tts/cartesia', async (req, res) => {
             index,
             domIndex: chunk.domIndex,
             text: chunk.text,
-            audioUrl: `data:audio/wav;base64,${data.audio_base64}`,
+            audioUrl: `data:${data.mime || 'audio/wav'};base64,${data.audio_base64}`,
             timestamps: aligned,
             playbackDuration: data.playbackDuration || 0,
           }) + '\n');

@@ -37,6 +37,53 @@ const logError = (msg: string, data?: any) => {
 // more than an order of magnitude.
 const PROGRESS_STEPS = 20;
 
+// ---------------------------------------------------------------------------
+// Low-end device detection (smartboards, cheap panels).
+//
+// Two things are far too expensive on a 4GB board:
+//   1. `background-clip: text` with a gradient that changes every few frames.
+//      Text repaints are already the priciest paint op, and at 3XL font sizes
+//      the glyphs are enormous, so each repaint covers a huge area.
+//   2. Holding whole passages of base64 WAV on the JS heap (see
+//      dataUrlToObjectUrl below).
+// On a detected low-end device we swap the sweep for a solid block highlight,
+// which costs three style writes per WORD instead of per frame, and looks
+// essentially the same from across a classroom.
+// ---------------------------------------------------------------------------
+const detectLowEndDevice = (): boolean => {
+  try {
+    const nav = navigator as any;
+    if (typeof nav.deviceMemory === 'number' && nav.deviceMemory <= 4) return true;
+    if (typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency <= 4) return true;
+  } catch (e) {}
+  return false;
+};
+
+// Converts a `data:audio/...;base64,...` URL into a Blob object URL.
+//
+// WHY THIS MATTERS MORE THAN ANYTHING ELSE HERE: a 12s Kokoro sentence is
+// ~563KB of PCM, which is ~750K base64 characters -- and because JS strings
+// are UTF-16 in memory that is ~1.46MB of HEAP per chunk. A 20-chunk section
+// sitting in audioQueueRef is therefore ~29MB of heap, on top of React, the
+// markdown DOM at 3XL, and Chrome's own overhead. That is what pushes a 4GB
+// board into an OOM kill ("Chrome isn't responding").
+//
+// Moving the bytes into a Blob gets them OFF the JS heap and into Chrome's
+// blob storage, which is managed separately and can spill to disk. It also
+// makes the memory reclaimable ON DEMAND via revokeObjectURL(), which a data:
+// URL never is.
+const dataUrlToObjectUrl = (dataUrl: string): string => {
+  const comma = dataUrl.indexOf(',');
+  if (comma === -1) return dataUrl;
+  const meta = dataUrl.slice(5, comma);
+  const mime = (meta.split(';')[0] || 'audio/wav');
+  const b64 = dataUrl.slice(comma + 1);
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+};
+
 
 export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-", playbackRate = 0.8 }: Props) {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -65,6 +112,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   // Spans this component injected into the page, so they can be unwrapped
   // again. See unwrapSpans() for why leaving them behind was a problem.
   const activeSpansRef = useRef<HTMLElement[]>([]);
+
+  // Every blob: URL we created, so none can leak if playback is interrupted.
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+  const isLowEndRef = useRef<boolean>(false);
 
   const playSessionIdRef = useRef<number>(0);
 
@@ -130,6 +181,13 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   }, []);
 
   useEffect(() => {
+    isLowEndRef.current = detectLowEndDevice();
+    if (isLowEndRef.current) {
+      logInfo('Low-end device detected: using solid highlight + reduced buffering.');
+    }
+  }, []);
+
+  useEffect(() => {
     fetch('/api/tts/stream/prewarm', { method: 'POST' }).catch(() => {});
   }, []);
 
@@ -149,12 +207,27 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, []);
 
+  const revokeObjectUrl = (url?: string | null) => {
+    if (!url || !url.startsWith('blob:')) return;
+    try { URL.revokeObjectURL(url); } catch (e) {}
+    objectUrlsRef.current.delete(url);
+  };
+
+  const revokeAllObjectUrls = () => {
+    objectUrlsRef.current.forEach((url) => {
+      try { URL.revokeObjectURL(url); } catch (e) {}
+    });
+    objectUrlsRef.current.clear();
+  };
+
   const clearSpanStyle = (span: HTMLElement | null | undefined) => {
     if (!span) return;
     span.style.background = '';
     span.style.webkitBackgroundClip = '';
     span.style.backgroundClip = '';
     span.style.color = '';
+    span.style.backgroundColor = '';
+    span.style.borderRadius = '';
     span.classList.remove('bg-amber-400/70');
   };
 
@@ -171,19 +244,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     const touchedParents = new Set<Node>();
     spans.forEach((span) => {
       if (!span || !span.parentNode) return;
-      try {
-        const parent = span.parentNode;
-        while (span.firstChild) parent.insertBefore(span.firstChild, span);
-        span.remove();
-        touchedParents.add(parent);
-      } catch (err: any) {
-        console.error('[ReadAloud] Error unwrapping span:', err);
-        fetch('/api/log-client-error', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: err.message || 'Error unwrapping span', stack: err.stack, source: 'unwrapSpans' })
-        }).catch(() => {});
-      }
+      const parent = span.parentNode;
+      while (span.firstChild) parent.insertBefore(span.firstChild, span);
+      parent.removeChild(span);
+      touchedParents.add(parent);
     });
     // normalize() merges the split text nodes back together. Doing it once per
     // parent instead of once per span keeps this cheap.
@@ -232,6 +296,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
 
     releaseAudioElement(audioRef.current);
     releaseAudioElement(preloadAudioRef.current);
+    revokeAllObjectUrls();
 
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -322,7 +387,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       const res = await fetch('/api/tts/cartesia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, hq: highQuality })
+        body: JSON.stringify({ text, hq: highQuality, lowMemory: isLowEndRef.current })
       });
       if (!res.ok || !res.body) {
         throw new Error(`API returned ${res.status}`);
@@ -379,13 +444,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
         }
 
+        // Free the chunk we just finished with. Done here (rather than in
+        // onended) so a pause/resume that replays the current chunk still has
+        // its audio available.
+        const previous = currentChunkRef.current;
+        if (previous && previous !== chunk && previous.index !== chunk.index) {
+          revokeObjectUrl(previous.audioUrl);
+          previous.audioUrl = null;
+        }
+
         currentChunkRef.current = chunk;
 
         // PERF: reuse ONE hidden <audio> for preloading instead of
         // constructing `new Audio()` per chunk. The old version created a new
         // element for every chunk and never released it, so each one held a
         // decoded base64 WAV for the lifetime of the session.
-        if (audioQueueRef.current.length > 0 && audioQueueRef.current[0].audioUrl) {
+        // Preloading costs a SECOND decoded copy of a chunk in the media
+        // stack. Worth it on a desktop, not on a 4GB board.
+        if (!isLowEndRef.current && audioQueueRef.current.length > 0 && audioQueueRef.current[0].audioUrl) {
             if (!preloadAudioRef.current) {
                 preloadAudioRef.current = new Audio();
                 preloadAudioRef.current.preload = 'auto';
@@ -649,6 +725,24 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                     }
                 }
 
+                // LOW-END PATH: solid block highlight, applied once per word.
+                // Skips the per-frame gradient entirely -- no background-clip,
+                // no repeated text repaint. Three style writes per word instead
+                // of up to PROGRESS_STEPS x 4.
+                if (isLowEndRef.current) {
+                    if (activeIdx >= 0 && lastBucket !== 1) {
+                        const span = wordSpans[activeIdx];
+                        if (span && span.isConnected) {
+                            span.style.backgroundColor = '#FBBF24';
+                            span.style.color = '#111827';
+                            span.style.borderRadius = '3px';
+                        }
+                        lastBucket = 1;
+                    }
+                    animationFrameIdRef.current = requestAnimationFrame(highlightLoop);
+                    return;
+                }
+
                 if (activeIdx >= 0) {
                     const span = wordSpans[activeIdx];
                     if (span && span.isConnected) {
@@ -730,6 +824,21 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
       };
 
+      // Move each chunk's audio off the JS heap the moment it arrives. The
+      // original base64 string becomes garbage immediately after this, so the
+      // queue only ever holds short blob: URLs.
+      const ingestChunk = (data: any) => {
+        if (data && typeof data.audioUrl === 'string' && data.audioUrl.startsWith('data:')) {
+          try {
+            const objUrl = dataUrlToObjectUrl(data.audioUrl);
+            objectUrlsRef.current.add(objUrl);
+            data.audioUrl = objUrl;
+          } catch (e) {
+            logWarning(`Could not convert chunk ${data.index} to a blob URL; keeping data URL.`);
+          }
+        }
+      };
+
       playNextChunkRef.current = playNextChunk;
       (async () => {
         try {
@@ -764,6 +873,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                     }
                   }
                 } else if (data.index !== undefined) {
+                  ingestChunk(data);
                   chunksMapRef.current.set(data.index, data);
 
                   let addedToQueue = false;
@@ -784,6 +894,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (buffer.trim()) {
              const data = JSON.parse(buffer);
              if (data.index !== undefined) {
+                ingestChunk(data);
                 chunksMapRef.current.set(data.index, data);
                 let addedToQueue = false;
                 while (chunksMapRef.current.has(expectedIndex)) {
@@ -886,12 +997,9 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       clearAllHighlights();
       releaseAudioElement(preloadAudioRef.current);
       releaseAudioElement(audioRef.current);
+      revokeAllObjectUrls();
       if (audioRef.current && audioRef.current.parentNode) {
-        try {
-          audioRef.current.remove();
-        } catch (err: any) {
-          console.error('[ReadAloud] Error removing audio:', err);
-        }
+        audioRef.current.parentNode.removeChild(audioRef.current);
       }
       audioRef.current = null;
       preloadAudioRef.current = null;
