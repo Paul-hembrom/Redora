@@ -1893,9 +1893,22 @@ function normalizeTextForCartesia(text: string): string {
     });
     // --- End List Processing ---
 
+
+    // ---------------------------------------------------------------
+    // Unicode cleanup. The ellipsis and curly quotes used to survive to
+    // synthesizeKokoroSpeech's whitelist and get deleted there, so
+    // "0.333…" lost its "and so on" and "denominator's" became
+    // "denominator s".
+    // ---------------------------------------------------------------
+    t = t.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+    t = t.replace(/\u2026/g, ' and so on ');
+    t = t.replace(/[\u2013\u2014]/g, '-');
+
     // Strip LaTeX delimiters
     t = t.replace(/\$\$(.*?)\$\$/g, ' $1 ');
     t = t.replace(/\$(.*?)\$/g, ' $1 ');
+    t = t.replace(/\\\((.*?)\\\)/g, ' $1 ');
+    t = t.replace(/\\\[(.*?)\\\]/g, ' $1 ');
 
     // Acronyms and abbreviations
     t = t.replace(/\bCOVID-19\b/gi, 'Covid nineteen');
@@ -1904,35 +1917,133 @@ function normalizeTextForCartesia(text: string): string {
     t = t.replace(/\bi\.e\./gi, 'that is');
     t = t.replace(/\betc\./gi, 'etcetera');
 
+    // ---------------------------------------------------------------
+    // LaTeX commands that take arguments. Looped because arguments can
+    // nest. \overline is what renders a recurring-decimal bar, so it has
+    // to become "repeating" rather than being silently dropped.
+    // ---------------------------------------------------------------
+    for (let pass = 0; pass < 3; pass++) {
+        t = t.replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, ' $1 over $2 ');
+        t = t.replace(/\\sqrt\[([^\]]*)\]\{([^{}]*)\}/g, ' the $1 root of $2 ');
+        t = t.replace(/\\sqrt\{([^{}]*)\}/g, ' the square root of $1 ');
+        t = t.replace(/\\overline\{([^{}]*)\}/g, ' $1 repeating ');
+        t = t.replace(/\\(?:bar|hat|vec|tilde)\{([^{}]*)\}/g, ' $1 ');
+        t = t.replace(/\\(?:text|mathrm|mathbf|mathit|operatorname)\{([^{}]*)\}/g, ' $1 ');
+    }
+
+    // ---------------------------------------------------------------
+    // Structured constructs. These MUST run before the symbol catch-all
+    // below, which would otherwise delete \lim / \int / \begin and leave
+    // their subscripts stranded as "sub h gives 0".
+    // ---------------------------------------------------------------
+
+    // Matrix environments -> spoken row/column description.
+    t = t.replace(
+        /\\begin\{(?:p|b|v|V|small)?matrix\}([\s\S]*?)\\end\{(?:p|b|v|V|small)?matrix\}/g,
+        (_m, inner) => {
+            const rows = String(inner)
+                .split(/\\\\/)
+                .map((r: string) => r.trim().split('&').map((x) => x.trim()).filter(Boolean).join(', '))
+                .filter(Boolean);
+            return ` the matrix with rows ${rows.join('; ')} `;
+        }
+    );
+    t = t.replace(/\\begin\{[^}]*\}/g, ' ').replace(/\\end\{[^}]*\}/g, ' ');
+    t = t.replace(/\\\\/g, ' ');   // LaTeX row separator
+    t = t.replace(/&/g, ' , ');    // LaTeX column separator
+
+    // Limits
+    t = t.replace(/\\lim\s*_\{([^{}]*)\}/g, ' the limit as $1 ');
+    t = t.replace(/\\lim\s*_([a-zA-Z0-9]+)/g, ' the limit as $1 ');
+
+    // Definite integrals / sums / products with bounds
+    t = t.replace(/\\int\s*_\{([^{}]*)\}\s*\^\{([^{}]*)\}/g, ' the integral from $1 to $2 of ');
+    t = t.replace(/\\int\s*_([a-zA-Z0-9]+)\s*\^([a-zA-Z0-9]+)/g, ' the integral from $1 to $2 of ');
+    t = t.replace(/\\sum\s*_\{([^{}]*)\}\s*\^\{([^{}]*)\}/g, ' the sum from $1 to $2 of ');
+    t = t.replace(/\\sum\s*_([a-zA-Z0-9]+)\s*\^([a-zA-Z0-9]+)/g, ' the sum from $1 to $2 of ');
+    t = t.replace(/\\prod\s*_\{([^{}]*)\}\s*\^\{([^{}]*)\}/g, ' the product from $1 to $2 of ');
+
+    // LaTeX spacing commands (\, \; \: \! and escaped space). These are not
+    // letter-commands, so the catch-all below never matched them and the raw
+    // backslash reached the sanitizer, turning "\,dx" into ",dx".
+    t = t.replace(/\\[,;:!]/g, ' ');
+    t = t.replace(/\\ /g, ' ');
+
+    // Absolute value / magnitude
+    t = t.replace(/\\left\s*\|/g, '|').replace(/\\right\s*\|/g, '|');
+    t = t.replace(/\|([^|\n]{1,40})\|/g, ' the absolute value of $1 ');
+
+    // Prime notation: f'(x) -> "f prime of x". Guarded so possessives such as
+    // "denominator's" are untouched (the lookahead rejects a following letter,
+    // and \b requires the prime to follow a single-letter token).
+    t = t.replace(/\b([a-zA-Z])'''(?![a-zA-Z])/g, '$1 triple prime ');
+    t = t.replace(/\b([a-zA-Z])''(?![a-zA-Z])/g, '$1 double prime ');
+    t = t.replace(/\b([a-zA-Z])'(?![a-zA-Z])/g, '$1 prime ');
+
+    // ---------------------------------------------------------------
+    // Symbolic LaTeX commands. The catch-all at the end is important for
+    // generality: ANY unrecognised \command becomes a space rather than
+    // reaching the model as a literal backslash word, and unlike the old
+    // code it can no longer collide with the brace rules below.
+    // ---------------------------------------------------------------
+    const latexSymbols: Record<string, string> = {
+        times: ' times ', cdot: ' times ', div: ' divided by ', pm: ' plus or minus ',
+        leq: ' less than or equal to ', le: ' less than or equal to ',
+        geq: ' greater than or equal to ', ge: ' greater than or equal to ',
+        neq: ' is not equal to ', ne: ' is not equal to ', approx: ' approximately ',
+        infty: ' infinity ', pi: ' pi ', theta: ' theta ', alpha: ' alpha ',
+        beta: ' beta ', gamma: ' gamma ', Delta: ' delta ', delta: ' delta ',
+        lambda: ' lambda ', mu: ' mu ', sigma: ' sigma ', omega: ' omega ',
+        rightarrow: ' gives ', to: ' approaches ', leftarrow: ' from ',
+        subseteq: ' is a subset of ', subset: ' is a proper subset of ',
+        supseteq: ' is a superset of ', in: ' is an element of ',
+        notin: ' is not an element of ', cup: ' union ', cap: ' intersection ',
+        emptyset: ' the empty set ', varnothing: ' the empty set ',
+        sum: ' the sum of ', int: ' the integral of ', prod: ' the product of ',
+        therefore: ' therefore ', because: ' because ', degree: ' degrees ',
+        log: ' log ', ln: ' natural log ', exp: ' exponential of ',
+        sin: ' sine ', cos: ' cosine ', tan: ' tangent ',
+        sec: ' secant ', csc: ' cosecant ', cot: ' cotangent ',
+        arcsin: ' arc sine ', arccos: ' arc cosine ', arctan: ' arc tangent ',
+        sinh: ' hyperbolic sine ', cosh: ' hyperbolic cosine ', tanh: ' hyperbolic tangent ',
+        det: ' the determinant of ', deg: ' degree of ', gcd: ' the G C D of ',
+        lcm: ' the L C M of ', max: ' the maximum of ', min: ' the minimum of ',
+        lim: ' the limit of ', partial: ' partial ', nabla: ' del ',
+        quad: ' ', qquad: ' ', dots: ' and so on ', ldots: ' and so on ', cdots: ' and so on ',
+        equiv: ' is equivalent to ', propto: ' is proportional to ',
+        forall: ' for all ', exists: ' there exists ', implies: ' implies ',
+        perp: ' is perpendicular to ', parallel: ' is parallel to ',
+        circ: ' degrees ', prime: ' prime '
+    };
+    t = t.replace(/\\([a-zA-Z]+)/g, (_m, cmd) =>
+        latexSymbols[cmd] !== undefined ? latexSymbols[cmd] : ' '
+    );
+
+    // Subscripts / superscripts (chemistry: H_2O, CO_2)
+    t = t.replace(/\^\{([^{}]*)\}/g, ' to the power of $1 ');
+    t = t.replace(/_\{([^{}]*)\}/g, ' sub $1 ');
+    t = t.replace(/_([a-zA-Z0-9])/g, ' sub $1 ');
+
     // Function notation (simple like f(x))
     t = t.replace(/\b([a-zA-Z])\(([a-zA-Z0-9_]+)\)/g, '$1 of $2');
 
-    // Fractions \frac{a}{b} -> a over b
-    t = t.replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1 over $2');
-
-    // Square roots \sqrt{a} -> the square root of a
-    t = t.replace(/\\sqrt\{([^}]+)\}/g, 'the square root of $1');
-
     // Exponents
-    t = t.replace(/([a-zA-Z0-9]+)\^2/g, '$1 squared');
-    t = t.replace(/([a-zA-Z0-9]+)\^3/g, '$1 cubed');
-    t = t.replace(/([a-zA-Z0-9]+)\^\{([^}]+)\}/g, '$1 to the power of $2');
-
-    // General exponent (must stay AFTER the ^{...} form above)
+    t = t.replace(/([a-zA-Z0-9]+)\^2\b/g, '$1 squared');
+    t = t.replace(/([a-zA-Z0-9]+)\^3\b/g, '$1 cubed');
     t = t.replace(/([a-zA-Z0-9]+)\^([a-zA-Z0-9]+)/g, '$1 to the power of $2');
+    // Bare exponents: a preceding \command was already replaced by a word, so
+    // there is now a space before the caret and the rules above cannot fire.
+    t = t.replace(/\s\^2\b/g, ' squared ');
+    t = t.replace(/\s\^3\b/g, ' cubed ');
+    t = t.replace(/\s\^\{([^{}]*)\}/g, ' to the power of $1 ');
+    t = t.replace(/\s\^([a-zA-Z0-9-]+)/g, ' to the power of $1 ');
 
-    // Common math symbols
+    // Unicode math + set symbols
     t = t.replace(/π/g, ' pi ');
     t = t.replace(/∞/g, ' infinity ');
     t = t.replace(/±/g, ' plus or minus ');
     t = t.replace(/≤/g, ' less than or equal to ');
     t = t.replace(/≥/g, ' greater than or equal to ');
-
-    // Set-theory notation. Previously these characters survived this function
-    // untouched and were then DELETED by the sanitizer in
-    // synthesizeKokoroSpeech (which only whitelists a-zA-Z0-9 .,!?-:;() ),
-    // so "A ⊆ B" reached the model as "A B" and "{a, e, i, o, u}" as
-    // "a, e, i, o, u". Spelling them out keeps the narration correct.
     t = t.replace(/⊆/g, ' is a subset of ');
     t = t.replace(/⊄/g, ' is not a subset of ');
     t = t.replace(/⊂/g, ' is a proper subset of ');
@@ -1946,15 +2057,23 @@ function normalizeTextForCartesia(text: string): string {
     t = t.replace(/×/g, ' times ');
     t = t.replace(/÷/g, ' divided by ');
     t = t.replace(/→/g, ' gives ');
+    t = t.replace(/°/g, ' degrees ');
 
-    // Braces: empty set first, then roster-notation sets.
+    // ---------------------------------------------------------------
+    // Braces. The previous version turned EVERY {...} into "the set
+    // containing ...", which is right for roster notation but wrong for
+    // LaTeX grouping -- it made "\overline{3}" speak as "overline the set
+    // containing 3". Only comma-separated contents are treated as a set.
+    // ---------------------------------------------------------------
     t = t.replace(/\{\s*\}/g, ' the empty set ');
-    t = t.replace(/\{([^{}]*)\}/g, ' the set containing $1 ');
+    t = t.replace(/\{([^{}]*)\}/g, (_m, inner) =>
+        String(inner).includes(',') ? ` the set containing ${inner} ` : ` ${inner} `
+    );
 
     // Basic math operators
+    t = t.replace(/\s*=\s*/g, ' equals ');
     t = t.replace(/\s+\+\s+/g, ' plus ');
     t = t.replace(/\s+-\s+/g, ' minus ');
-    t = t.replace(/\s*=\s*/g, ' equals ');
     t = t.replace(/\s+\/\s+/g, ' divided by ');
     t = t.replace(/\s+\*\s+/g, ' times ');
 
@@ -1964,38 +2083,107 @@ function normalizeTextForCartesia(text: string): string {
     return t;
 }
 
+// ---------------------------------------------------------------------------
+// LOSSLESS sentence splitter.
+//
+// The previous approach used
+//     block.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g)
+// which requires a terminator to be followed by whitespace. A decimal like
+// "0.5" never satisfies that, and String.match() SILENTLY SKIPS regions it
+// cannot match -- so on the sentence
+//     "For example, 0.5 and 0.125 are terminating decimals because they stop."
+// the text "For example, 0.5 and 0." was dropped outright (never spoken) and
+// the next chunk began mid-number at "125 are terminating decimals...".
+//
+// That also wrecked highlighting: the frontend anchors with
+// fullText.indexOf(chunk.text), so a chunk starting mid-number anchors at the
+// wrong offset and every word after it drifts.
+//
+// This version walks the string and emits contiguous slices, so it is lossless
+// by construction: the concatenation of its output always equals its input.
+// ---------------------------------------------------------------------------
+const SENTENCE_ABBREVIATIONS = new Set([
+    'e.g.', 'i.e.', 'etc.', 'vs.', 'Dr.', 'Mr.', 'Mrs.', 'Ms.', 'Prof.',
+    'Fig.', 'No.', 'approx.', 'Eq.', 'Ex.', 'cf.', 'al.'
+]);
+
+function splitIntoSentences(block: string): string[] {
+    const out: string[] = [];
+    let start = 0;
+
+    for (let i = 0; i < block.length; i++) {
+        const ch = block[i];
+        if (ch !== '.' && ch !== '!' && ch !== '?') continue;
+
+        // Decimal point between digits (0.5, 3.14, 0.142857) is not a boundary.
+        if (
+            ch === '.' &&
+            i > 0 && /[0-9]/.test(block[i - 1]) &&
+            i + 1 < block.length && /[0-9]/.test(block[i + 1])
+        ) continue;
+
+        // Absorb runs like "?!" or "..."
+        let j = i;
+        while (j + 1 < block.length && '.!?'.includes(block[j + 1])) j++;
+
+        // A real boundary is followed by whitespace or end of block. This also
+        // protects "0.\overline{3}" (period followed by a backslash).
+        if (j + 1 < block.length && !/\s/.test(block[j + 1])) continue;
+
+        const prevWord = (block.slice(start, j + 1).trim().split(/\s+/).pop()) || '';
+        if (SENTENCE_ABBREVIATIONS.has(prevWord)) continue;
+
+        let end = j + 1;
+        while (end < block.length && /\s/.test(block[end])) end++;
+        out.push(block.slice(start, end));
+        start = end;
+        i = end - 1;
+    }
+
+    if (start < block.length) out.push(block.slice(start));
+    return out.filter((s) => s.trim().length > 0);
+}
+
 function chunkDocumentText(text: string, maxChunkSize = 300) {
     const chunks: { text: string; domIndex: number }[] = [];
     const blocks = text.split(/\n\n+/).map((s: string) => s.trim()).filter(Boolean);
+
     blocks.forEach((block: string, domIndex: number) => {
-        const sentences = block.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g) || [block];
+        const sentences = splitIntoSentences(block);
+
+        // Safety net: if the splitter ever fails to cover the block, fall back
+        // to the whole block rather than speaking a truncated version of it.
+        const covered = sentences.join('').trim();
+        if (covered !== block.trim()) {
+            console.warn(`[TTS] Sentence split coverage mismatch on block ${domIndex}; using whole block.`);
+            chunks.push({ text: block, domIndex });
+            return;
+        }
+
         let currentChunk = "";
         sentences.forEach((s: string) => {
             const t = s.trim();
-            if (t.length > 0) {
-                // Emit the very first sentence of the passage as its own chunk.
-                // Time-to-first-audio is gated entirely on chunk 0 finishing
-                // synthesis, so letting chunk 0 grow to maxChunkSize (~3-4
-                // sentences) makes the user wait for 3-4 sentences of CPU
-                // inference before hearing anything. /api/tts/stream already
-                // does this ("force the first sentence to be short"); this
-                // brings the Kokoro path in line.
-                if (chunks.length === 0 && currentChunk.length === 0 && domIndex === 0) {
-                    chunks.push({ text: t, domIndex });
-                    return;
-                }
-                if (currentChunk.length + t.length > maxChunkSize && currentChunk.length > 0) {
-                    chunks.push({ text: currentChunk.trim(), domIndex });
-                    currentChunk = t;
-                } else {
-                    currentChunk = currentChunk ? currentChunk + " " + t : t;
-                }
+            if (t.length === 0) return;
+
+            // Emit the very first sentence of the passage as its own chunk so
+            // time-to-first-audio isn't gated on 3-4 sentences of inference.
+            if (chunks.length === 0 && currentChunk.length === 0 && domIndex === 0) {
+                chunks.push({ text: t, domIndex });
+                return;
+            }
+            if (currentChunk.length + t.length > maxChunkSize && currentChunk.length > 0) {
+                chunks.push({ text: currentChunk.trim(), domIndex });
+                currentChunk = t;
+            } else {
+                currentChunk = currentChunk ? currentChunk + " " + t : t;
             }
         });
+
         if (currentChunk.length > 0) {
             chunks.push({ text: currentChunk.trim(), domIndex });
         }
     });
+
     return chunks;
 }
 
@@ -2003,36 +2191,35 @@ function chunkDocumentText(text: string, maxChunkSize = 300) {
 // Word-timestamp alignment  (fixes highlight drift)
 //
 // THE PROBLEM: the text we SPEAK is not the text we DISPLAY. Before synthesis
-// each chunk goes through normalizeTextForCartesia() (n(A) -> "n of A",
-// "=" -> "equals", "x^2" -> "x squared", bullets -> "Point 1:") and then
-// through normalizeTextWithLLM(), which rewrites it again. So the timestamps
-// coming back describe words like "of" / "equals" / "squared" / "Point" that
-// do not exist in the original text -- yet the frontend is handed
-// `text: chunk.text` (the ORIGINAL) and searches the rendered DOM for those
-// spoken words.
-//
-// Because the frontend matches sequentially with an advancing searchIndex,
-// one bad match poisons everything after it: searching for the inserted "of"
-// finds the next *literal* "of" further down the paragraph, jumps searchIndex
-// past everything in between, and every subsequent word then matches too far
-// ahead. Math content is dense with these rewrites, which is why it drifts
-// worst, and repeated short words ("a", "of", "is", "set") give the runaway
-// search plenty of wrong places to land.
+// each chunk goes through normalizeTextForCartesia() (\frac{1}{8} -> "1 over
+// 8", 2^3 -> "2 cubed", "=" -> "equals", \overline{3} -> "3 repeating") and
+// then through normalizeTextWithLLM(), which rewrites it again. The timestamps
+// coming back therefore describe words that do not exist in the original text
+// -- yet the frontend is handed `text: chunk.text` (the ORIGINAL) and searches
+// the rendered DOM for those spoken words. Because it matches sequentially
+// with an advancing searchIndex, one bad match poisons everything after it.
 //
 // THE FIX: align the spoken timestamps back onto the ORIGINAL chunk text here,
-// on the server, and emit timestamps whose `word` values ARE the original
-// tokens, in order. Tokens with no spoken counterpart get their timing
-// interpolated between the surrounding matched anchors. The frontend then
-// cannot drift, because every word it is asked to find genuinely exists in
-// the DOM at that position.
+// and emit timestamps whose `word` values ARE the original tokens, in order.
+//
+// This uses full Needleman-Wunsch style dynamic programming rather than the
+// earlier greedy fixed-lookahead scan. That matters for heavy notation: one
+// displayed token can expand into many spoken words ("\frac{1}{8}" -> "1 over
+// 8", "(8×1=8)" -> "8 times 1 equals 8"), so the spoken stream runs much
+// longer than the token stream. A greedy scan with a fixed lookahead falls
+// progressively behind until the correct match leaves its window and matching
+// collapses. DP finds the globally optimal alignment instead, so it is
+// insensitive to how large the expansion is -- which is what makes this work
+// for arbitrary math, physics, and chemistry notation rather than just sets.
+// Chunks are sentence-sized, so the O(n*m) table is trivially small.
 // ---------------------------------------------------------------------------
 
 function normalizeTokenForMatch(t: string): string {
     return (t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// Strip markdown emphasis/code markers that exist in the raw markdown but not
-// in the rendered DOM the frontend searches (e.g. "**Q1:**" renders as "Q1:").
+// Strip markdown emphasis/code markers present in raw markdown but not in the
+// rendered DOM the frontend searches (e.g. "**Q1:**" renders as "Q1:").
 function cleanTokenForDom(t: string): string {
     return (t || '').replace(/^[*_`~]+/, '').replace(/[*_`~]+$/, '');
 }
@@ -2059,10 +2246,8 @@ function distributeAcrossTokens(tokens: string[], totalDuration: number) {
         cursor += dur;
         return {
             word,
-            start: round4(start),
-            end: round4(cursor),
-            start_time: round4(start),
-            end_time: round4(cursor)
+            start: round4(start), end: round4(cursor),
+            start_time: round4(start), end_time: round4(cursor)
         };
     });
 }
@@ -2079,99 +2264,119 @@ function alignTimestampsToOriginalText(
     const spoken = (spokenTimestamps || []).filter(
         (s) => s && typeof s.start === 'number' && typeof s.end === 'number'
     );
-    if (spoken.length === 0) {
-        return distributeAcrossTokens(tokens, totalDuration || 0);
-    }
+    if (spoken.length === 0) return distributeAcrossTokens(tokens, totalDuration || 0);
 
     const duration = totalDuration || spoken[spoken.length - 1].end || 0;
 
-    const normTokens = tokens.map(normalizeTokenForMatch);
-    const normSpoken = spoken.map((s) => normalizeTokenForMatch(s.word));
+    const O = tokens.map(normalizeTokenForMatch);
+    const S = spoken.map((s) => normalizeTokenForMatch(s.word));
+    const n = O.length;
+    const m = S.length;
 
-    // Greedy in-order match with a bounded lookahead. The lookahead is what
-    // keeps an inserted word ("of", "equals", "Point") from dragging the
-    // search pointer far down the chunk the way the frontend's unbounded
-    // indexOf did.
-    const LOOKAHEAD = 10;
-    const matchIdx: number[] = new Array(tokens.length).fill(-1);
-    let sPtr = 0;
+    const BIG = 1e9;
+    const SKIP_ORIG = 0.6;    // a displayed token with no spoken counterpart
+    const SKIP_SPOKEN = 0.45; // a spoken word inserted by normalization
+    const subCost = (a: string, b: string): number => {
+        if (!a || !b) return 2.0;
+        if (a === b) return 0;
+        if (a.startsWith(b) || b.startsWith(a)) return 0.2;
+        if (a.includes(b) || b.includes(a)) return 0.35;
+        return 3.0; // effectively forbidden: prefer skip+skip over a wrong match
+    };
 
-    for (let i = 0; i < tokens.length; i++) {
-        const target = normTokens[i];
-        if (!target) continue;
-        const limit = Math.min(normSpoken.length, sPtr + LOOKAHEAD);
-        let found = -1;
-        for (let j = sPtr; j < limit; j++) {
-            if (normSpoken[j] === target) { found = j; break; }
-        }
-        if (found === -1) {
-            // Partial match catches expansions like "n(A)" -> spoken "n","of","a"
-            for (let j = sPtr; j < limit; j++) {
-                const ns = normSpoken[j];
-                if (ns && (target.startsWith(ns) || ns.startsWith(target))) { found = j; break; }
-            }
-        }
-        if (found !== -1) {
-            matchIdx[i] = found;
-            sPtr = found + 1;
+    const dp: Float64Array[] = Array.from({ length: n + 1 }, () => new Float64Array(m + 1).fill(BIG));
+    const bt: Int8Array[] = Array.from({ length: n + 1 }, () => new Int8Array(m + 1));
+    dp[0][0] = 0;
+    for (let j = 1; j <= m; j++) { dp[0][j] = dp[0][j - 1] + SKIP_SPOKEN; bt[0][j] = 2; }
+    for (let i = 1; i <= n; i++) { dp[i][0] = dp[i - 1][0] + SKIP_ORIG; bt[i][0] = 1; }
+
+    for (let i = 1; i <= n; i++) {
+        for (let j = 1; j <= m; j++) {
+            let best = dp[i - 1][j - 1] + subCost(O[i - 1], S[j - 1]);
+            let b = 0;
+            const cSkipO = dp[i - 1][j] + SKIP_ORIG;
+            if (cSkipO < best) { best = cSkipO; b = 1; }
+            const cSkipS = dp[i][j - 1] + SKIP_SPOKEN;
+            if (cSkipS < best) { best = cSkipS; b = 2; }
+            dp[i][j] = best; bt[i][j] = b;
         }
     }
 
-    const matchedCount = matchIdx.filter((m) => m !== -1).length;
-    // If the rewrite was so aggressive that almost nothing lines up, an even
-    // spread is more honest than a mostly-guessed alignment.
-    if (matchedCount < Math.max(1, Math.floor(tokens.length * 0.25))) {
-        console.warn(`[TTS align] Only ${matchedCount}/${tokens.length} tokens matched; falling back to even distribution.`);
+    const match: number[] = new Array(n).fill(-1);
+    let i = n, j = m;
+    while (i > 0 || j > 0) {
+        const b = (i > 0 && j > 0) ? bt[i][j] : (i > 0 ? 1 : 2);
+        if (b === 0) {
+            if (subCost(O[i - 1], S[j - 1]) < 1.0) match[i - 1] = j - 1;
+            i--; j--;
+        } else if (b === 1) { i--; } else { j--; }
+    }
+
+    const matchedCount = match.filter((x) => x !== -1).length;
+    if (matchedCount < Math.max(1, Math.floor(n * 0.2))) {
+        console.warn(`[TTS align] Only ${matchedCount}/${n} tokens matched; falling back to even distribution.`);
         return distributeAcrossTokens(tokens, duration);
     }
 
-    const out = tokens.map((word) => ({ word, start: 0, end: 0 }));
-    for (let i = 0; i < tokens.length; i++) {
-        if (matchIdx[i] !== -1) {
-            out[i].start = spoken[matchIdx[i]].start;
-            out[i].end = spoken[matchIdx[i]].end;
-        }
-    }
+    const starts: number[] = new Array(n).fill(-1);
+    for (let k = 0; k < n; k++) if (match[k] !== -1) starts[k] = spoken[match[k]].start;
 
     // Interpolate runs of unmatched tokens between matched anchors.
-    let i = 0;
-    while (i < tokens.length) {
-        if (matchIdx[i] !== -1) { i++; continue; }
-        let j = i;
-        while (j < tokens.length && matchIdx[j] === -1) j++;
-
-        const prevEnd = i > 0 ? out[i - 1].end : 0;
-        const nextStart = j < tokens.length ? out[j].start : Math.max(prevEnd, duration);
-        const span = Math.max(0, nextStart - prevEnd);
-
-        const runTokens = tokens.slice(i, j);
-        const weights = runTokens.map(estimateSyllables);
+    let p = 0;
+    while (p < n) {
+        if (starts[p] !== -1) { p++; continue; }
+        let q = p;
+        while (q < n && starts[q] === -1) q++;
+        const prev = p > 0 ? starts[p - 1] : 0;
+        const next = q < n ? starts[q] : duration;
+        const span = Math.max(0, next - prev);
+        const run = tokens.slice(p, q);
+        const weights = run.map(estimateSyllables);
         const totalWeight = weights.reduce((a, b) => a + b, 0);
-
-        let cursor = prevEnd;
-        for (let k = 0; k < runTokens.length; k++) {
-            const dur = totalWeight > 0 ? (span * weights[k]) / totalWeight : span / runTokens.length;
-            out[i + k].start = cursor;
-            out[i + k].end = cursor + dur;
-            cursor += dur;
+        let cursor = prev;
+        for (let k = 0; k < run.length; k++) {
+            const d = totalWeight > 0 ? (span * weights[k]) / totalWeight : span / run.length;
+            starts[p + k] = cursor;
+            cursor += d;
         }
-        i = j;
+        p = q;
     }
 
-    // Clamp monotonic so the frontend's "currentTime >= start && < end" test
-    // can never match two spans at once.
-    for (let k = 1; k < out.length; k++) {
-        if (out[k].start < out[k - 1].end) out[k].start = out[k - 1].end;
-        if (out[k].end < out[k].start) out[k].end = out[k].start;
+    for (let k = 1; k < n; k++) if (starts[k] < starts[k - 1]) starts[k] = starts[k - 1];
+
+    // Spread tied starts so no token ends up with a zero-length span (which
+    // would never satisfy the frontend's "currentTime >= start && < end").
+    let g0 = 0;
+    while (g0 < n) {
+        let g = g0;
+        while (g + 1 < n && starts[g + 1] <= starts[g0] + 1e-9) g++;
+        if (g > g0) {
+            const s0 = starts[g0];
+            const s1 = (g + 1 < n) ? starts[g + 1] : duration;
+            const span = Math.max(0, s1 - s0);
+            const cnt = g - g0 + 1;
+            for (let x = 0; x < cnt; x++) starts[g0 + x] = s0 + (span * x) / cnt;
+        }
+        g0 = g + 1;
     }
 
-    return out.map((o) => ({
-        word: o.word,
-        start: round4(o.start),
-        end: round4(o.end),
-        start_time: round4(o.start),
-        end_time: round4(o.end)
-    }));
+    // Continuous coverage: each token holds the highlight until the next one
+    // begins, so inserted spoken words ("over", "equals", "repeating") never
+    // leave the sentence with nothing highlighted. Capped so a trailing
+    // silence can't leave the last word lit indefinitely.
+    const out: any[] = [];
+    for (let k = 0; k < n; k++) {
+        const s = starts[k];
+        let e = (k + 1 < n) ? starts[k + 1] : duration;
+        if (e < s) e = s;
+        if (e - s > 2.0) e = s + 2.0;
+        out.push({
+            word: tokens[k],
+            start: round4(s), end: round4(e),
+            start_time: round4(s), end_time: round4(e)
+        });
+    }
+    return out;
 }
 
 function createFloat32WavHeader(dataLength: number, sampleRate: number): Buffer {
