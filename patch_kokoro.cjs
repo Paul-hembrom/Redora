@@ -1,22 +1,56 @@
 const fs = require('fs');
-let content = fs.readFileSync('server.ts', 'utf8');
+let code = fs.readFileSync('server/videoPipeline.ts', 'utf-8');
 
-const regex1 = /let mappedTimestamps = data\.timestamps\.map\(\(t: any\) => \(\{\s*word: t\.word,\s*start: t\.start_time !== undefined \? t\.start_time : t\.start,\s*end: t\.end_time !== undefined \? t\.end_time : t\.end\s*\}\)\);/m;
+const kokoroHelper = `async function fetchKokoroWithRetry(cleanText: string, attempts = 3): Promise<any> {
+  const delays = [5000, 15000, 30000];
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: cleanText, voice: "af_sarah", speed: 1.0 }),
+      });
+      if (!r.ok) throw new Error(\`Kokoro \${r.status}\`);
+      const data = await r.json();
+      if (!data.audio_base64) throw new Error('Kokoro returned no audio_base64');
+      return data;
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await delay(delays[i]);
+    }
+  }
+  throw lastErr;
+}
 
-const repl1 = `let mappedTimestamps = data.timestamps.map((t: any) => ({
-    word: t.word,
-    start: t.start !== undefined ? t.start : t.start_time,
-    end: t.end !== undefined ? t.end : t.end_time
-  }));`;
+export async function processSceneAssets(`;
 
-content = content.replace(regex1, repl1);
+code = code.replace("export async function processSceneAssets(", kokoroHelper);
 
-const regex2 = /const rawDuration = Math\.max\(0, totalFrames \/ sampleRate\);\s*const playbackDuration = rawDuration \/ PLAYBACK_RATE;/m;
-const repl2 = `const calculatedRawDuration = Math.max(0, totalFrames / sampleRate);
-  const rawDuration = data.playbackDuration !== undefined ? data.playbackDuration : calculatedRawDuration;
-  const playbackDuration = rawDuration / PLAYBACK_RATE;`;
+const ttsTarget = `    // Call Kokoro
+    let response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: cleanText, voice: "af_sarah", speed: 1.0 })
+    });
+    if (!response.ok) {
+       console.warn(\`[TTS] First Kokoro attempt failed (\${response.statusText}), retrying...\`);
+       await delay(2000);
+       response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ text: cleanText, voice: "af_sarah", speed: 1.0 })
+       });
+       if (!response.ok) throw new Error(\`Kokoro TTS failed: \${response.statusText}\`);
+    }
+    const data = await response.json();
+    if (!data.audio_base64) {
+        throw new Error("Invalid Kokoro response (no audio)");
+    }`;
 
-content = content.replace(regex2, repl2);
+const ttsReplace = `    // Call Kokoro
+    const data = await fetchKokoroWithRetry(cleanText);`;
 
-fs.writeFileSync('server.ts', content);
-console.log("Patched successfully");
+code = code.replace(ttsTarget, ttsReplace);
+
+fs.writeFileSync('server/videoPipeline.ts', code);

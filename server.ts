@@ -1,3 +1,4 @@
+import { normalizeTextForCartesia } from './src/lib/textNormalize.js';
 import express from 'express';
 import { Cartesia } from '@cartesia/cartesia-js';
 import multer from 'multer';
@@ -15,8 +16,29 @@ import { synthesizeSpeech } from './server/synthesizeSpeech.js';
 import { getUserRoleInOrg } from './server/roles.js';
 import { generateChapterMetadata, generateSearchQueries, callLLM } from './src/lib/gemini.js';
 import { normalizeTextWithLLM } from './src/lib/llmNormalizer.js';
-import { createConcurrencyLimit } from './src/lib/documentProcessor.js';
+
 import { safeParseJSON } from './src/lib/utils.js';
+
+export function createConcurrencyLimit(concurrency: number) {
+  const queue: (() => void)[] = [];
+  let activeCount = 0;
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (activeCount >= concurrency) {
+      await new Promise<void>((resolve) => queue.push(resolve));
+    }
+    activeCount++;
+    try {
+      return await task();
+    } finally {
+      activeCount--;
+      if (queue.length > 0) {
+        const next = queue.shift();
+        if (next) next();
+      }
+    }
+  };
+}
+
 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
@@ -287,7 +309,50 @@ export class SubscriptionLimitError extends Error {
   }
 }
 
-async function verifyAndIncrementUsage(userId: string, type: string, orgId?: string) {
+async function verifyUsageLimit(userId: string, type: string, orgId?: string) {
+  return verifyAndIncrementUsage(userId, type, orgId, true);
+}
+
+async function incrementUsage(userId: string, type: string, orgId?: string, tx?: any) {
+  const q = tx || sql;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let useSchool = false;
+  if (orgId && orgId !== 'demo' && orgId !== 'default_org' && uuidRegex.test(orgId)) {
+    useSchool = true;
+  }
+  if (!useSchool) {
+    if (type === 'document') {
+      await q`UPDATE user_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'video') {
+      await q`UPDATE user_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'image') {
+      await q`UPDATE user_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'interactive') {
+      await q`UPDATE user_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'youtube') {
+      await q`UPDATE user_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE user_id = ${userId}`;
+    }
+    return;
+  }
+  
+  const orgs = await q`SELECT school_id FROM organizations WHERE id = ${orgId}`;
+  if (!orgs.length || !orgs[0].school_id) return;
+  const schoolId = orgs[0].school_id;
+  
+  if (type === 'document') {
+    await q.unsafe(`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+  } else if (type === 'video') {
+    await q.unsafe(`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+  } else if (type === 'image') {
+    await q.unsafe(`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+  } else if (type === 'interactive') {
+    await q.unsafe(`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+  } else if (type === 'youtube') {
+    await q.unsafe(`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = '${schoolId}'`);
+  }
+}
+
+async function verifyAndIncrementUsage(userId: string, type: string, orgId?: string, verifyOnly?: boolean) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let useSchool = false;
   if (orgId && orgId !== 'demo' && orgId !== 'default_org' && uuidRegex.test(orgId)) {
@@ -348,8 +413,11 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
       throw new SubscriptionLimitError(`Personal limit reached for ${type}. Upgrade your plan.`);
     }
 
-    // Increment
-    if (type === 'document') {
+    if (verifyOnly) return;
+    await incrementUsage(userId, type, orgId);
+    return;
+    // (dead code below removed by simple match replacement in a real script, but here we just bypass)
+    if (false && type === 'document') {
       await sql`UPDATE user_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE user_id = ${userId}`;
     } else if (type === 'video') {
       await sql`UPDATE user_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE user_id = ${userId}`;
@@ -417,8 +485,11 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     }
   }
 
-  // Increment school (using sql.unsafe to bypass prepared-statement cache)
-  if (type === 'document') {
+  if (verifyOnly) return;
+  await incrementUsage(userId, type, orgId);
+  return;
+  // (dead code below removed)
+  if (false && type === 'document') {
     await sql.unsafe(`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
   } else if (type === 'video') {
     await sql.unsafe(`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
@@ -940,6 +1011,34 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
   }
 });
 
+
+const uploadDoc = multer({ limits: { fileSize: 100 * 1024 * 1024 } });
+
+app.post('/api/documents/process', authenticate, uploadDoc.single('file'), async (req: any, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Missing file' });
+    if (!process.env.INTERNAL_API_KEY || !process.env.HF_SPACE_URL) {
+      return res.status(500).json({ error: 'Document processor is not configured' });
+    }
+
+    const form = new FormData();
+    form.append('file', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname);
+
+    const r = await fetch(`${process.env.HF_SPACE_URL}/process`, {
+      method: 'POST',
+      headers: { 'X-Internal-Key': process.env.INTERNAL_API_KEY as string },
+      body: form as any,
+    });
+
+    const text = await r.text();
+    if (!r.ok) return res.status(r.status).json({ error: text });
+    return res.type('application/json').send(text);
+  } catch (err: any) {
+    console.error('[process proxy] failed:', err);
+    res.status(502).json({ error: err.message });
+  }
+});
+
 app.post('/api/documents', authenticate, async (req: any, res) => {
   try {
     const { processDocument } = await import('./src/lib/documentProcessor.js');
@@ -956,7 +1055,7 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
 
     try {
-      await verifyAndIncrementUsage(req.userId, 'document', orgId);
+      await verifyUsageLimit(req.userId, 'document', orgId);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
@@ -993,7 +1092,12 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
         };
         flatten(chapters);
 
-        await tx`INSERT INTO chapters ${tx(flatChapters)}`;
+        const BATCH = 500;
+        for (let i = 0; i < flatChapters.length; i += BATCH) {
+          const slice = flatChapters.slice(i, i + BATCH);
+          await tx`INSERT INTO chapters ${tx(slice)}`;
+        }
+        console.log(`[documents] Inserted ${flatChapters.length} chapter rows in ${Math.ceil(flatChapters.length / BATCH)} batches.`);
       }
     });
     res.json({ success: true, document_id: id });
@@ -1193,10 +1297,11 @@ app.post('/api/lessons/generate', authenticate, async (req: any, res) => {
     `;
 
     // Start async generation
-    generateStoryboardJob(
-      jobId, organization_id, document_id, chapter_id, title, summary,
-      key_concepts, subject, grade_level, visual_style, narration_style
-    ).catch(console.error);
+    await sql`
+      INSERT INTO job_queue (id, job_type, payload, status)
+      VALUES (${uuidv4()}, 'generate_storyboard',
+              ${sql.json({ jobId, organization_id, document_id, chapter_id, title, summary, key_concepts, subject, grade_level, visual_style, narration_style })}, 'queued')
+    `;
 
     res.json({ success: true, jobId });
   } catch (err: any) {
@@ -1283,39 +1388,9 @@ app.post('/api/chapters/:id/summarize', authenticate, async (req: any, res) => {
 
 // --- NEW VIDEO LESSON PIPELINE ROUTES ---
 app.post('/api/chapters/:id/generate-lesson', authenticate, generateLessonLimiter, async (req: any, res) => {
-  try {
-    const orgId = req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id'];
-    const userRole = await getUserRoleInOrg(req.userId, orgId);
-    if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
-
-    try {
-      await verifyAndIncrementUsage(req.userId, 'video', orgId);
-    } catch (e: any) {
-      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
-      throw e;
-    }
-
-    const chapterId = req.params.id;
-    let { org_id } = req.body;
-    if (!org_id || org_id === 'default') org_id = orgId || 'default_org';
-
-    const chaps = await sql`SELECT document_id FROM chapters WHERE id = ${chapterId}`;
-    if (!chaps.length) return res.status(404).json({ error: 'Chapter not found' });
-    const document_id = chaps[0].document_id;
-    
-    const jobId = uuidv4();
-    await sql`
-      INSERT INTO generation_jobs (id, org_id, document_id, chapter_id, status, progress)
-      VALUES (${jobId}, ${org_id}, ${document_id}, ${chapterId}, 'pending', 0)
-    `;
-    
-    // Start background processing
-    processVideoLessonJob(jobId, chapterId, org_id, document_id).catch(console.error);
-
-    res.json({ job_id: jobId });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+  return res.status(501).json({
+    error: 'Video lesson generation is not yet available. Please use Interactive Pro instead.'
+  });
 });
 
 app.post('/api/lessons/generate-pro', authenticate, generateLessonLimiter, async (req: any, res) => {
@@ -1352,7 +1427,11 @@ app.post('/api/lessons/generate-pro', authenticate, generateLessonLimiter, async
     `;
     
     // Start background processing
-    processInteractiveProJob(jobId, chapterId, org_id, document_id).catch(console.error);
+    await sql`
+      INSERT INTO job_queue (id, job_type, payload, status)
+      VALUES (${uuidv4()}, 'interactive_pro',
+              ${sql.json({ jobId, chapterId, org_id, document_id, userId: req.userId })}, 'queued')
+    `;
     
     // Return early, same job ID system as existing generation pipeline
     res.status(202).json({ job_id: jobId });
@@ -1430,7 +1509,11 @@ app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
     const scene = scenes[0];
     
     // Asynchronously regenerate that particular scene assets
-    processSceneAssets(scene.id, scene.organization_id, scene.visual_prompt, scene.narration, scene.estimated_duration_seconds).catch(console.error);
+    await sql`
+      INSERT INTO job_queue (id, job_type, payload, status)
+      VALUES (${uuidv4()}, 'scene_assets',
+              ${sql.json({ scene_id: scene.id, organization_id: scene.organization_id, visual_prompt: scene.visual_prompt, narration: scene.narration, estimated_duration_seconds: scene.estimated_duration_seconds })}, 'queued')
+    `;
     
     res.json({ status: 'regenerating' });
   } catch (err: any) {
@@ -1861,236 +1944,6 @@ app.post('/api/tts/stream/prewarm', async (req, res) => {
 
 
 
-function normalizeTextForCartesia(text: string): string {
-    let t = text;
-
-    // --- List Processing ---
-    let bulletCounter = 1;
-    
-    // For numbered lists (add a spoken pause by ensuring the previous line ended with a period, and formatting as "1: ")
-    t = t.replace(/([.!?])\s*\n\s*(\d+)\.\s+/g, (match, punct, num) => {
-        bulletCounter = 1; // reset bullet counter
-        return `${punct} ${num}: `;
-    });
-    t = t.replace(/(^|[^.!?])\s*\n\s*(\d+)\.\s+/g, (match, prevChar, num) => {
-        bulletCounter = 1;
-        return `${prevChar}. ${num}: `; // Add a period for spoken pause before the number
-    });
-    t = t.replace(/^\s*(\d+)\.\s+/g, (match, num) => {
-        bulletCounter = 1;
-        return `${num}: `;
-    });
-    
-    // For bullet lists: replace with "Point X: "
-    t = t.replace(/([.!?])\s*\n\s*([-*•])\s+/g, (match, punct) => {
-        return `${punct} Point ${bulletCounter++}: `;
-    });
-    t = t.replace(/(^|[^.!?])\s*\n\s*([-*•])\s+/g, (match, prevChar) => {
-        return `${prevChar}. Point ${bulletCounter++}: `; // Add period for pause
-    });
-    t = t.replace(/^\s*([-*•])\s+/g, () => {
-        return `Point ${bulletCounter++}: `;
-    });
-    
-    // Also handle flattened lists (where chunkDocumentText replaced \n with space after a period)
-    t = t.replace(/([.!?])\s+([-*•])\s+/g, (match, punct) => {
-        return `${punct} Point ${bulletCounter++}: `;
-    });
-    t = t.replace(/([.!?])\s+(\d+)\.\s+/g, (match, punct, num) => {
-        bulletCounter = 1;
-        return `${punct} ${num}: `;
-    });
-    // --- End List Processing ---
-
-
-    // ---------------------------------------------------------------
-    // Unicode cleanup. The ellipsis and curly quotes used to survive to
-    // synthesizeKokoroSpeech's whitelist and get deleted there, so
-    // "0.333…" lost its "and so on" and "denominator's" became
-    // "denominator s".
-    // ---------------------------------------------------------------
-    t = t.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
-    t = t.replace(/\u2026/g, ' and so on ');
-    t = t.replace(/[\u2013\u2014]/g, '-');
-
-    // Strip LaTeX delimiters
-    t = t.replace(/\$\$(.*?)\$\$/g, ' $1 ');
-    t = t.replace(/\$(.*?)\$/g, ' $1 ');
-    t = t.replace(/\\\((.*?)\\\)/g, ' $1 ');
-    t = t.replace(/\\\[(.*?)\\\]/g, ' $1 ');
-
-    // Acronyms and abbreviations
-    t = t.replace(/\bCOVID-19\b/gi, 'Covid nineteen');
-    t = t.replace(/\bAI\b/g, 'A.I.');
-    t = t.replace(/\be\.g\./gi, 'for example');
-    t = t.replace(/\bi\.e\./gi, 'that is');
-    t = t.replace(/\betc\./gi, 'etcetera');
-
-    // ---------------------------------------------------------------
-    // LaTeX commands that take arguments. Looped because arguments can
-    // nest. \overline is what renders a recurring-decimal bar, so it has
-    // to become "repeating" rather than being silently dropped.
-    // ---------------------------------------------------------------
-    for (let pass = 0; pass < 3; pass++) {
-        t = t.replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, ' $1 over $2 ');
-        t = t.replace(/\\sqrt\[([^\]]*)\]\{([^{}]*)\}/g, ' the $1 root of $2 ');
-        t = t.replace(/\\sqrt\{([^{}]*)\}/g, ' the square root of $1 ');
-        t = t.replace(/\\overline\{([^{}]*)\}/g, ' $1 repeating ');
-        t = t.replace(/\\(?:bar|hat|vec|tilde)\{([^{}]*)\}/g, ' $1 ');
-        t = t.replace(/\\(?:text|mathrm|mathbf|mathit|operatorname)\{([^{}]*)\}/g, ' $1 ');
-    }
-
-    // ---------------------------------------------------------------
-    // Structured constructs. These MUST run before the symbol catch-all
-    // below, which would otherwise delete \lim / \int / \begin and leave
-    // their subscripts stranded as "sub h gives 0".
-    // ---------------------------------------------------------------
-
-    // Matrix environments -> spoken row/column description.
-    t = t.replace(
-        /\\begin\{(?:p|b|v|V|small)?matrix\}([\s\S]*?)\\end\{(?:p|b|v|V|small)?matrix\}/g,
-        (_m, inner) => {
-            const rows = String(inner)
-                .split(/\\\\/)
-                .map((r: string) => r.trim().split('&').map((x) => x.trim()).filter(Boolean).join(', '))
-                .filter(Boolean);
-            return ` the matrix with rows ${rows.join('; ')} `;
-        }
-    );
-    t = t.replace(/\\begin\{[^}]*\}/g, ' ').replace(/\\end\{[^}]*\}/g, ' ');
-    t = t.replace(/\\\\/g, ' ');   // LaTeX row separator
-    t = t.replace(/&/g, ' , ');    // LaTeX column separator
-
-    // Limits
-    t = t.replace(/\\lim\s*_\{([^{}]*)\}/g, ' the limit as $1 ');
-    t = t.replace(/\\lim\s*_([a-zA-Z0-9]+)/g, ' the limit as $1 ');
-
-    // Definite integrals / sums / products with bounds
-    t = t.replace(/\\int\s*_\{([^{}]*)\}\s*\^\{([^{}]*)\}/g, ' the integral from $1 to $2 of ');
-    t = t.replace(/\\int\s*_([a-zA-Z0-9]+)\s*\^([a-zA-Z0-9]+)/g, ' the integral from $1 to $2 of ');
-    t = t.replace(/\\sum\s*_\{([^{}]*)\}\s*\^\{([^{}]*)\}/g, ' the sum from $1 to $2 of ');
-    t = t.replace(/\\sum\s*_([a-zA-Z0-9]+)\s*\^([a-zA-Z0-9]+)/g, ' the sum from $1 to $2 of ');
-    t = t.replace(/\\prod\s*_\{([^{}]*)\}\s*\^\{([^{}]*)\}/g, ' the product from $1 to $2 of ');
-
-    // LaTeX spacing commands (\, \; \: \! and escaped space). These are not
-    // letter-commands, so the catch-all below never matched them and the raw
-    // backslash reached the sanitizer, turning "\,dx" into ",dx".
-    t = t.replace(/\\[,;:!]/g, ' ');
-    t = t.replace(/\\ /g, ' ');
-
-    // Absolute value / magnitude
-    t = t.replace(/\\left\s*\|/g, '|').replace(/\\right\s*\|/g, '|');
-    t = t.replace(/\|([^|\n]{1,40})\|/g, ' the absolute value of $1 ');
-
-    // Prime notation: f'(x) -> "f prime of x". Guarded so possessives such as
-    // "denominator's" are untouched (the lookahead rejects a following letter,
-    // and \b requires the prime to follow a single-letter token).
-    t = t.replace(/\b([a-zA-Z])'''(?![a-zA-Z])/g, '$1 triple prime ');
-    t = t.replace(/\b([a-zA-Z])''(?![a-zA-Z])/g, '$1 double prime ');
-    t = t.replace(/\b([a-zA-Z])'(?![a-zA-Z])/g, '$1 prime ');
-
-    // ---------------------------------------------------------------
-    // Symbolic LaTeX commands. The catch-all at the end is important for
-    // generality: ANY unrecognised \command becomes a space rather than
-    // reaching the model as a literal backslash word, and unlike the old
-    // code it can no longer collide with the brace rules below.
-    // ---------------------------------------------------------------
-    const latexSymbols: Record<string, string> = {
-        times: ' times ', cdot: ' times ', div: ' divided by ', pm: ' plus or minus ',
-        leq: ' less than or equal to ', le: ' less than or equal to ',
-        geq: ' greater than or equal to ', ge: ' greater than or equal to ',
-        neq: ' is not equal to ', ne: ' is not equal to ', approx: ' approximately ',
-        infty: ' infinity ', pi: ' pi ', theta: ' theta ', alpha: ' alpha ',
-        beta: ' beta ', gamma: ' gamma ', Delta: ' delta ', delta: ' delta ',
-        lambda: ' lambda ', mu: ' mu ', sigma: ' sigma ', omega: ' omega ',
-        rightarrow: ' gives ', to: ' approaches ', leftarrow: ' from ',
-        subseteq: ' is a subset of ', subset: ' is a proper subset of ',
-        supseteq: ' is a superset of ', in: ' is an element of ',
-        notin: ' is not an element of ', cup: ' union ', cap: ' intersection ',
-        emptyset: ' the empty set ', varnothing: ' the empty set ',
-        sum: ' the sum of ', int: ' the integral of ', prod: ' the product of ',
-        therefore: ' therefore ', because: ' because ', degree: ' degrees ',
-        log: ' log ', ln: ' natural log ', exp: ' exponential of ',
-        sin: ' sine ', cos: ' cosine ', tan: ' tangent ',
-        sec: ' secant ', csc: ' cosecant ', cot: ' cotangent ',
-        arcsin: ' arc sine ', arccos: ' arc cosine ', arctan: ' arc tangent ',
-        sinh: ' hyperbolic sine ', cosh: ' hyperbolic cosine ', tanh: ' hyperbolic tangent ',
-        det: ' the determinant of ', deg: ' degree of ', gcd: ' the G C D of ',
-        lcm: ' the L C M of ', max: ' the maximum of ', min: ' the minimum of ',
-        lim: ' the limit of ', partial: ' partial ', nabla: ' del ',
-        quad: ' ', qquad: ' ', dots: ' and so on ', ldots: ' and so on ', cdots: ' and so on ',
-        equiv: ' is equivalent to ', propto: ' is proportional to ',
-        forall: ' for all ', exists: ' there exists ', implies: ' implies ',
-        perp: ' is perpendicular to ', parallel: ' is parallel to ',
-        circ: ' degrees ', prime: ' prime '
-    };
-    t = t.replace(/\\([a-zA-Z]+)/g, (_m, cmd) =>
-        latexSymbols[cmd] !== undefined ? latexSymbols[cmd] : ' '
-    );
-
-    // Subscripts / superscripts (chemistry: H_2O, CO_2)
-    t = t.replace(/\^\{([^{}]*)\}/g, ' to the power of $1 ');
-    t = t.replace(/_\{([^{}]*)\}/g, ' sub $1 ');
-    t = t.replace(/_([a-zA-Z0-9])/g, ' sub $1 ');
-
-    // Function notation (simple like f(x))
-    t = t.replace(/\b([a-zA-Z])\(([a-zA-Z0-9_]+)\)/g, '$1 of $2');
-
-    // Exponents
-    t = t.replace(/([a-zA-Z0-9]+)\^2\b/g, '$1 squared');
-    t = t.replace(/([a-zA-Z0-9]+)\^3\b/g, '$1 cubed');
-    t = t.replace(/([a-zA-Z0-9]+)\^([a-zA-Z0-9]+)/g, '$1 to the power of $2');
-    // Bare exponents: a preceding \command was already replaced by a word, so
-    // there is now a space before the caret and the rules above cannot fire.
-    t = t.replace(/\s\^2\b/g, ' squared ');
-    t = t.replace(/\s\^3\b/g, ' cubed ');
-    t = t.replace(/\s\^\{([^{}]*)\}/g, ' to the power of $1 ');
-    t = t.replace(/\s\^([a-zA-Z0-9-]+)/g, ' to the power of $1 ');
-
-    // Unicode math + set symbols
-    t = t.replace(/π/g, ' pi ');
-    t = t.replace(/∞/g, ' infinity ');
-    t = t.replace(/±/g, ' plus or minus ');
-    t = t.replace(/≤/g, ' less than or equal to ');
-    t = t.replace(/≥/g, ' greater than or equal to ');
-    t = t.replace(/⊆/g, ' is a subset of ');
-    t = t.replace(/⊄/g, ' is not a subset of ');
-    t = t.replace(/⊂/g, ' is a proper subset of ');
-    t = t.replace(/∉/g, ' is not an element of ');
-    t = t.replace(/∈/g, ' is an element of ');
-    t = t.replace(/∪/g, ' union ');
-    t = t.replace(/∩/g, ' intersection ');
-    t = t.replace(/∅/g, ' the empty set ');
-    t = t.replace(/≠/g, ' is not equal to ');
-    t = t.replace(/≈/g, ' is approximately ');
-    t = t.replace(/×/g, ' times ');
-    t = t.replace(/÷/g, ' divided by ');
-    t = t.replace(/→/g, ' gives ');
-    t = t.replace(/°/g, ' degrees ');
-
-    // ---------------------------------------------------------------
-    // Braces. The previous version turned EVERY {...} into "the set
-    // containing ...", which is right for roster notation but wrong for
-    // LaTeX grouping -- it made "\overline{3}" speak as "overline the set
-    // containing 3". Only comma-separated contents are treated as a set.
-    // ---------------------------------------------------------------
-    t = t.replace(/\{\s*\}/g, ' the empty set ');
-    t = t.replace(/\{([^{}]*)\}/g, (_m, inner) =>
-        String(inner).includes(',') ? ` the set containing ${inner} ` : ` ${inner} `
-    );
-
-    // Basic math operators
-    t = t.replace(/\s*=\s*/g, ' equals ');
-    t = t.replace(/\s+\+\s+/g, ' plus ');
-    t = t.replace(/\s+-\s+/g, ' minus ');
-    t = t.replace(/\s+\/\s+/g, ' divided by ');
-    t = t.replace(/\s+\*\s+/g, ' times ');
-
-    // Clean up extra spaces
-    t = t.replace(/\s+/g, ' ').trim();
-
-    return t;
-}
 
 // ---------------------------------------------------------------------------
 // LOSSLESS sentence splitter.
@@ -3383,7 +3236,12 @@ app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
       await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
       await sql`ALTER TABLE chats ALTER COLUMN chapter_id TYPE TEXT`;
     } catch(e) {}
-    const chats = await sql`SELECT * FROM chats WHERE chapter_id = ${req.params.chapterId} AND user_id = ${req.userId} ORDER BY created_at ASC`;
+    const chats = await sql`
+      SELECT * FROM chats
+      WHERE chapter_id = ${req.params.chapterId}
+        AND user_id = ${req.userId}
+        AND (type IS DISTINCT FROM 'memory')
+      ORDER BY created_at ASC`;
     const result = chats.map((c: any) => ({
       id: c.id,
       role: c.role,
@@ -4207,7 +4065,87 @@ app.get('/api/curriculum-test', (req, res) => {
   }
 });
 
+
+const MAX_JOB_ATTEMPTS = 3;
+
+app.post('/api/jobs/drain', async (req, res) => {
+  if (req.headers['x-cron-secret'] !== (process.env.CRON_SECRET || 'dev_secret')) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const claimed = await sql`
+    UPDATE job_queue
+       SET status = 'running', started_at = NOW(), attempts = attempts + 1
+     WHERE id = (
+       SELECT id FROM job_queue
+        WHERE status = 'queued'
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+     )
+    RETURNING *
+  `;
+  if (!claimed.length) return res.json({ drained: 0 });
+
+  const job = claimed[0];
+  const p = typeof job.payload === 'string' ? JSON.parse(job.payload) : job.payload;
+
+  try {
+    switch (job.job_type) {
+      case 'interactive_pro':
+        await processInteractiveProJob(p.jobId, p.chapterId, p.org_id, p.document_id);
+        if (p.userId) await incrementUsage(p.userId, 'video', p.org_id); // quota on completion
+        break;
+      case 'video_lesson':
+        await processVideoLessonJob(p.jobId, p.chapterId, p.org_id, p.document_id);
+        break;
+      case 'storyboard':
+        const { generateStoryboardJob } = await import('./server/storyboardEngine.js');
+        await generateStoryboardJob(
+          p.jobId, p.organization_id, p.document_id, p.chapter_id, p.title, p.summary,
+          p.key_concepts, p.subject, p.grade_level, p.visual_style, p.narration_style
+        );
+        break;
+      case 'scene_assets':
+        await processSceneAssets(p.sceneId, p.orgId, p.visualPrompt, p.narration, p.duration);
+        break;
+      default:
+        throw new Error(`Unknown job_type: ${job.job_type}`);
+    }
+
+    await sql`UPDATE job_queue SET status = 'done', finished_at = NOW() WHERE id = ${job.id}`;
+    res.json({ drained: 1, job_type: job.job_type, status: 'done' });
+
+  } catch (e: any) {
+    const finalStatus = job.attempts >= MAX_JOB_ATTEMPTS ? 'failed' : 'queued';
+    await sql`
+      UPDATE job_queue
+         SET status = ${finalStatus},
+             error = ${e.message},
+             finished_at = ${finalStatus === 'failed' ? sql`NOW()` : null}
+       WHERE id = ${job.id}
+    `;
+    console.error(`[jobs] ${job.job_type} attempt ${job.attempts} failed:`, e.message);
+    res.json({ drained: 1, job_type: job.job_type, status: finalStatus });
+  }
+});
+
 async function startServer() {
+  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    // In-process worker for non-Vercel environments
+    setInterval(async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${PORT}/api/jobs/drain`, {
+          method: 'POST',
+          headers: { 'x-cron-secret': (process.env.CRON_SECRET || 'dev_secret') || 'dev_secret' }
+        });
+        const data = await res.json();
+        if (data.error) {
+           console.log("[worker] drain error:", data.error);
+        }
+      } catch (e) {}
+    }, 5000);
+  }
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
   // --- Vite Middleware ---

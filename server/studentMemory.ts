@@ -1,3 +1,4 @@
+import { MODELS } from '../src/lib/models.js';
 import sql from "./db.js";
 import { v4 as uuidv4 } from "uuid";
 import { GoogleGenAI } from "@google/genai";
@@ -6,8 +7,11 @@ export async function saveSessionMemory(userId: string, chapterId: string, chatH
     // Only summarize if there's enough interaction
     if (!chatHistory || chatHistory.length < 2) return;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return;
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn('[memory] No Gemini key configured; skipping memory generation.');
+      return;
+    }
     
     // Create a prompt to summarize stringified chat history
     let interactionText = '';
@@ -25,17 +29,19 @@ Task: Provide a highly concise summary (2-3 sentences max) of what the student s
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-3.1-flash-preview",
+            model: MODELS.memory,
             contents: prompt
         });
         
-        const summaryText = response.text?.trim() || "";
+        const summaryText = (response.text?.trim() || "")
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/ignore .{0,40}(previous|prior|above) .{0,20}instructions?/gi, '').replace(/system\s*prompt|you are now|disregard .{0,20}rules?/gi, '')
+      .slice(0, 600);
         if (!summaryText) return;
 
-        // Save to chats table
         await sql`
-            INSERT INTO chats (id, chapter_id, user_id, role, text, type)
-            VALUES (${uuidv4()}, ${chapterId}, ${userId}, 'system', ${summaryText}, 'memory')
+            INSERT INTO student_memory (id, user_id, chapter_id, summary)
+            VALUES (${uuidv4()}, ${userId}, ${chapterId}, ${summaryText})
         `;
     } catch(e) {
         console.error("Failed to generate and save memory:", e);
@@ -48,12 +54,12 @@ export async function getStudentMemory(userId: string, currentChapterId: string)
     
     try {
        const memories = await sql`
-         SELECT text FROM chats 
-         WHERE user_id = ${userId} AND type = 'memory' 
+         SELECT summary FROM student_memory 
+         WHERE user_id = ${userId} 
          ORDER BY created_at DESC 
          LIMIT 3
        `;
-       return memories.map(m => m.text).join('\n---\n');
+       return memories.map((m: any) => m.summary).join('\n---\n');
     } catch(e) {
        console.error("Failed to fetch memory:", e);
        return "";

@@ -1,3 +1,4 @@
+import { MODELS } from './models.js';
 import { ChatMessage, ReadingPersona } from '../types';
 import { jsonrepair } from 'jsonrepair';
 
@@ -43,6 +44,7 @@ function cleanErrorMessage(error: any): string {
 // ──────────────────────────────────────────────
 // 2. Env helpers – centralise API keys
 // ──────────────────────────────────────────────
+
 function getEnvSafe(key: string, getViteEnv: () => string | undefined): string {
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
     return process.env[key] as string;
@@ -54,9 +56,12 @@ function getEnvSafe(key: string, getViteEnv: () => string | undefined): string {
   return '';
 }
 
-const DEEPSEEK_KEY = getEnvSafe('VITE_DEEPSEEK_API_KEY', () => import.meta.env.VITE_DEEPSEEK_API_KEY as string);
-const GEMINI_KEY   = getEnvSafe('VITE_GEMINI_API_KEY',   () => import.meta.env.VITE_GEMINI_API_KEY as string);
-const EL_KEY       = getEnvSafe('VITE_ELEVENLABS_API_KEY', () => import.meta.env.VITE_ELEVENLABS_API_KEY as string);
+const DEEPSEEK_KEY = getEnvSafe('DEEPSEEK_API_KEY', () => import.meta.env.VITE_DEEPSEEK_API_KEY as string)
+                  || getEnvSafe('VITE_DEEPSEEK_API_KEY', () => import.meta.env.VITE_DEEPSEEK_API_KEY as string);
+const GEMINI_KEY   = getEnvSafe('GEMINI_API_KEY', () => import.meta.env.VITE_GEMINI_API_KEY as string)
+                  || getEnvSafe('VITE_GEMINI_API_KEY', () => import.meta.env.VITE_GEMINI_API_KEY as string);
+const EL_KEY       = getEnvSafe('ELEVENLABS_API_KEY', () => import.meta.env.VITE_ELEVENLABS_API_KEY as string)
+                  || getEnvSafe('VITE_ELEVENLABS_API_KEY', () => import.meta.env.VITE_ELEVENLABS_API_KEY as string);
 
 function hasKey(key: string | undefined): key is string {
   return typeof key === 'string' && key.length > 0;
@@ -86,7 +91,7 @@ async function callDeepSeek(
   messages.push({ role: 'user', content });
 
   const body: any = {
-    model: 'deepseek-v4-flash',
+    model: MODELS.text,
     messages,
     temperature: temperature,
     max_tokens: maxTokens ?? 4096,
@@ -188,7 +193,7 @@ export async function callGeminiFlashLite(
   if (systemInstruction) config.systemInstruction = systemInstruction;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: MODELS.text,
     contents: [{ role: 'user', parts }],
     config,
   });
@@ -205,7 +210,7 @@ async function callGeminiTTS(
 ): Promise<string> {
   const ai = await getGenAI();
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-tts-preview',
+    model: MODELS.tts,
     contents: [{ role: 'user', parts: [{ text }] }],
     config: {
       speechConfig: {
@@ -230,7 +235,7 @@ async function callVeo31Lite(
 ): Promise<string> {
   const ai = await getGenAI();
   let operation = await ai.models.generateVideos({
-    model: 'veo-3.1-lite-generate-preview',
+    model: MODELS.video,
     prompt,
     config: { aspectRatio },
   });
@@ -495,10 +500,10 @@ No markdown formatting, no explanation.
       for (const key in parsed) {
         let summaryObj = parsed[key].summary;
         if (Array.isArray(summaryObj)) {
-          summaryObj = summaryObj.join("\\n- ");
+          summaryObj = summaryObj.join("\n- ");
           if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
         } else if (typeof summaryObj === 'string') {
-          summaryObj = summaryObj.replace(/\\n/g, '\\n');
+          summaryObj = summaryObj.replace(/\\n/g, '\n');
           if (!summaryObj.trim().startsWith('-')) {
             summaryObj = '- ' + summaryObj.trim();
           }
@@ -568,10 +573,10 @@ No markdown formatting, no explanation.
       const parsed = JSON.parse(raw);
       let summaryObj = parsed.summary;
       if (Array.isArray(summaryObj)) {
-        summaryObj = summaryObj.join("\\n- ");
+        summaryObj = summaryObj.join("\n- ");
         if (!summaryObj.startsWith("- ")) summaryObj = "- " + summaryObj;
       } else if (typeof summaryObj === 'string') {
-        summaryObj = summaryObj.replace(/\\n/g, '\\n');
+        summaryObj = summaryObj.replace(/\\n/g, '\n');
         if (!summaryObj.trim().startsWith('-')) {
           summaryObj = '- ' + summaryObj.trim();
         }
@@ -1060,7 +1065,7 @@ Output ONLY the extracted text — no commentary, no preamble, no explanation.`;
     let response: any;
     try {
       response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: MODELS.text,
         contents: [{
           role: 'user',
           parts: [
@@ -1235,7 +1240,7 @@ Output only the JSON object containing the "chapters" array. No other text.
     let raw: string;
     try {
       console.log(`[extractViaAI] [EXTENSIVE LOGGING] Attempt ${attempt}/${maxAttempts} — calling model. Expected chapters: ${expectedChapters || 'unknown'}`);
-      raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
+      raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 8192, 0), 3, 5000);
     } catch (e) {
       console.error(`[extractViaAI] Attempt ${attempt}/${maxAttempts}: callLLM failed:`, e);
       if (attempt === maxAttempts) return null;
@@ -1306,7 +1311,7 @@ Output only the JSON object, no other text.
   `;
 
   try {
-    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 384000, 0), 3, 5000);
+    const raw = await withRetry(() => callLLM(prompt, undefined, 'json_object', 8192, 0), 3, 5000);
     // Clean and parse the raw JSON
     let cleaned = raw.replace(/\`\`\`json\s*/gi, '').replace(/\`\`\`\s*/gi, '').replace(/,\s*([}\]])/g, '$1').trim();
     let parsed: any;
@@ -1627,7 +1632,9 @@ export async function synthesizeElevenLabsSpeech(text: string): Promise<any[] | 
        sentences = matchResult.map((s: string) => s.trim()).filter(Boolean);
     }
 
-    const chunks = await Promise.all(sentences.map(async (sentence: string, index: number) => {
+    const limit = (await import('./documentProcessor.js')).createConcurrencyLimit(3);
+    const chunks = await Promise.all(
+      sentences.map((sentence: string, index: number) => limit(async () => {
        const response = await fetch(url, {
          method: 'POST',
          headers: {
@@ -1652,10 +1659,16 @@ export async function synthesizeElevenLabsSpeech(text: string): Promise<any[] | 
        const audioBuffer = await response.arrayBuffer();
        const base64 = Buffer.from(audioBuffer).toString('base64');
        return { index, audioUrl: `data:audio/mpeg;base64,${base64}` };
-    }));
+    })));
 
     const validChunks = chunks.filter(c => c !== null);
-    if (validChunks.length === 0) return null;
+    if (validChunks.length === 0) {
+      console.error(`[TTS] All ${sentences.length} ElevenLabs chunks failed (likely rate limited).`);
+      return null;
+    }
+    if (validChunks.length < sentences.length) {
+      console.warn(`[TTS] ${sentences.length - validChunks.length}/${sentences.length} chunks failed.`);
+    }
 
     return validChunks;
   } catch (err) {

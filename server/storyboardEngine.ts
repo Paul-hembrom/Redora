@@ -1,3 +1,4 @@
+import { MODELS } from '../src/lib/models.js';
 import { GoogleGenAI } from '@google/genai';
 import sql from './db.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -55,7 +56,7 @@ Return ONLY the raw JSON object. Do not include markdown formatting like \`\`\`j
     await sql`UPDATE storyboards SET progress = 30 WHERE id = ${jobId}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: MODELS.text,
       contents: prompt,
       config: {
         responseMimeType: 'application/json'
@@ -143,7 +144,7 @@ Return ONLY valid JSON matching this schema:
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: MODELS.text,
       contents: prompt,
       config: {
         responseMimeType: 'application/json'

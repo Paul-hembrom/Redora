@@ -221,6 +221,16 @@ export async function initDb() {
       );
     `;
 
+    
+    try {
+      await sql`DELETE FROM visual_metadata a USING visual_metadata b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
+      await sql`DELETE FROM narration_assets a USING narration_assets b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
+      await sql`ALTER TABLE visual_metadata ADD CONSTRAINT visual_metadata_scene_uniq UNIQUE (scene_id)`;
+    } catch (e) {}
+    try {
+      await sql`ALTER TABLE narration_assets ADD CONSTRAINT narration_assets_scene_uniq UNIQUE (scene_id)`;
+    } catch(e) {}
+    
     await sql`
       CREATE TABLE IF NOT EXISTS visual_metadata (
         id TEXT PRIMARY KEY,
@@ -234,6 +244,32 @@ export async function initDb() {
     `;
 
     await sql`
+      CREATE TABLE IF NOT EXISTS student_memory (
+        id UUID PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        chapter_id TEXT,
+        summary TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_student_memory_user ON student_memory(user_id, created_at DESC)`;
+    
+    await sql`
+      CREATE TABLE IF NOT EXISTS job_queue (
+        id UUID PRIMARY KEY,
+        job_type TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'queued',
+        attempts INT NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status, created_at)`;
+    
+    await sql`
       CREATE TABLE IF NOT EXISTS user_usage (
         user_id TEXT PRIMARY KEY,
         books_uploaded_this_month INTEGER DEFAULT 0,
@@ -243,7 +279,7 @@ export async function initDb() {
         video_generations_today INTEGER DEFAULT 0,
         image_searches_today INTEGER DEFAULT 0,
         last_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
+      )
     `;
 
     try {

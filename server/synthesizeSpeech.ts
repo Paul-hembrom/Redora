@@ -1,3 +1,4 @@
+import { MODELS } from '../src/lib/models.js';
 import { GoogleGenAI, Modality } from "@google/genai";
 import { v4 as uuidv4 } from "uuid";
 import fs from "fs/promises";
@@ -13,7 +14,7 @@ export async function synthesizeSpeech(text: string): Promise<string> {
   const ai = new GoogleGenAI({ apiKey });
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.1-flash-tts-preview",
+    model: MODELS.tts,
     contents: [{ parts: [{ text }] }],
     config: {
       systemInstruction: "A friendly, approachable science teacher with a warm smile in their voice, occasionally playful when making jokes, always patient and clear during explanations.",

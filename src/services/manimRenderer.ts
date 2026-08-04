@@ -1,6 +1,8 @@
 import { callLLM } from '../lib/gemini.js';
+import crypto from 'crypto';
+import sql from '../../server/db.js';
 
-const MANIM_API_URL = 'https://paulhemb-redora.hf.space/render';
+const MANIM_API_URL = `${process.env.HF_SPACE_URL || 'https://paulhemb-redora.hf.space'}/render`;
 
 // The name we *ask* the model to use. This is just a hint for the prompt —
 // the actual name sent to the render backend is always parsed back out of
@@ -12,12 +14,8 @@ const REQUESTED_SCENE_CLASS_NAME = 'GeneratedScene';
 // leave room for HF Space cold-start + network latency on top of render time.
 const RENDER_TIMEOUT_MS = 360_000;
 
-// Mirrors main.py's FORBIDDEN_IMPORTS on the backend, so we steer the model
-// away from imports it would get rejected for anyway.
-const FORBIDDEN_IMPORTS = [
-  'os', 'subprocess', 'sys', 'shutil', 'socket', 'requests', 'http',
-  'urllib', 'pathlib', 'glob', 'pickle', 'eval', 'exec', 'compile',
-  '__import__', 'open',
+const ALLOWED_IMPORTS = [
+  'manim', 'numpy', 'np', 'math', 'random', 'itertools', 'functools', 'operator', 'typing', 'dataclasses', 'collections', 'fractions'
 ];
 
 interface GeneratedScene {
@@ -57,34 +55,34 @@ function extractSceneClassName(code: string): string | null {
   return match ? match[1] : null;
 }
 
-async function generateManimCode(visualPrompt: string): Promise<GeneratedScene> {
+async function generateManimCode(visualPrompt: string, attempts = 2): Promise<GeneratedScene> {
   const prompt = `Generate Python code using the Manim Community library (import via "from manim import *") for this educational animation: ${visualPrompt}.
-
 Requirements:
 - Define exactly one Scene subclass named "${REQUESTED_SCENE_CLASS_NAME}", e.g. "class ${REQUESTED_SCENE_CLASS_NAME}(Scene):", with a construct method containing the animation.
-- Do not import or use any of: ${FORBIDDEN_IMPORTS.join(', ')}. Use only Manim built-ins (and numpy if needed).
+- You may ONLY import from: manim, numpy, math, random, itertools, functools, operator, typing, dataclasses, collections, fractions.
+- Do not call eval, exec, compile, open, getattr, setattr, or __import__, and do not access dunder attributes.
 - Return ONLY the raw Python code — no markdown code fences, no explanation, no commentary before or after.`;
 
   console.log('[Manim] Generating code for prompt:', visualPrompt.substring(0, 100));
 
-  let raw = '';
-  try {
-    raw = await callLLM(prompt, undefined, 'text');
-  } catch (error: any) {
-    console.error('[Manim] Code generation failed:', error);
-    throw error;
+  let lastErr: any;
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const raw = await callLLM(prompt, undefined, 'text', 8192, 0.2);
+      const code = extractPythonCode(raw);
+      const sceneName = extractSceneClassName(code);
+      if (!sceneName) {
+        throw new Error('Generated Manim code has no recognizable Scene subclass');
+      }
+      console.log('[Manim] code length:', code.length, '| scene class:', sceneName);
+      return { code, sceneName };
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[Manim] generation attempt ${i + 1}/${attempts} failed:`, e);
+    }
   }
-
-  const code = extractPythonCode(raw);
-
-  const sceneName = extractSceneClassName(code);
-  if (!sceneName) {
-    console.error('[Manim] No Scene subclass found in generated code:\n', code);
-    throw new Error('Generated Manim code has no recognizable Scene subclass');
-  }
-
-  console.log('[Manim] Generated code length:', code.length, '| scene class:', sceneName);
-  return { code, sceneName };
+  throw lastErr;
 }
 
 // ------------------------------------------------------------------
@@ -94,6 +92,20 @@ export async function renderManimScene(
   visualPrompt: string,
   quality: 'low' | 'medium' | 'high' = 'low',
 ): Promise<string> {
+  let promptHash;
+  try {
+    promptHash = crypto.createHash('sha256')
+      .update(`${quality}|${visualPrompt}`)
+      .digest('hex');
+
+    const cached = await sql`SELECT video_url FROM manim_cache WHERE prompt_hash = ${promptHash}`;
+    if (cached.length) {
+      console.log('[Manim] Cache hit — skipping render.');
+      return cached[0].video_url;
+    }
+  } catch(e) {
+    console.error("Cache check failed:", e);
+  }
   const { code: manimCode, sceneName } = await generateManimCode(visualPrompt);
 
   console.log('[Manim] Calling HF Space:', MANIM_API_URL, '| scene:', sceneName, '| quality:', quality);
@@ -105,7 +117,10 @@ export async function renderManimScene(
   try {
     response = await fetch(MANIM_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Key': process.env.INTERNAL_API_KEY || ''
+      },
       body: JSON.stringify({
         script_code: manimCode,
         scene_name: sceneName,
@@ -137,6 +152,18 @@ export async function renderManimScene(
   if (!data.success || !data.video_url) {
     console.error('[Manim] HF Space success false or missing video_url:', data);
     throw new Error('Manim rendering returned no video URL');
+  }
+
+  if (promptHash) {
+    try {
+      await sql`
+        INSERT INTO manim_cache (prompt_hash, visual_prompt, video_url)
+        VALUES (${promptHash}, ${visualPrompt}, ${data.video_url})
+        ON CONFLICT (prompt_hash) DO NOTHING
+      `;
+    } catch(e) {
+       console.error("Failed to save to manim_cache:", e);
+    }
   }
 
   return data.video_url;

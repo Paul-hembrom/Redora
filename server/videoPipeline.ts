@@ -1,3 +1,5 @@
+import { normalizeTextForCartesia } from '../src/lib/textNormalize.js';
+import { jsonrepair } from 'jsonrepair';
 import sql from './db.js';
 import { v4 as uuidv4 } from 'uuid';
 import { renderManimScene } from '../src/services/manimRenderer.js';
@@ -6,7 +8,7 @@ import { callLLM } from '../src/lib/gemini.js';
 // Mock delay function
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-async function uploadToSupabaseStorage(base64: string, filename: string): Promise<string> {
+async function uploadToSupabaseStorage(base64: string, filename: string, contentType = 'audio/wav'): Promise<string> {
   const { createClient } = await import('@supabase/supabase-js');
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
@@ -16,7 +18,7 @@ async function uploadToSupabaseStorage(base64: string, filename: string): Promis
   const buffer = Buffer.from(base64, 'base64');
   
   const { data, error } = await supabase.storage.from('assets').upload(filename, buffer, {
-    contentType: 'audio/wav',
+    contentType,
     upsert: true
   });
   
@@ -42,35 +44,46 @@ export async function processInteractiveProJob(job_id: string, chapter_id: strin
 
     await sql`UPDATE generation_jobs SET progress = 10, status = 'processing' WHERE id = ${job_id}`;
 
+    const childRows = await sql`
+      SELECT content FROM chapters
+      WHERE parent_id = ${chapter_id}
+      ORDER BY sort_order ASC
+    `;
+
+    const chapterText = [
+      chapter.content || '',
+      ...childRows.map((c: any) => c.content || ''),
+    ].filter(t => t.trim().length > 0).join('\n\n').trim();
+
+    if (chapterText.length < 200) {
+      throw new Error(
+        `Chapter ${chapter_id} has insufficient content (${chapterText.length} chars) to build a lesson`
+      );
+    }
+
     const prompt = `You are an expert educator. Create a structured interactive lesson script based on this chapter text.
-Return a JSON array of 6 to 10 scenes. Each scene must have:
+Return 6 to 10 scenes. Each scene must have:
 - "scene_type": one of "intro", "concept", "example", "question", "recap".
 - "title": A short title.
 - "narration": The spoken text for the scene.
 - "visual": An object with "kind" (must be one of "manim", "image", "video", "talking_head") and "prompt" (detailed visual description).
 
 Chapter Text:
-${chapter.text || chapter.summary}
+${chapterText.substring(0, 40000)}
 
-Output only the JSON array without markdown formatting.`;
+Return a JSON object of the form {"scenes": [ ... ]} containing 6 to 10 scene objects.
+Output only that JSON object, with no markdown formatting.`;
 
-    const rawResponse = await callLLM(prompt, "You are a helpful AI assistant.", "json_object");
-    let scenesData: any = [];
+    const rawResponse = await callLLM(prompt, "You are a helpful AI assistant.", "json_object", 8192);
+    let scenesData: any[] = [];
     try {
-        let text = rawResponse.trim();
-        if (text.startsWith("```json")) {
-            text = text.substring(7);
-        }
-        if (text.endsWith("```")) {
-            text = text.substring(0, text.length - 3);
-        }
-        scenesData = JSON.parse(text);
-        if (!Array.isArray(scenesData)) {
-            // Might be wrapped in an object like { scenes: [] }
-            scenesData = scenesData.scenes || scenesData.data || [];
-        }
+        const text = rawResponse.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+        let parsed;
+        try { parsed = JSON.parse(text); }
+        catch { parsed = JSON.parse(jsonrepair(text)); }
+        scenesData = Array.isArray(parsed) ? parsed : (parsed.scenes || parsed.data || []);
     } catch(e) {
-        throw new Error("Failed to parse LLM response into structured scenes JSON");
+        throw new Error(`Failed to parse LLM scenes JSON: ${(e as any).message}`);
     }
 
     if (scenesData.length < 3) {
@@ -80,15 +93,20 @@ Output only the JSON array without markdown formatting.`;
     let i = 1;
     const dbScenes = [];
     for (const sc of scenesData) {
+      const narration = (sc.narration || '').trim();
+      if (!narration) {
+        console.warn('[Pro] Skipping scene with no narration:', sc.title);
+        continue;
+      }
       const sceneId = uuidv4();
-      const visualPrompt = sc.visual?.prompt || sc.title;
-      const duration = Math.max(5, Math.ceil(sc.narration.length / 15));
+      const visualPrompt = sc.visual?.prompt || sc.title || 'educational illustration';
+      const duration = Math.max(5, Math.ceil(narration.length / 15));
       const rendererKind = sc.visual?.kind || 'veo';
       await sql`
         INSERT INTO scenes (id, storyboard_id, organization_id, scene_number, narration, visual_prompt, estimated_duration_seconds)
-        VALUES (${sceneId}, ${sbId}, ${org_id}, ${i}, ${sc.narration}, ${visualPrompt}, ${duration})
+        VALUES (${sceneId}, ${sbId}, ${org_id}, ${i}, ${narration}, ${visualPrompt}, ${duration})
       `;
-      dbScenes.push({ id: sceneId, visual_prompt: visualPrompt, narration: sc.narration, duration, renderer: rendererKind });
+      dbScenes.push({ id: sceneId, visual_prompt: visualPrompt, narration, duration, renderer: rendererKind });
       i++;
     }
 
@@ -204,22 +222,45 @@ export async function processVideoLessonJob(job_id: string, chapter_id: string, 
   }
 }
 
-export async function processSceneAssets(scene_id: string, org_id: string, visual_prompt: string, narration: string, duration: number, rendererOverride?: string) {
-  let renderer = rendererOverride || 'veo';
-
-  if (!rendererOverride) {
-    const text = visual_prompt.toLowerCase(); // removed orgContext
-    const manimKeywords = [
-      'equation', 'formula', 'graph', 'vector', 'integral', 'derivative',
-      'matrix', 'trig', 'algebra', 'calculus', 'physics', 'mechanics',
-      'electromagnetic', 'wave function', 'ohm', 'newton', 'f = ma',
-      'quantum', 'manim'
-    ];
-    const detectedKeywords = manimKeywords.filter(k => text.includes(k));
-    if (detectedKeywords.length > 0) {
-      renderer = 'manim';
+async function fetchKokoroWithRetry(cleanText: string, attempts = 3): Promise<any> {
+  const delays = [5000, 15000, 30000];
+  let lastErr: any;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await fetch(`${process.env.HF_SPACE_URL}/v1/speech`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: cleanText, voice: "af_sarah", speed: 1.0 }),
+      });
+      if (!r.ok) throw new Error(`Kokoro ${r.status}`);
+      const data = await r.json();
+      if (!data.audio_base64) throw new Error('Kokoro returned no audio_base64');
+      return data;
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) await delay(delays[i]);
     }
   }
+  throw lastErr;
+}
+
+function detectRendererFromPrompt(visualPrompt: string): 'manim' | 'veo' {
+  const text = (visualPrompt || '').toLowerCase();
+  const manimKeywords = [
+    'equation','formula','graph','vector','integral','derivative','matrix','trig',
+    'algebra','calculus','physics','mechanics','electromagnetic','wave function',
+    'ohm','newton','f = ma','quantum','manim','theorem','proof','geometry',
+    'plot','axis','function','coordinate','angle','triangle','set notation',
+  ];
+  return manimKeywords.some(k => text.includes(k)) ? 'manim' : 'veo';
+}
+
+export async function processSceneAssets(scene_id: string, org_id: string, visual_prompt: string, narration: string, duration: number, rendererOverride?: string) {
+  const kind = (rendererOverride || '').toLowerCase();
+  let renderer: 'manim' | 'veo' =
+      kind === 'manim' ? 'manim'
+    : (kind === 'video' || kind === 'talking_head') ? 'veo'
+    : detectRendererFromPrompt(visual_prompt);
 
   console.log('[Manim Pipeline] Scene:', scene_id, 'visual_prompt:', visual_prompt?.substring(0, 100));
   console.log('[Manim Pipeline] Assigned renderer:', renderer);
@@ -252,7 +293,7 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
   await sql`
     INSERT INTO visual_metadata (id, org_id, scene_id, image_url, prompt, model_used)
     VALUES (${uuidv4()}, ${org_id}, ${scene_id}, ${image_url}, ${visual_prompt}, ${model_used})
-    ON CONFLICT (id) DO UPDATE SET image_url = EXCLUDED.image_url, model_used = EXCLUDED.model_used
+    ON CONFLICT (scene_id) DO UPDATE SET image_url = EXCLUDED.image_url, model_used = EXCLUDED.model_used, prompt = EXCLUDED.prompt
   `;
 
   // Insert Narration
@@ -260,44 +301,28 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
   let voiceName = 'Google_Kore';
 
   try {
-    let cleanText = narration.replace(/[^a-zA-Z0-9\s.,!?\-:;()]/g, ' ');
+    let cleanText = normalizeTextForCartesia(narration);
     cleanText = cleanText.replace(/\s+/g, ' ').trim();
     
     // Call Kokoro
-    let response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: cleanText, voice: "af_sarah", speed: 1.0 })
-    });
-
-    if (!response.ok) {
-       console.warn(`[TTS] First Kokoro attempt failed (${response.statusText}), retrying...`);
-       await delay(2000);
-       response = await fetch("https://paulhemb-redora.hf.space/v1/speech", {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ text: cleanText, voice: "af_sarah", speed: 1.0 })
-       });
-       if (!response.ok) throw new Error(`Kokoro TTS failed: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    if (!data.audio_base64) {
-      throw new Error("Invalid response format from Kokoro");
-    }
-
-    audioUrl = await uploadToSupabaseStorage(data.audio_base64, `kokoro_${uuidv4()}.wav`);
+    const data = await fetchKokoroWithRetry(cleanText);
+    const audioBase64 = data.audio_base64;
+    const mime = data.mime || 'audio/wav';
+    const ext  = mime === 'audio/mpeg' ? 'mp3' : 'wav';
+    audioUrl = await uploadToSupabaseStorage(audioBase64, `kokoro_${uuidv4()}.${ext}`, mime);
     voiceName = 'kokoro_82m';
+    duration = data.playbackDuration ? data.playbackDuration : duration;
   } catch (error) {
-    console.error('TTS generation failed, using fallback beep', error);
-    if (rendererOverride) {
-      throw new Error(`Scene narration failed completely: ${(error as any).message}`);
-    }
+    console.error(`[TTS] Scene ${scene_id} narration failed; continuing without audio.`, error);
+    audioUrl = null as any;
+    voiceName = 'unavailable';
   }
 
-  await sql`
-    INSERT INTO narration_assets (id, org_id, scene_id, asset_url, voice_name, duration_ms)
-    VALUES (${uuidv4()}, ${org_id}, ${scene_id}, ${audioUrl}, ${voiceName}, ${duration * 1000})
-    ON CONFLICT (id) DO UPDATE SET asset_url = EXCLUDED.asset_url, voice_name = EXCLUDED.voice_name
-  `;
+  if (audioUrl) {
+    await sql`
+      INSERT INTO narration_assets (id, org_id, scene_id, asset_url, voice_name, duration_ms)
+      VALUES (${uuidv4()}, ${org_id}, ${scene_id}, ${audioUrl}, ${voiceName}, ${Math.round(duration * 1000)})
+      ON CONFLICT (scene_id) DO UPDATE SET asset_url = EXCLUDED.asset_url, voice_name = EXCLUDED.voice_name, duration_ms = EXCLUDED.duration_ms
+    `;
+  }
 }

@@ -1,3 +1,4 @@
+import { MODELS } from './models.js';
 // @ts-ignore
 import mammoth from 'mammoth';
 import ePub from 'epubjs';
@@ -21,8 +22,10 @@ import {
 
 let pdfjsLib: any = null;
 if (typeof window !== 'undefined') {
-  pdfjsLib = await import('pdfjs-dist');
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  import('pdfjs-dist').then(lib => {
+    pdfjsLib = lib;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  });
 }
 
 
@@ -88,7 +91,16 @@ export function createConcurrencyLimit(concurrency: number) {
   return function limit<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       queue.push(() => {
-        fn()
+        let p;
+        try {
+          p = fn();
+        } catch (err) {
+          active--;
+          next();
+          reject(err);
+          return;
+        }
+        Promise.resolve(p)
           .then(resolve, reject)
           .finally(() => {
             active--;
@@ -180,11 +192,10 @@ export async function extractTextFromFile(
   }
 
   if (extension === 'pdf') {
+    if (!pdfjsLib) throw new Error("pdfjsLib not loaded");
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     const extractPdf = async (): Promise<{ texts: string[], numPages: number }> => {
-      if (!pdfjsLib) throw new Error("pdfjsLib not loaded");
-      const buf = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
       const pageTexts: string[] = new Array(pdf.numPages);
       const batchSize = 10;
 
@@ -228,9 +239,6 @@ export async function extractTextFromFile(
     };
 
     const extractPdfOcrForPages = async (pageIndicesToOcr: number[]): Promise<string[]> => {
-      const buf = await file.arrayBuffer();
-      if (!pdfjsLib) throw new Error("pdfjsLib not loaded");
-      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       const pageTexts: string[] = new Array(pdf.numPages).fill('');
       const batchSize = 3;
 
@@ -311,6 +319,10 @@ export async function extractTextFromFile(
     } catch (error: any) {
       console.error('[documentProcessor] PDF extraction failed:', error);
       throw new Error(error?.message || 'Could not extract text from PDF. It may be protected or the OCR fallback failed.');
+    } finally {
+      if (pdf && pdf.destroy) {
+         try { await pdf.destroy(); } catch (e) {}
+      }
     }
   }
 
@@ -709,7 +721,11 @@ function cleanAcademicPaperHierarchy(nodes: Chapter[]): Chapter[] {
     const aClean = sanitizeTitle(a.title);
     const bClean = sanitizeTitle(b.title);
     
-    if (aClean === bClean && aClean.length > 0) {
+    const GENERIC_TITLES = new Set([
+      'introduction','conclusion','summary','exercises','overview','references','contents'
+    ]);
+    
+    if (aClean === bClean && aClean.length > 0 && !GENERIC_TITLES.has(aClean)) {
       a.summary = (a.summary || '').length > (b.summary || '').length ? a.summary : (b.summary || '');
       a.content = [a.content, b.content].filter(x => x && x.trim().length > 0).join('\n\n');
       if (a.children || b.children) {
@@ -960,12 +976,7 @@ async function processDocumentViaSpace(
     onChapterDone?: (id: string, title: string, summary: string) => void;
   },
 ): Promise<Chapter[]> {
-  const SPACE_URL = import.meta.env.VITE_HF_SPACE_URL;
-  if (!SPACE_URL) {
-    throw new Error('VITE_HF_SPACE_URL is not set in environment');
-  }
-
-  const endpoint = `${SPACE_URL}/process`;
+  const endpoint = '/api/documents/process';
 
   onProgress('Uploading document to AI processor…');
   const formData = new FormData();
@@ -980,6 +991,21 @@ async function processDocumentViaSpace(
 
   onProgress('Receiving structured content…');
   const chapters: Chapter[] = await response.json();
+
+  if (!Array.isArray(chapters) || chapters.length === 0) {
+    throw new Error('Processor returned no chapters — falling back to local extraction');
+  }
+
+  const totalContentChars = chapters.reduce((sum, ch) => {
+    const childChars = (ch.children || []).reduce((s, c) => s + (c.content?.length || 0), 0);
+    return sum + (ch.content?.length || 0) + childChars;
+  }, 0);
+
+  if (totalContentChars < 500) {
+    throw new Error(
+      `Processor returned ${chapters.length} chapters but only ${totalContentChars} chars — falling back`
+    );
+  }
 
   callbacks?.onDiscovered?.(chapters);
   if (callbacks?.onChapterDone) {
@@ -1032,7 +1058,28 @@ async function processDocumentLocal(
   const processedText = preprocessText(sanitizedText, options);
 
   let finalChapters: Chapter[] = [];
+  let skippedStepsBandC = false;
 
+  const USE_OUTLINE_SPLITTER = true; // Enabled per instruction
+
+  if (USE_OUTLINE_SPLITTER) {
+    onProgress('Detecting table of contents…');
+    try {
+      const outline = await generateOutline(processedText);
+      if (outline.length > 1) {
+        const byOutline = await extractByOutline(processedText, outline);
+        if (byOutline.length > 1) {
+          onProgress(`Outline splitter produced ${byOutline.length} chapters.`);
+          finalChapters = byOutline;
+          skippedStepsBandC = true;
+        }
+      }
+    } catch (e) {
+      console.warn('[documentProcessor] Outline splitter failed; using semantic splitter.', e);
+    }
+  }
+
+  if (!skippedStepsBandC) {
   // --------------------------------------------------------------------------
   // Step B: Semantic AI Chapter Splitter (DeepSeek identifies chapter boundaries)
   // --------------------------------------------------------------------------
@@ -1288,15 +1335,15 @@ Output only the JSON array, no other text.
     return { chapter, aiExercises, aiTechnicalTerms, aiSummary };
   });
 
-  const extractionResults = await Promise.all(extractionJobs);
+  const extractionResults: any[] = await Promise.all(extractionJobs);
 
-  for (const { chapter, aiExercises, aiTechnicalTerms, aiSummary } of extractionResults) {
+  for (const { chapter, aiExercises, aiTechnicalTerms, aiSummary, chunkIndex } of extractionResults) {
     const topics = chapter.children?.filter(c => c.type === 'topic') || [];
     const exercises = chapter.children?.filter(c => c.type === 'exercise') || [];
 
     // 1. Force-split if 0 subtopics or 1 massive subtopic
     if (topics.length <= 1) {
-      const textToSplit = topics.length === 1 ? topics[0].content : chapterChunks.find(c => c.title === chapter.title)?.content || '';
+      const textToSplit = topics.length === 1 ? topics[0].content : chapterChunks[chunkIndex]?.content || '';
       if (textToSplit) {
         const regexChunks = splitIntoChaptersEnhanced(textToSplit).filter(ch => ch.content.trim().length > 0);
         if (regexChunks.length > 1) {
@@ -1607,6 +1654,7 @@ Output only the JSON array, no other text.
   }
 
   finalChapters = chapterResults;
+  } // end of if (!skippedStepsBandC)
 
   // --------------------------------------------------------------------------
   // Post‑processing & Deep Metadata Generation (unchanged)
@@ -1666,14 +1714,17 @@ Output only the JSON array, no other text.
   return finalChapters;
 }
 export async function extractTextViaGeminiVision(
-  file: File,
+  pdf: any,
   onProgress?: (msg: string) => void
 ): Promise<string> {
-  const buf = await file.arrayBuffer();
-  if (!pdfjsLib) throw new Error("pdfjsLib not loaded");
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const numPages = pdf.numPages;
-  const pageTexts: string[] = new Array(numPages).fill('');
+  const MAX_VISION_PAGES = 60;
+  const pagesToProcess = Math.min(numPages, MAX_VISION_PAGES);
+  if (numPages > MAX_VISION_PAGES) {
+    onProgress?.(`Large document: extracting the first ${MAX_VISION_PAGES} of ${numPages} pages via Vision.`);
+    console.warn(`[Vision] Capping at ${MAX_VISION_PAGES} of ${numPages} pages to control cost and time.`);
+  }
+  const pageTexts: string[] = new Array(pagesToProcess).fill('');
   const batchSize = 10;
   const ai = await getGenAI();
 
@@ -1681,8 +1732,8 @@ export async function extractTextViaGeminiVision(
   let failedPages = 0;
   const startTime = Date.now();
 
-  for (let i = 1; i <= numPages; i += batchSize) {
-    const end = Math.min(i + batchSize - 1, numPages);
+  for (let i = 1; i <= pagesToProcess; i += batchSize) {
+    const end = Math.min(i + batchSize - 1, pagesToProcess);
     if (onProgress) {
       let progressMsg = `Extracting text from images using Gemini Vision… (page ${i} of ${numPages})`;
       if (i > 1) {
@@ -1712,7 +1763,7 @@ export async function extractTextViaGeminiVision(
             const base64Image = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
 
             const response = await ai.models.generateContent({
-              model: 'gemini-2.5-flash',
+              model: MODELS.text,
               contents: {
                 role: 'user',
                 parts: [
