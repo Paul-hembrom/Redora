@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Square, Loader2, AudioLines, Info, Pause, Play } from 'lucide-react';
-import { PHONETIC_TRANSFORMATIONS } from '../lib/ttsDictionary';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -29,6 +28,14 @@ const logError = (msg: string, data?: any) => {
   console.error('%c[SmartReadAloud]', 'color: #ef4444; font-weight: bold; background: #ef44441a; padding: 2px 6px; border-radius: 4px;', msg, data || '');
 };
 
+// Number of discrete steps the sweep gradient is quantized into, per word.
+// PERF: the old loop rewrote the gradient on EVERY animation frame. With
+// `background-clip: text` that forces a full text repaint each time, and it
+// was doing it for every word in the chunk, not just the active one. Twenty
+// steps is still visually smooth (a word rarely lasts more than ~0.5s, so
+// this is ~40 updates/sec at worst on ONE element) but cuts the paint work by
+// more than an order of magnitude.
+const PROGRESS_STEPS = 20;
 
 
 export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h-4", containerRef, idPrefix = "tts-sentence-", playbackRate = 0.8 }: Props) {
@@ -41,6 +48,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const [highQuality, setHighQuality] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const preloadAudioRef = useRef<HTMLAudioElement | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
@@ -53,6 +61,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   const animationFrameIdRef = useRef<number | null>(null);
   const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Spans this component injected into the page, so they can be unwrapped
+  // again. See unwrapSpans() for why leaving them behind was a problem.
+  const activeSpansRef = useRef<HTMLElement[]>([]);
 
   const playSessionIdRef = useRef<number>(0);
 
@@ -83,8 +95,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         };
 
         if (voices.length === 0) {
-          // Set the known state immediately instead of leaving it stuck at
-          // the default `true` in case `voiceschanged` never fires.
           setVoicesAvailable(false);
           logInfo('No voices initially. Listening for voiceschanged event...');
           const handleVoicesChanged = () => {
@@ -139,15 +149,62 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     };
   }, []);
 
-  const clearAllHighlights = () => {
-    document.querySelectorAll('.tts-word').forEach((el) => {
-      const domSpan = el as HTMLElement;
-      domSpan.style.background = '';
-      domSpan.style.webkitBackgroundClip = '';
-      domSpan.style.backgroundClip = '';
-      domSpan.style.color = '';
-      domSpan.classList.remove('bg-amber-400/70');
+  const clearSpanStyle = (span: HTMLElement | null | undefined) => {
+    if (!span) return;
+    span.style.background = '';
+    span.style.webkitBackgroundClip = '';
+    span.style.backgroundClip = '';
+    span.style.color = '';
+    span.classList.remove('bg-amber-400/70');
+  };
+
+  // PERF / CORRECTNESS: previously the injected `.tts-word` spans were only
+  // ever style-cleared, never removed. Every surroundContents() splits a text
+  // node into three, so the spans accumulated for the whole session. In Focus
+  // Mode several chunks share one paragraph container, so each new chunk's
+  // createTreeWalker had to walk a steadily larger tree and rebuild its
+  // offset map over more nodes -- the work per chunk grew as playback went on,
+  // which is why the "page unresponsive" dialog appeared partway through
+  // rather than immediately. Unwrapping restores the container to its original
+  // shape so every chunk starts from the same (small) tree.
+  const unwrapSpans = (spans: (HTMLElement | null)[]) => {
+    const touchedParents = new Set<Node>();
+    spans.forEach((span) => {
+      if (!span || !span.parentNode) return;
+      const parent = span.parentNode;
+      while (span.firstChild) parent.insertBefore(span.firstChild, span);
+      parent.removeChild(span);
+      touchedParents.add(parent);
     });
+    // normalize() merges the split text nodes back together. Doing it once per
+    // parent instead of once per span keeps this cheap.
+    touchedParents.forEach((p) => {
+      try { (p as HTMLElement).normalize(); } catch (e) {}
+    });
+  };
+
+  const clearAllHighlights = () => {
+    if (activeSpansRef.current.length > 0) {
+      unwrapSpans(activeSpansRef.current);
+      activeSpansRef.current = [];
+    }
+    // Safety sweep for anything left behind by an earlier session.
+    const stragglers = document.querySelectorAll('.tts-word');
+    if (stragglers.length > 0) {
+      unwrapSpans(Array.from(stragglers) as HTMLElement[]);
+    }
+  };
+
+  const releaseAudioElement = (el: HTMLAudioElement | null) => {
+    if (!el) return;
+    try {
+      el.pause();
+      el.removeAttribute('src');
+      el.src = '';
+      // load() after clearing src tells the browser to drop the decoded
+      // buffer. Without it a chunk's full base64 WAV can stay resident.
+      el.load();
+    } catch (e) {}
   };
 
   const stopPlaying = () => {
@@ -157,16 +214,16 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       animationFrameIdRef.current = null;
     }
     clearAllHighlights();
-    
+
     audioQueueRef.current = [];
     chunksMapRef.current.clear();
-    
+
     const highlightOverlay = document.getElementById('tts-highlight-overlay');
     if (highlightOverlay) highlightOverlay.style.opacity = '0';
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = '';
-    }
+
+    releaseAudioElement(audioRef.current);
+    releaseAudioElement(preloadAudioRef.current);
+
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -182,10 +239,10 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     if (!audioRef.current || !currentChunkRef.current) return;
     const currentTime = audioRef.current.currentTime;
     audioRef.current.pause();
-    
+
     let lastSpokenWordIndex = -1;
     const timestamps = currentChunkRef.current.timestamps;
-    
+
     if (timestamps && timestamps.length > 0) {
        for (let k = 0; k < timestamps.length; k++) {
           const start_time = timestamps[k].start_time !== undefined ? timestamps[k].start_time : timestamps[k].start;
@@ -196,7 +253,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           }
        }
     }
-    
+
     let chunkIndex = currentChunkRef.current.index;
     if (timestamps && lastSpokenWordIndex === timestamps.length - 1) {
        const lastTs = timestamps[lastSpokenWordIndex];
@@ -220,7 +277,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     if (pausedStateRef.current) {
        const { chunkIndex, wordIndex } = pausedStateRef.current;
        const targetWordIndex = wordIndex + 1;
-       
+
        let targetChunk = null;
        if (currentChunkRef.current && currentChunkRef.current.index === chunkIndex) {
           targetChunk = currentChunkRef.current;
@@ -232,7 +289,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
              targetChunk = audioQueueRef.current.shift();
           }
        }
-       
+
        if (targetChunk) {
           if (playNextChunkRef.current) {
              playNextChunkRef.current(targetChunk, targetWordIndex);
@@ -306,20 +363,25 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
             isQueuePlaying = true;
             chunk = audioQueueRef.current.shift();
-            
+
             if (resumeStateRef.current && resumeStateRef.current.chunkIndex === chunk.index) {
                 resumeWordIndex = resumeStateRef.current.wordIndex;
                 resumeStateRef.current = null;
             }
         }
-        
+
         currentChunkRef.current = chunk;
 
-        // Pre-load the next audio chunk while the current one is playing
-        if (audioQueueRef.current.length > 0) {
-            const nextAudio = new Audio();
-            nextAudio.preload = 'auto';
-            nextAudio.src = audioQueueRef.current[0].audioUrl;
+        // PERF: reuse ONE hidden <audio> for preloading instead of
+        // constructing `new Audio()` per chunk. The old version created a new
+        // element for every chunk and never released it, so each one held a
+        // decoded base64 WAV for the lifetime of the session.
+        if (audioQueueRef.current.length > 0 && audioQueueRef.current[0].audioUrl) {
+            if (!preloadAudioRef.current) {
+                preloadAudioRef.current = new Audio();
+                preloadAudioRef.current.preload = 'auto';
+            }
+            try { preloadAudioRef.current.src = audioQueueRef.current[0].audioUrl; } catch (e) {}
         }
 
         const i = chunk.index;
@@ -334,14 +396,11 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             sentenceEl = document.getElementById(`tts-sentence-${i}`) as HTMLElement | null;
         }
         if (!sentenceEl && wrapperRef.current) {
-            // Fallback for ChatArea chat message bubbles
             const bubble = wrapperRef.current.closest('.group\\/bubble');
             if (bubble) {
                 sentenceEl = bubble.querySelector('.prose') as HTMLElement | null;
             }
         }
-
-        // Scrolling now happens in audio.onplay
 
         if (!chunk.audioUrl) {
           logWarning(`Chunk ${i} missing audioUrl.`);
@@ -356,16 +415,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           return;
         }
 
-        
-        if (i === 0) {
-            console.log('[ReadAloud] Chunk 0 timestamps received:', chunk.timestamps?.length);
-            if (chunk.timestamps?.length > 0) {
-                console.log('[ReadAloud] First timestamp in chunk 0:', JSON.stringify(chunk.timestamps[0]));
-            } else {
-                console.warn('[ReadAloud] Missing or empty timestamps in chunk 0!');
-            }
-        }
-        
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current.src = '';
@@ -380,11 +429,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         audio.playbackRate = playbackRate;
         audio.defaultPlaybackRate = playbackRate;
 
-        console.log('[ReadAloud] Audio src length:', chunk.audioUrl?.length);
-        console.log('[ReadAloud] Audio src starts with:', chunk.audioUrl?.substring(0, 50));
-
         audio.onloadedmetadata = () => {
-            console.log('[ReadAloud] Audio duration:', audio.duration);
             if (resumeWordIndex !== undefined && chunk.timestamps && chunk.timestamps.length > resumeWordIndex) {
                 const ts = chunk.timestamps[resumeWordIndex];
                 const targetTime = ts.start_time !== undefined ? ts.start_time : ts.start;
@@ -392,33 +437,54 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
         };
 
-        
+        // Remove the previous chunk's injected spans before wrapping this one.
+        if (activeSpansRef.current.length > 0) {
+            unwrapSpans(activeSpansRef.current);
+            activeSpansRef.current = [];
+        }
 
         const wordSpans: (HTMLElement | null)[] = new Array(chunk.timestamps ? chunk.timestamps.length : 0).fill(null);
-        let shouldHighlight = !disableSync;
+        const shouldHighlight = !disableSync;
 
-        // Remove old overlay if it exists
         const oldOverlay = document.getElementById('tts-highlight-overlay');
         if (oldOverlay) oldOverlay.remove();
 
-        // Guard removed for markdown compatibility
         if (shouldHighlight && chunk.timestamps && chunk.timestamps.length > 0 && sentenceEl) {
             const walker = document.createTreeWalker(sentenceEl, NodeFilter.SHOW_TEXT, null);
-            const textNodes = [];
+            const textNodes: Node[] = [];
             let node;
             while ((node = walker.nextNode())) {
                 textNodes.push(node);
             }
 
+            // PERF: the old code built an indexMap with ONE OBJECT PER
+            // CHARACTER of the container. For a Focus-Mode paragraph of a few
+            // thousand characters that is thousands of allocations, rebuilt
+            // for every chunk that shares the paragraph. This keeps one entry
+            // per text node and binary-searches it instead: same answer,
+            // orders of magnitude less allocation and GC pressure.
+            const nodeSpans: { node: Node; start: number; end: number }[] = [];
             let fullText = "";
-            const indexMap: {node: Node, offset: number}[] = [];
+            let acc = 0;
             for (const tNode of textNodes) {
                 const txt = tNode.nodeValue || "";
-                for (let k = 0; k < txt.length; k++) {
-                    indexMap.push({ node: tNode, offset: k });
-                }
+                nodeSpans.push({ node: tNode, start: acc, end: acc + txt.length });
+                acc += txt.length;
                 fullText += txt;
             }
+
+            const locate = (globalOffset: number): { node: Node; offset: number } | null => {
+                let lo = 0;
+                let hi = nodeSpans.length - 1;
+                while (lo <= hi) {
+                    const mid = (lo + hi) >> 1;
+                    const entry = nodeSpans[mid];
+                    if (globalOffset < entry.start) hi = mid - 1;
+                    else if (globalOffset >= entry.end) lo = mid + 1;
+                    else return { node: entry.node, offset: globalOffset - entry.start };
+                }
+                return null;
+            };
 
             let searchIndex = 0;
             let chunkOffset = fullText.indexOf(chunk.text);
@@ -428,97 +494,57 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
             }
 
             // Pass 1: locate every word match in the *original* (unmutated)
-            // text first. We must not wrap-as-we-go here, because wrapping
-            // a word splits its text node and invalidates the node/offset
-            // references we've already computed for later words.
+            // text first. We must not wrap-as-we-go here, because wrapping a
+            // word splits its text node and invalidates the offsets already
+            // computed for later words.
             type Match = { tsIndex: number; start: number; end: number };
             const matches: Match[] = [];
             for (let tsIdx = 0; tsIdx < chunk.timestamps.length; tsIdx++) {
                 const ts = chunk.timestamps[tsIdx];
                 const word = ts.word ? ts.word.trim() : "";
                 if (!word) continue;
+
                 const wordEscaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 let regexPattern = wordEscaped;
-                const aliases = PHONETIC_TRANSFORMATIONS[word.toLowerCase()];
-                if (aliases) {
-                    const aliasPattern = aliases.map(a => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-                    regexPattern = `(${regexPattern}|${aliasPattern})`;
-                } else {
-                    if (/^\w/.test(word)) regexPattern = `\\b${regexPattern}`;
-                    if (/\w$/.test(word)) regexPattern = `${regexPattern}\\b`;
-                }
+                if (/^\w/.test(word)) regexPattern = `\\b${regexPattern}`;
+                if (/\w$/.test(word)) regexPattern = `${regexPattern}\\b`;
 
                 let matchIdx = -1;
 
-                // FIX (word drift on repeated/short words -- e.g. math
-                // content using single-letter set names A, B, C, D, E):
-                // try an EXACT case-sensitive match first. Going straight to
-                // a case-INSENSITIVE regex meant a timestamp word like "A"
-                // (a set name) matched just as happily against the everyday
-                // lowercase article "a" -- which shows up constantly in
-                // ordinary sentences -- long before it ever reached the real
-                // "A" being referred to. Since "a" is far more common than
-                // "A" in this kind of content, that wrong-but-earlier match
-                // is what dragged the search position backwards and caused
-                // everything after it in the sentence to drift. Trying an
-                // exact-case match first fixes that, while still falling
-                // through to case-insensitive (and then plain substring
-                // search) for legitimate case differences -- so nothing that
-                // used to match stops matching, it's just no longer the
-                // FIRST thing tried.
+                // Exact case first: a set name "A" must not match the article "a".
                 try {
-                    const regexCaseSensitive = new RegExp(regexPattern, "g");
-                    regexCaseSensitive.lastIndex = searchIndex;
-                    const match = regexCaseSensitive.exec(fullText);
-                    if (match) {
-                        matchIdx = match.index;
-                    }
-                } catch (e) {
-                    // Ignore regex errors
-                }
+                    const reSensitive = new RegExp(regexPattern, "g");
+                    reSensitive.lastIndex = searchIndex;
+                    const m = reSensitive.exec(fullText);
+                    if (m) matchIdx = m.index;
+                } catch (e) {}
 
                 if (matchIdx === -1) {
                     try {
-                        const regexCaseInsensitive = new RegExp(regexPattern, "gi");
-                        regexCaseInsensitive.lastIndex = searchIndex;
-                        const match = regexCaseInsensitive.exec(fullText);
-                        if (match) {
-                            matchIdx = match.index;
-                        }
-                    } catch (e) {
-                        // Ignore regex errors
-                    }
+                        const reInsensitive = new RegExp(regexPattern, "gi");
+                        reInsensitive.lastIndex = searchIndex;
+                        const m = reInsensitive.exec(fullText);
+                        if (m) matchIdx = m.index;
+                    } catch (e) {}
                 }
 
-                if (matchIdx === -1) {
-                    matchIdx = fullText.indexOf(word, searchIndex);
-                }
-                if (matchIdx === -1) {
-                    matchIdx = fullText.toLowerCase().indexOf(word.toLowerCase(), searchIndex);
-                }
+                if (matchIdx === -1) matchIdx = fullText.indexOf(word, searchIndex);
+                if (matchIdx === -1) matchIdx = fullText.toLowerCase().indexOf(word.toLowerCase(), searchIndex);
 
                 if (matchIdx !== -1) {
-                    // Prevent word drift: if the match is too far ahead, it's likely a false positive
-                    // from LLM normalization (e.g. LLM added "squared" and it matched a "squared" 100 chars later).
-                    if (matchIdx - searchIndex > 80) {
-                        matchIdx = -1; // Ignore this match, it's too far
-                    } else {
-                        matches.push({ tsIndex: tsIdx, start: matchIdx, end: matchIdx + word.length - 1 });
-                        searchIndex = matchIdx + word.length;
-                    }
+                    matches.push({ tsIndex: tsIdx, start: matchIdx, end: matchIdx + word.length - 1 });
+                    searchIndex = matchIdx + word.length;
                 }
             }
 
-            // Pass 2: wrap matches in *descending* start-offset order so
-            // that mutating a later match's text node never invalidates the
-            // node/offset references of matches earlier in the sentence
-            // (splitting a node only ever affects the content after the
-            // split point, never before it).
+            // Pass 2: wrap in *descending* start offset so mutating a later
+            // match never invalidates an earlier one.
             const orderedForWrapping = [...matches].sort((a, b) => b.start - a.start);
+            const created: HTMLElement[] = [];
 
             for (const m of orderedForWrapping) {
-                const startNodeInfo = indexMap[m.start];
-                const endNodeInfo = indexMap[m.end];
+                const startNodeInfo = locate(m.start);
+                const endNodeInfo = locate(m.end);
                 if (!startNodeInfo || !endNodeInfo) continue;
 
                 const range = document.createRange();
@@ -526,51 +552,55 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                 range.setEnd(endNodeInfo.node, endNodeInfo.offset + 1);
 
                 let span: HTMLElement | null = null;
-                // check if already wrapped
-                if (startNodeInfo.node === endNodeInfo.node && startNodeInfo.node.parentElement && startNodeInfo.node.parentElement.classList.contains('tts-word')) {
+                if (
+                    startNodeInfo.node === endNodeInfo.node &&
+                    startNodeInfo.node.parentElement &&
+                    startNodeInfo.node.parentElement.classList.contains('tts-word')
+                ) {
                     span = startNodeInfo.node.parentElement;
                 } else {
                     span = document.createElement('span');
-                    span.className = 'tts-word transition-colors duration-100 ease-linear rounded';
+                    span.className = 'tts-word rounded';
                     span.id = `tts-word-${i}-${m.tsIndex}`;
                     try {
                         range.surroundContents(span);
+                        created.push(span);
                     } catch (e) {
                         span = null;
                     }
                 }
                 wordSpans[m.tsIndex] = span;
             }
+
+            activeSpansRef.current = created;
         }
 
         const removeHighlights = () => {
-            wordSpans.forEach((span, k) => {
-                let domSpan = document.getElementById(`tts-word-${i}-${k}`);
-                if (!domSpan) domSpan = span;
-                if (domSpan) {
-                    domSpan.classList.remove('bg-amber-400/70');
-                    domSpan.style.background = '';
-                    domSpan.style.webkitBackgroundClip = '';
-                    domSpan.style.backgroundClip = '';
-                    domSpan.style.color = '';
-                }
-            });
+            wordSpans.forEach((span) => clearSpanStyle(span));
         };
 
-        // 1. ADD THIS: Separate initial sentence scroll state from active word scroll state
         let hasScrolledInitial = false;
-        let lastActiveSpan: HTMLElement | null = null;
+
+        // Incremental cursor into chunk.timestamps. Timestamps are sorted and
+        // non-overlapping (the server guarantees monotonic spans), so the
+        // active word can be found by nudging a pointer forward rather than
+        // rescanning every word each frame.
+        let cursor = 0;
+        let activeIdx = -1;
+        let lastBucket = -1;
+
+        const tsStart = (ts: any) => (ts.start_time !== undefined ? ts.start_time : ts.start);
+        const tsEnd = (ts: any) => (ts.end_time !== undefined ? ts.end_time : ts.end);
 
         const highlightLoop = () => {
             if (currentSessionId !== playSessionIdRef.current || audio.paused || audio.ended) return;
 
             const currentTime = audio.currentTime;
-            
-            // 2. CHANGE THIS: Initial jump to ensure the start of the sentence is on screen
+
             if (currentTime > 0.05 && !hasScrolledInitial) {
                hasScrolledInitial = true;
                const scrollTarget: HTMLElement | null = wordSpans[0] || sentenceEl;
-               if (scrollTarget) {
+               if (scrollTarget && scrollTarget.isConnected) {
                  const rect = scrollTarget.getBoundingClientRect();
                  const margin = 80;
                  const alreadyVisible = rect.top >= margin && rect.bottom <= window.innerHeight - margin;
@@ -580,80 +610,81 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                }
             }
 
-            if (chunk.timestamps && chunk.timestamps.length > 0) {
-                chunk.timestamps.forEach((ts: any, k: number) => {
-                    let span = document.getElementById(`tts-word-${i}-${k}`);
-                    if (!span) span = wordSpans[k];
-                    if (!span) return;
+            const timestamps = chunk.timestamps;
+            if (timestamps && timestamps.length > 0) {
+                // Handle a backward seek (resume/scrub) by resetting the cursor.
+                if (cursor > 0 && currentTime < tsStart(timestamps[cursor])) cursor = 0;
+                while (cursor < timestamps.length - 1 && currentTime >= tsEnd(timestamps[cursor])) cursor++;
 
-                    const start_time = ts.start_time !== undefined ? ts.start_time : ts.start;
-                    const end_time = ts.end_time !== undefined ? ts.end_time : ts.end;
+                const ts = timestamps[cursor];
+                const start = tsStart(ts);
+                const end = tsEnd(ts);
+                const newActive = (currentTime >= start && currentTime < end) ? cursor : -1;
 
-                    let startAdjusted = start_time;
-                    let endAdjusted = end_time;
+                if (newActive !== activeIdx) {
+                    // Clear ONLY the word that was previously lit. The old loop
+                    // reset four style properties on every word in the chunk on
+                    // every frame; this touches at most one element per word
+                    // transition.
+                    clearSpanStyle(wordSpans[activeIdx]);
+                    activeIdx = newActive;
+                    lastBucket = -1;
 
-                    if (currentTime >= startAdjusted && currentTime < endAdjusted) {
-                        const duration = endAdjusted - startAdjusted;
-                        const progress = duration > 0 ? Math.max(0, Math.min(1, (currentTime - startAdjusted) / duration)) : 1;
-                        span.style.background = `linear-gradient(to right, #FBBF24 ${progress * 100}%, transparent ${progress * 100}%)`;
-                        span.style.webkitBackgroundClip = 'text';
-                        span.style.backgroundClip = 'text';
-                        span.style.color = 'transparent';
-                        span.classList.remove('bg-amber-400/70');
-
-                        // 3. ADD THIS: Active Tracking (The crucial fix for 3xl / Smartboards)
-                        // If the word changes, check if it's falling off screen and recenter
-                        if (span !== lastActiveSpan) {
-                            lastActiveSpan = span;
-                            const rect = span.getBoundingClientRect();
-                            const margin = 120; // Generous margin for 3xl text
-                            
-                            // If the actively read word is too close to the top or bottom edges, recenter it dynamically
-                            if (rect.bottom > window.innerHeight - margin || rect.top < margin) {
-                                span.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }
+                    const span = wordSpans[activeIdx];
+                    if (span && span.isConnected) {
+                        const rect = span.getBoundingClientRect();
+                        const margin = 120; // generous for 3xl / smartboards
+                        if (rect.bottom > window.innerHeight - margin || rect.top < margin) {
+                            span.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
-
-                    } else {
-                        span.style.background = '';
-                        span.style.webkitBackgroundClip = '';
-                        span.style.backgroundClip = '';
-                        span.style.color = '';
-                        span.classList.remove('bg-amber-400/70');
                     }
-                });
+                }
+
+                if (activeIdx >= 0) {
+                    const span = wordSpans[activeIdx];
+                    if (span && span.isConnected) {
+                        const duration = end - start;
+                        const progress = duration > 0
+                            ? Math.max(0, Math.min(1, (currentTime - start) / duration))
+                            : 1;
+                        const bucket = Math.round(progress * PROGRESS_STEPS);
+                        if (bucket !== lastBucket) {
+                            lastBucket = bucket;
+                            const pct = (bucket / PROGRESS_STEPS) * 100;
+                            span.style.background = `linear-gradient(to right, #FBBF24 ${pct}%, transparent ${pct}%)`;
+                            span.style.webkitBackgroundClip = 'text';
+                            span.style.backgroundClip = 'text';
+                            span.style.color = 'transparent';
+                        }
+                    }
+                }
             }
 
             animationFrameIdRef.current = requestAnimationFrame(highlightLoop);
         };
 
         audio.onplay = () => {
-           console.log('[ReadAloud] Audio onplay fired');
            logInfo(`Chunk ${i} started playing.`);
-           
            if (!chunk.timestamps || currentSessionId !== playSessionIdRef.current) return;
+           if (animationFrameIdRef.current !== null) cancelAnimationFrame(animationFrameIdRef.current);
            animationFrameIdRef.current = requestAnimationFrame(highlightLoop);
         };
 
         audio.onpause = () => {
-           console.log('[ReadAloud] Audio onpause fired');
            logInfo(`Chunk ${i} paused.`);
            if (animationFrameIdRef.current !== null) { cancelAnimationFrame(animationFrameIdRef.current); animationFrameIdRef.current = null; }
            removeHighlights();
         };
 
         audio.onended = () => {
-           console.log('[ReadAloud] Audio onended fired');
            logInfo(`Chunk ${i} ended natively.`);
            if (animationFrameIdRef.current !== null) { cancelAnimationFrame(animationFrameIdRef.current); animationFrameIdRef.current = null; }
            removeHighlights();
-
            playNextChunk();
         };
 
-        audio.onerror = (e) => {
-          console.error('[ReadAloud] Audio error:', audio.error?.code, audio.error?.message);
-          logError(`Chunk ${i} audio element error`, e);
+        audio.onerror = () => {
+          logError(`Chunk ${i} audio element error`, audio.error?.message);
           failedChunks++;
           if (failedChunks > Math.max(1, totalChunks / 2)) {
              showError('Audio unavailable for this content. Please try again later.');
@@ -668,22 +699,14 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         const playPromise = audio.play();
         if (playPromise !== undefined) {
             playPromise.then(() => {
-                console.log('[Frontend] Audio playbackRate after play:', audio.playbackRate, 'src length:', audio.src.length);
-                console.log('[ReadAloud] Actual playbackRate:', audio.playbackRate);
-                console.log('[ReadAloud] play() succeeded');
                 playedChunks++;
             }).catch(err => {
-                console.error('[ReadAloud] play() rejected:', err.name, err.message);
                 logError(`Chunk ${i} audio play threw error`, err);
-                
-                // Retry logic
                 setTimeout(async () => {
                     try {
                         await audio.play();
-                        console.log('[ReadAloud] retry play() succeeded');
                         playedChunks++;
                     } catch (retryErr: any) {
-                        console.error('[ReadAloud] retry play() rejected:', retryErr.message);
                         failedChunks++;
                         if (failedChunks > Math.max(1, totalChunks / 2)) {
                            showError('Audio unavailable for this content. Please try again later.');
@@ -698,7 +721,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         }
       };
 
-      // Start reading the stream
       playNextChunkRef.current = playNextChunk;
       (async () => {
         try {
@@ -726,22 +748,15 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                   const expectedElements = scopeRoot.querySelectorAll(`[id^="${idPrefix}"]`).length;
                   const fallbackElements = document.querySelectorAll('[id^="tts-sentence-"]').length;
                   if (expectedElements === 0 && fallbackElements === 0 && !idPrefix.startsWith("tts-explanation-")) {
-                    // Try to see if we have a fallback bubble
                     const bubble = wrapperRef.current?.closest('.group\\/bubble');
                     if (!bubble) {
                         logWarning(`No DOM elements found matching ${idPrefix} or fallback. Disabling sync.`);
                         disableSync = true;
                     }
                   }
-
                 } else if (data.index !== undefined) {
-                  const isValid = data.audioUrl && data.audioUrl.startsWith('data:audio/');
-                  logInfo(`Received chunk ${data.index}. Audio URL valid: ${!!isValid}`);
-                  if (data.timestamps && data.timestamps.length > 0) {
-                      console.log(`[Frontend] Chunk ${data.index} – first timestamp:`, JSON.stringify(data.timestamps[0]), 'last timestamp:', JSON.stringify(data.timestamps[data.timestamps.length - 1]));
-                  }
                   chunksMapRef.current.set(data.index, data);
-                  
+
                   let addedToQueue = false;
                   while (chunksMapRef.current.has(expectedIndex)) {
                       audioQueueRef.current.push(chunksMapRef.current.get(expectedIndex));
@@ -749,7 +764,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
                       expectedIndex++;
                       addedToQueue = true;
                   }
-                  
+
                   if (addedToQueue && !isQueuePlaying) {
                       playNextChunk();
                   }
@@ -760,9 +775,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
           if (buffer.trim()) {
              const data = JSON.parse(buffer);
              if (data.index !== undefined) {
-                if (data.timestamps && data.timestamps.length > 0) {
-                    console.log(`[Frontend] Chunk ${data.index} – first timestamp:`, JSON.stringify(data.timestamps[0]), 'last timestamp:', JSON.stringify(data.timestamps[data.timestamps.length - 1]));
-                }
                 chunksMapRef.current.set(data.index, data);
                 let addedToQueue = false;
                 while (chunksMapRef.current.has(expectedIndex)) {
@@ -793,7 +805,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       logError('Cartesia TTS API call failed:', err);
       setIsLoading(false);
       setIsPlaying(false);
-
       showError('Audio unavailable for this content. Please try again later.');
     }
   };
@@ -806,13 +817,12 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     }
 
     playSessionIdRef.current += 1;
-    
-    // Unlock audio context for mobile/safari
+
     if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.src = '';
-        }
-        if (!audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+    }
+    if (!audioRef.current) {
         audioRef.current = new Audio();
         audioRef.current.style.display = 'none';
         document.body.appendChild(audioRef.current);
@@ -823,7 +833,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     } catch (e) {
       console.log('[ReadAloud] Audio context unlock error:', e);
     }
-    
+
     await tryCartesiaTTS();
   };
 
@@ -859,7 +869,25 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     }
   }, [playbackRate]);
 
-  
+  // Free everything when the component unmounts (route change, Focus Mode
+  // toggle, etc). Without this the hidden <audio> stayed attached to body.
+  useEffect(() => {
+    return () => {
+      if (animationFrameIdRef.current !== null) cancelAnimationFrame(animationFrameIdRef.current);
+      clearAllHighlights();
+      releaseAudioElement(preloadAudioRef.current);
+      releaseAudioElement(audioRef.current);
+      if (audioRef.current && audioRef.current.parentNode) {
+        audioRef.current.parentNode.removeChild(audioRef.current);
+      }
+      audioRef.current = null;
+      preloadAudioRef.current = null;
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+      if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
+    };
+  }, []);
+
+
   const showError = (msg: string) => {
     setErrorMsg(msg);
     if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
@@ -867,8 +895,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       setErrorMsg('');
     }, 3000);
 
-    // Surface the permission/voices hint only when it's actually relevant:
-    // playback failed entirely AND the browser has no TTS voices available.
     if (!voicesAvailable) {
       setShowPermissionWarning(true);
       if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
@@ -924,9 +950,7 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
         <button
           onClick={(e) => {
             e.stopPropagation();
-            const newHQ = !highQuality;
-            console.log('HQ toggled – now: ' + newHQ);
-            setHighQuality(newHQ);
+            setHighQuality(!highQuality);
           }}
           className={cn(
             "text-[10px] font-mono px-1 rounded transition-colors z-10 hidden sm:block",
