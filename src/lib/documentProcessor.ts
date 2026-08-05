@@ -977,60 +977,63 @@ async function processDocumentViaSpace(
   },
 ): Promise<Chapter[]> {
 
-  // --- Step 1: get an upload ticket (small JSON, safe through Vercel) ---
+  // --- Step 1: ticket (small JSON, safe through Vercel) ---
   onProgress('Preparing upload…');
-  
-  const ticketPayload = { filename: file.name };
-  console.log('[documentProcessor] Requesting ticket from /api/documents/process-ticket with payload:', ticketPayload);
-  
   const ticketRes = await fetch('/api/documents/process-ticket', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(ticketPayload),
+    body: JSON.stringify({ filename: file.name }),
   });
+
   if (!ticketRes.ok) {
-    throw new Error(`Could not start upload (${ticketRes.status})`);
+    const t = await ticketRes.text().catch(() => '');
+    throw new Error(`process-ticket failed (${ticketRes.status}): ${t.slice(0, 300)}`);
   }
   const ticket = await ticketRes.json();
 
-  // --- Step 2: upload the PDF straight to Supabase (bypasses Vercel entirely) ---
-  onProgress('Uploading document…');
-  const { createClient } = await import('@supabase/supabase-js');
-  const supabase = createClient(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_ANON_KEY
-  );
-
-  const { error: upErr } = await supabase
-    .storage.from('assets')
-    .uploadToSignedUrl(ticket.objectPath, ticket.uploadToken, file);
-
-  if (upErr) {
-    throw new Error(`Upload failed: ${upErr.message}`);
+  // Explicit guards: without these a missing field silently produces a request
+  // to "undefined/process-url", which resolves against our OWN origin and 404s
+  // on Vercel — so the Space never sees anything and the cause is invisible.
+  if (!ticket.uploadUrl) throw new Error('Ticket missing uploadUrl');
+  if (!ticket.fileUrl) throw new Error('Ticket missing fileUrl');
+  if (!ticket.processToken) throw new Error('Ticket missing processToken');
+  if (!ticket.spaceUrl || !/^https?:\/\//i.test(ticket.spaceUrl)) {
+    throw new Error(`Ticket returned invalid spaceUrl: ${ticket.spaceUrl} (is HF_SPACE_URL set on Vercel?)`);
   }
+
+  // --- Step 2: upload straight to Supabase via the signed URL ---
+  // Plain PUT: no supabase-js in the browser, no anon key needed.
+  onProgress(`Uploading ${(file.size / 1024 / 1024).toFixed(1)} MB…`);
+  const putRes = await fetch(ticket.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/pdf' },
+    body: file,
+  });
+  if (!putRes.ok) {
+    const t = await putRes.text().catch(() => '');
+    throw new Error(`Supabase upload failed (${putRes.status}): ${t.slice(0, 300)}`);
+  }
+  console.log('[documentProcessor] Uploaded to', ticket.objectPath);
 
   // --- Step 3: ask the Space to process it (direct; no Vercel timeout) ---
   onProgress('Processing document with Docling… this can take several minutes.');
-  
-  const hfPayload = { file_url: ticket.fileUrl, token: ticket.processToken };
-  console.log(`[documentProcessor] Fetching from HF Space at ${ticket.spaceUrl}/process-url`);
-  console.log('[documentProcessor] HF Space Payload:', hfPayload);
-  
+  console.log('[documentProcessor] Calling', `${ticket.spaceUrl}/process-url`);
+
   const response = await fetch(`${ticket.spaceUrl}/process-url`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(hfPayload),
+    body: JSON.stringify({ file_url: ticket.fileUrl, token: ticket.processToken }),
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Document processing failed (${response.status}): ${errText}`);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Space /process-url failed (${response.status}): ${errText.slice(0, 500)}`);
   }
 
   onProgress('Receiving structured content…');
   const chapters: Chapter[] = await response.json();
 
-  // --- Guard from Phase 3.7: never accept an empty/thin structure ---
+  // --- Guard: never accept an empty/thin structure (Phase 3.7) ---
   if (!Array.isArray(chapters) || chapters.length === 0) {
     throw new Error('Processor returned no chapters — falling back to local extraction');
   }
@@ -1067,9 +1070,13 @@ export async function processDocument(
 ): Promise<Chapter[]> {
   try {
     return await processDocumentViaSpace(file, options, onProgress, callbacks);
-  } catch (error) {
-    console.warn('HF Space processing failed, falling back to local pipeline:', error);
-    onProgress('AI service unavailable, processing locally…');
+  } catch (error: any) {
+    console.error('[documentProcessor] SPACE PIPELINE FAILED — falling back to local.', {
+      message: error?.message,
+      stack: error?.stack,
+      error,
+    });
+    onProgress(`AI processor unavailable (${error?.message || 'unknown error'}) — processing locally…`);
     return await processDocumentLocal(file, options, onProgress, callbacks);
   }
 }

@@ -1016,8 +1016,27 @@ import crypto from 'crypto';
 
 app.post('/api/documents/process-ticket', authenticate, async (req: any, res) => {
   try {
-    if (!process.env.INTERNAL_API_KEY) {
-      return res.status(500).json({ error: 'INTERNAL_API_KEY not configured' });
+    // --- Resolve config, matching the naming already used elsewhere in this file ---
+    const SUPABASE_URL_ENV =
+      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const SUPABASE_KEY_ENV =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_KEY ||
+      process.env.SUPABASE_SERVICE_KEY;
+    const SPACE_URL_ENV =
+      process.env.HF_SPACE_URL || process.env.VITE_HF_SPACE_URL;
+
+    // --- Fail loudly and specifically, so the client can report which one ---
+    const missing: string[] = [];
+    if (!process.env.INTERNAL_API_KEY) missing.push('INTERNAL_API_KEY');
+    if (!SUPABASE_URL_ENV) missing.push('SUPABASE_URL');
+    if (!SUPABASE_KEY_ENV) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+    if (!SPACE_URL_ENV) missing.push('HF_SPACE_URL');
+    if (missing.length) {
+      console.error('[process-ticket] Missing env vars:', missing.join(', '));
+      return res.status(500).json({
+        error: `Document processor not configured. Missing: ${missing.join(', ')}`,
+      });
     }
 
     const { filename } = req.body || {};
@@ -1025,43 +1044,43 @@ app.post('/api/documents/process-ticket', authenticate, async (req: any, res) =>
       return res.status(400).json({ error: 'filename is required' });
     }
 
-    // Namespace by user so one user cannot overwrite another's upload.
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
     const objectPath = `uploads/${req.userId}/${uuidv4()}_${safeName}`;
 
     const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY!
-    );
+    const supabase = createClient(SUPABASE_URL_ENV!, SUPABASE_KEY_ENV!);
 
-    // Signed upload URL: lets the browser PUT directly to Supabase without
-    // ever seeing the service role key.
     const { data: signed, error: signErr } = await supabase
       .storage.from('assets')
       .createSignedUploadUrl(objectPath);
 
-    if (signErr) {
-      console.error('[process-ticket] signed upload URL failed:', signErr);
-      return res.status(500).json({ error: signErr.message });
+    if (signErr || !signed) {
+      console.error('[process-ticket] createSignedUploadUrl failed:', signErr);
+      return res.status(500).json({
+        error: `Could not create upload URL: ${signErr?.message || 'unknown'}`,
+      });
     }
 
     // HMAC token, valid 10 minutes, verified by the Space.
     const exp = Math.floor(Date.now() / 1000) + 600;
     const sig = crypto
-      .createHmac('sha256', process.env.INTERNAL_API_KEY)
+      .createHmac('sha256', process.env.INTERNAL_API_KEY!)
       .update(String(exp))
       .digest('hex');
 
     const { data: pub } = supabase.storage.from('assets').getPublicUrl(objectPath);
 
+    // Strip any trailing slash so `${spaceUrl}/process-url` can't become `//process-url`
+    const spaceUrl = SPACE_URL_ENV!.replace(/\/+$/, '');
+
+    console.log(`[process-ticket] Issued ticket for ${objectPath} -> ${spaceUrl}`);
+
     res.json({
       uploadUrl: signed.signedUrl,
-      uploadToken: signed.token,
       objectPath,
       fileUrl: pub.publicUrl,
       processToken: `${exp}.${sig}`,
-      spaceUrl: process.env.HF_SPACE_URL,
+      spaceUrl,
     });
   } catch (err: any) {
     console.error('[process-ticket] failed:', err);
