@@ -978,11 +978,13 @@ async function processDocumentViaSpace(
 ): Promise<Chapter[]> {
 
   // --- Step 1: ticket (small JSON, safe through Vercel) ---
+  onProgress('Hashing document...');
+  const contentHash = await hashFile(file);
   onProgress('Preparing upload…');
   const ticketRes = await fetch('/api/documents/process-ticket', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename: file.name }),
+    body: JSON.stringify({ filename: file.name, contentHash }),
   });
 
   if (!ticketRes.ok) {
@@ -1059,6 +1061,14 @@ async function processDocumentViaSpace(
   return chapters;
 }
 
+
+export async function hashFile(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export async function processDocument(
   file: File,
   options: PreprocessOptions,
@@ -1071,6 +1081,10 @@ export async function processDocument(
   try {
     return await processDocumentViaSpace(file, options, onProgress, callbacks);
   } catch (error: any) {
+    // If it's a known duplicate or upload in progress, do NOT fallback
+    if (error?.message?.includes('DUPLICATE_DOCUMENT') || error?.message?.includes('UPLOAD_IN_PROGRESS')) {
+      throw error;
+    }
     console.error('[documentProcessor] SPACE PIPELINE FAILED — falling back to local.', {
       message: error?.message,
       stack: error?.stack,

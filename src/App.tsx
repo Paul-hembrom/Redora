@@ -186,6 +186,10 @@ export default function App() {
 
   const [sharedPublicDoc, setSharedPublicDoc] = useState<Document | null>(null);
 
+  useEffect(() => {
+    console.log("workspace mounted");
+  }, []);
+
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return document.documentElement.classList.contains('dark') || true;
   });
@@ -607,11 +611,14 @@ export default function App() {
           }
         });
 
-        const finalDoc: Document = {
+        const { hashFile } = await import('./lib/documentProcessor');
+        const contentHash = await hashFile(file);
+        const finalDoc: any = {
           id: tempDocId,
           name: file.name,
           uploadDate: new Date().toISOString(),
-          chapters
+          chapters,
+          contentHash
         };
         
         const res = await fetch('/api/documents', {

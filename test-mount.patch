@@ -1,0 +1,13 @@
+--- src/App.tsx
++++ src/App.tsx
+@@ -194,6 +194,10 @@
+   // Sidebar state
+   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+ 
++  useEffect(() => {
++    console.log('workspace mounted');
++  }, []);
++
+   useEffect(() => {
+     if (isDarkMode) {
+       document.documentElement.classList.add('dark');

@@ -1039,9 +1039,44 @@ app.post('/api/documents/process-ticket', authenticate, async (req: any, res) =>
       });
     }
 
-    const { filename } = req.body || {};
+    const { filename, contentHash } = req.body || {};
     if (!filename || typeof filename !== 'string') {
       return res.status(400).json({ error: 'filename is required' });
+    }
+    
+
+    if (contentHash) {
+      // Check documents
+      const { data: existingDoc } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('user_id', req.userId)
+        .eq('content_hash', contentHash)
+        .limit(1)
+        .single();
+      if (existingDoc) {
+        return res.status(409).json({ error: 'DUPLICATE_DOCUMENT' });
+      }
+
+      // Check locks
+      const { data: existingLock } = await supabase
+        .from('upload_locks')
+        .select('hash')
+        .eq('user_id', req.userId)
+        .eq('hash', contentHash)
+        .gt('expires_at', new Date().toISOString())
+        .limit(1)
+        .single();
+      if (existingLock) {
+        return res.status(409).json({ error: 'UPLOAD_IN_PROGRESS' });
+      }
+
+      // Insert lock
+      await supabase
+        .from('upload_locks')
+        .insert({ hash: contentHash, user_id: req.userId })
+        .select()
+        .single();
     }
 
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
@@ -1096,7 +1131,7 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     console.error('Failed to load document processor:', err);
     // Ignore error and proceed as normal since we don't actually process it here.
   }
-  const { id, name, chapters, tags, org_id } = req.body;
+  const { id, name, chapters, tags, org_id, contentHash } = req.body;
   
   try {
     const orgId = org_id || req.query.org_id || req.cookies?.['sb-org-id'];
@@ -1115,9 +1150,12 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
       const isPublic = false;
       const safeTags = tags ? JSON.stringify(tags) : '[]';
       await tx`
-        INSERT INTO documents (id, user_id, name, upload_date, tags, is_public) 
-        VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic})
+        INSERT INTO documents (id, user_id, name, upload_date, tags, is_public, content_hash) 
+        VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic}, ${contentHash || null})
       `;
+      if (contentHash) {
+        await tx`DELETE FROM upload_locks WHERE hash = ${contentHash}`;
+      }
       
       if (chapters && chapters.length > 0) {
         const flatChapters: any[] = [];
