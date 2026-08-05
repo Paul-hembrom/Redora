@@ -11,8 +11,8 @@ const targetStr = `async function processDocumentViaSpace(
   },
 ): Promise<Chapter[]> {
   const endpoint = '/api/documents/process';
-  onProgress('Uploading document to AI processor…');
 
+  onProgress('Uploading document to AI processor…');
   const formData = new FormData();
   formData.append('file', file, file.name);
 
@@ -130,7 +130,17 @@ const newStr = `async function processDocumentViaSpace(
   return chapters;
 }`;
 
-content = content.replace(targetStr, newStr);
+// I'll use index based slice to replace the whole function instead
+const startStr = "async function processDocumentViaSpace(";
+const endStr = "export async function processDocument(";
 
-fs.writeFileSync('src/lib/documentProcessor.ts', content);
-console.log("Replaced doc processor");
+const startIndex = content.indexOf(startStr);
+const endIndex = content.indexOf(endStr);
+
+if (startIndex !== -1 && endIndex !== -1) {
+    content = content.substring(0, startIndex) + newStr + "\n\n" + content.substring(endIndex);
+    fs.writeFileSync('src/lib/documentProcessor.ts', content);
+    console.log("Replaced doc processor correctly");
+} else {
+    console.log("Could not find boundaries");
+}
