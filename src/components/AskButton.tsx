@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { HelpCircle, Mic, MicOff, Send, X, Loader2, Volume2, Square, Sparkles } from 'lucide-react';
+import { HelpCircle, Mic, MicOff, Send, X, Loader2, Volume2, Square, Sparkles, GripHorizontal } from 'lucide-react';
 import { subscribeReadAloud } from '../lib/readAloudBus';
 import { cn } from '../lib/utils';
 
@@ -20,7 +20,7 @@ export function AskButton() {
   // Context from read-aloud pause event
   const contextRef = useRef<{ sentence: string; paragraph: string }>({ sentence: '', paragraph: '' });
 
-  // Separate Audio Element for Answers (Rule R3)
+  // Separate Audio Element for Answers
   const answerAudioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlsRef = useRef<string[]>([]);
   const activeSessionRef = useRef<boolean>(false);
@@ -35,16 +35,11 @@ export function AskButton() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<any>(null);
 
-  // Detect org user vs individual user
-  const [isOrgUser, setIsOrgUser] = useState(false);
-
   useEffect(() => {
     try {
       const cookies = document.cookie.split('; ');
       const orgCookie = cookies.find(r => r.startsWith('sb-org-id='))?.split('=')[1];
-      const roleCookie = cookies.find(r => r.startsWith('sb-role='))?.split('=')[1];
       const isOrg = Boolean(orgCookie && orgCookie !== 'demo' && orgCookie !== 'default_org');
-      setIsOrgUser(isOrg);
 
       const micSetting = isOrg
         ? localStorage.getItem('readora.ask.micEnabled') === '1'
@@ -60,15 +55,21 @@ export function AskButton() {
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
-      x: Math.max(16, (window.innerWidth || 800) - 160),
-      y: Math.max(16, (window.innerHeight || 600) - 100),
+      x: Math.max(16, (window.innerWidth || 800) - 220),
+      y: Math.max(16, (window.innerHeight || 600) - 120),
     };
   });
 
   const isDraggingRef = useRef(false);
-  const dragStartRef = useRef<{ x: number; y: number; posX: number; posY: number }>({ x: 0, y: 0, posX: 0, posY: 0 });
+  const dragStartRef = useRef<{ startX: number; startY: number; posX: number; posY: number; moved: boolean }>({
+    startX: 0,
+    startY: 0,
+    posX: 0,
+    posY: 0,
+    moved: false,
+  });
 
-  // Subscribe to ReadAloud Bus (Rule R4 - Read-only)
+  // Subscribe to ReadAloud Bus
   useEffect(() => {
     const unsubscribe = subscribeReadAloud((event) => {
       if (event.type === 'paused') {
@@ -199,27 +200,31 @@ export function AskButton() {
 
   // Dragging handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
     isDraggingRef.current = true;
     dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
+      startX: e.clientX,
+      startY: e.clientY,
       posX: pos.x,
       posY: pos.y,
+      moved: false,
     };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isDraggingRef.current) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    const newX = Math.min(Math.max(12, dragStartRef.current.posX + dx), window.innerWidth - 140);
-    const newY = Math.min(Math.max(12, dragStartRef.current.posY + dy), window.innerHeight - 60);
-    setPos({ x: newX, y: newY });
+    const dx = e.clientX - dragStartRef.current.startX;
+    const dy = e.clientY - dragStartRef.current.startY;
+    if (Math.hypot(dx, dy) > 4) {
+      dragStartRef.current.moved = true;
+      const cardW = state === 'pill' ? 140 : 380;
+      const cardH = state === 'pill' ? 44 : 280;
+      const newX = Math.min(Math.max(12, dragStartRef.current.posX + dx), window.innerWidth - cardW - 12);
+      const newY = Math.min(Math.max(12, dragStartRef.current.posY + dy), window.innerHeight - cardH - 12);
+      setPos({ x: newX, y: newY });
+    }
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current) return;
+  const handlePointerUp = () => {
     isDraggingRef.current = false;
     try {
       sessionStorage.setItem('readora.ask.pos', JSON.stringify(pos));
@@ -299,6 +304,14 @@ export function AskButton() {
     }
   };
 
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
   // Question submission
   const handleAskSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -356,30 +369,46 @@ export function AskButton() {
     return null;
   }
 
+  // Position calculations for expanding input bar card directly at pos
+  const cardWidth = Math.min(typeof window !== 'undefined' ? window.innerWidth - 32 : 380, 420);
+  const leftPos = typeof window !== 'undefined'
+    ? Math.min(Math.max(12, pos.x), Math.max(12, window.innerWidth - cardWidth - 12))
+    : pos.x;
+  const topPos = typeof window !== 'undefined'
+    ? Math.min(Math.max(12, pos.y), Math.max(12, window.innerHeight - 340))
+    : pos.y;
+
   return (
     <>
-      {/* Draggable Pill Button */}
+      {/* 1. Small Floating Pill State */}
       {state === 'pill' && (
         <div
           style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          className="fixed z-[990] select-none touch-none cursor-grab active:cursor-grabbing flex items-center gap-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white pl-3 pr-1.5 py-1.5 rounded-full shadow-lg shadow-cyan-900/40 border border-cyan-400/40 transition-shadow animate-in fade-in zoom-in duration-150"
+          className="fixed z-[990] select-none touch-none cursor-grab active:cursor-grabbing flex items-center gap-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white pl-3 pr-1.5 py-2 rounded-full shadow-xl shadow-cyan-950/50 border border-cyan-400/40 transition-transform active:scale-95 animate-in fade-in zoom-in duration-150"
         >
           <button
-            onClick={() => setState('asking')}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!dragStartRef.current.moved) {
+                setState('asking');
+              }
+            }}
             className="flex items-center gap-1.5 font-medium text-sm focus:outline-none"
           >
             <Sparkles className="w-4 h-4 text-cyan-200 animate-pulse" />
             <span>Ask</span>
           </button>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               setState('dismissed');
             }}
-            className="p-1 rounded-full hover:bg-white/20 text-white/80 hover:text-white transition-colors ml-0.5"
+            className="p-1 rounded-full hover:bg-white/20 text-white/80 hover:text-white transition-colors ml-1"
             title="Dismiss Ask button"
           >
             <X className="w-3.5 h-3.5" />
@@ -387,161 +416,161 @@ export function AskButton() {
         </div>
       )}
 
-      {/* Centred Modal UI */}
+      {/* 2. Expanded Floating Input Bar / Answer Card State (In-place on button!) */}
       {(state === 'asking' || state === 'answering') && (
-        <div className="fixed inset-0 z-[999] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+        <div
+          style={{ left: `${leftPos}px`, top: `${topPos}px`, width: `${cardWidth}px` }}
+          className="fixed z-[995] flex flex-col rounded-2xl bg-slate-900/95 text-slate-100 border border-cyan-500/40 shadow-2xl backdrop-blur-md overflow-hidden p-4 animate-in fade-in zoom-in duration-150"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header & Drag Grip */}
           <div
-            className="w-[min(90vw,560px)] min-h-[260px] max-h-[min(70vh,460px)] flex flex-col rounded-2xl bg-slate-900 text-slate-100 border border-slate-700/80 shadow-2xl overflow-hidden p-5 relative"
-            onClick={(e) => e.stopPropagation()}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 cursor-grab active:cursor-grabbing select-none"
           >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400">
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <h3 className="font-semibold text-base text-slate-100">Ask about this sentence</h3>
+            <div className="flex items-center gap-2">
+              <GripHorizontal className="w-4 h-4 text-slate-500 hover:text-slate-300" />
+              <div className="p-1 rounded bg-cyan-500/20 text-cyan-400">
+                <Sparkles className="w-3.5 h-3.5" />
               </div>
-              <button
-                onClick={handleCloseModal}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-                title="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <h3 className="font-semibold text-xs text-slate-200">Ask about sentence</h3>
             </div>
+            <button
+              type="button"
+              onClick={handleCloseModal}
+              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors"
+              title="Close Ask"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-            {/* Context Sentence Preview */}
-            {contextRef.current.sentence && (
-              <div className="my-3 px-3 py-2 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300 italic line-clamp-2">
-                "{contextRef.current.sentence}"
+          {/* Context Sentence Preview */}
+          {contextRef.current.sentence && (
+            <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-slate-950/70 border border-slate-800 text-xs text-cyan-200/90 italic line-clamp-2">
+              "{contextRef.current.sentence}"
+            </div>
+          )}
+
+          {/* Body Content */}
+          <div className="flex-1 flex flex-col">
+            {errorMsg ? (
+              <div className="flex flex-col items-center justify-center text-center p-3">
+                <p className="text-xs text-red-400 mb-2">{errorMsg}</p>
+                <button
+                  type="button"
+                  onClick={() => handleAskSubmit()}
+                  className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-medium transition-colors"
+                >
+                  Try Again
+                </button>
               </div>
-            )}
+            ) : isLoadingAnswer ? (
+              <div className="flex flex-col items-center justify-center gap-2 text-slate-400 py-6">
+                <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
+                <p className="text-xs">Explaining sentence...</p>
+              </div>
+            ) : state === 'answering' ? (
+              <div className="flex flex-col justify-between space-y-3">
+                <div className="max-h-[220px] overflow-y-auto pr-1 text-slate-200 text-xs md:text-sm leading-relaxed">
+                  <p>{answerText}</p>
+                </div>
 
-            {/* Modal Content */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Error State */}
-              {errorMsg ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-                  <p className="text-sm text-red-400 mb-3">{errorMsg}</p>
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[11px] text-cyan-400">
+                    {isPlayingAnswerAudio ? (
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 animate-pulse text-cyan-400" />
+                        <span>Reading aloud...</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400">Explanation ready</span>
+                    )}
+                  </div>
+
                   <button
-                    onClick={() => handleAskSubmit()}
-                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium transition-colors"
+                    type="button"
+                    onClick={handleCloseModal}
+                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
                   >
-                    Try Again
+                    {isPlayingAnswerAudio && <Square className="w-3 h-3 fill-current" />}
+                    <span>{isPlayingAnswerAudio ? 'Stop' : 'Done'}</span>
                   </button>
                 </div>
-              ) : isLoadingAnswer ? (
-                /* Loading State */
-                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 py-8">
-                  <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
-                  <p className="text-sm">Explaining sentence...</p>
-                </div>
-              ) : state === 'answering' ? (
-                /* Answer Display State */
-                <div className="flex-1 flex flex-col justify-between overflow-hidden">
-                  <div className="flex-1 overflow-y-auto my-2 pr-1 text-slate-200 text-sm md:text-base leading-relaxed space-y-2">
-                    <p>{answerText}</p>
+              </div>
+            ) : (
+              /* Question Input Bar & Mic Section */
+              <form onSubmit={handleAskSubmit} className="flex flex-col gap-2">
+                <div className="relative">
+                  <textarea
+                    value={questionInput}
+                    onChange={(e) => setQuestionInput(e.target.value.slice(0, 350))}
+                    placeholder="What is confusing about this sentence?"
+                    rows={2}
+                    maxLength={350}
+                    autoFocus
+                    className="w-full bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 pr-10 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 resize-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleAskSubmit();
+                      }
+                    }}
+                  />
+                  <div className="absolute right-2 bottom-2 text-[10px] text-slate-500 select-none">
+                    {350 - questionInput.length}
                   </div>
+                </div>
 
-                  <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs text-cyan-400">
-                      {isPlayingAnswerAudio ? (
-                        <>
-                          <Volume2 className="w-4 h-4 animate-pulse text-cyan-400" />
-                          <span>Reading answer aloud...</span>
-                        </>
-                      ) : (
-                        <span className="text-slate-400">Answer complete</span>
+                <div className="flex items-center justify-between">
+                  {/* Microphone Button */}
+                  {micAllowed ? (
+                    <button
+                      type="button"
+                      onClick={toggleRecording}
+                      disabled={isTranscribing}
+                      className={cn(
+                        'px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 text-xs font-medium',
+                        isRecording
+                          ? 'bg-red-500/20 border-red-500 text-red-300 animate-pulse'
+                          : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
                       )}
-                    </div>
-
-                    <button
-                      onClick={handleCloseModal}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+                      title={isRecording ? 'Click to stop recording' : 'Click to speak question'}
                     >
-                      {isPlayingAnswerAudio && <Square className="w-3.5 h-3.5 fill-current" />}
-                      <span>{isPlayingAnswerAudio ? 'Stop & Close' : 'Close'}</span>
+                      {isTranscribing ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                      ) : (
+                        <Mic className={cn('w-3.5 h-3.5', isRecording && 'text-red-400')} />
+                      )}
+                      <span>
+                        {isRecording
+                          ? `Recording (${recordingTime}s)...`
+                          : isTranscribing
+                          ? 'Transcribing...'
+                          : 'Voice'}
+                      </span>
                     </button>
-                  </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                      <MicOff className="w-3 h-3" />
+                      <span>Type question</span>
+                    </div>
+                  )}
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={!questionInput.trim() || isLoadingAnswer || isTranscribing}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-all shadow-md flex items-center gap-1.5"
+                  >
+                    <Send className="w-3 h-3" />
+                    <span>Ask DeepSeek</span>
+                  </button>
                 </div>
-              ) : (
-                /* Question Input Form State */
-                <form onSubmit={handleAskSubmit} className="flex-1 flex flex-col justify-between pt-1">
-                  <div className="relative">
-                    <textarea
-                      value={questionInput}
-                      onChange={(e) => setQuestionInput(e.target.value.slice(0, 350))}
-                      placeholder="What is confusing about this sentence?"
-                      rows={3}
-                      maxLength={350}
-                      autoFocus
-                      className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 resize-none"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleAskSubmit();
-                        }
-                      }}
-                    />
-                    <div className="absolute right-3 bottom-3 text-[11px] text-slate-500 select-none">
-                      {350 - questionInput.length}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-3">
-                    {/* Microphone button */}
-                    {micAllowed ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onMouseDown={startRecording}
-                          onMouseUp={stopRecording}
-                          onTouchStart={startRecording}
-                          onTouchEnd={stopRecording}
-                          disabled={isTranscribing}
-                          className={cn(
-                            'p-2.5 rounded-xl border transition-all flex items-center gap-2 text-xs font-medium',
-                            isRecording
-                              ? 'bg-red-500/20 border-red-500 text-red-300 animate-pulse'
-                              : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
-                          )}
-                          title="Hold to speak your question"
-                        >
-                          {isTranscribing ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
-                          ) : (
-                            <Mic className={cn('w-4 h-4', isRecording && 'text-red-400')} />
-                          )}
-                          <span>
-                            {isRecording
-                              ? `Listening (${recordingTime}s)...`
-                              : isTranscribing
-                              ? 'Transcribing...'
-                              : 'Hold Mic'}
-                          </span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="text-xs text-slate-500 flex items-center gap-1">
-                        <MicOff className="w-3.5 h-3.5" />
-                        <span>Type question</span>
-                      </div>
-                    )}
-
-                    {/* Submit Button */}
-                    <button
-                      type="submit"
-                      disabled={!questionInput.trim() || isLoadingAnswer || isTranscribing}
-                      className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-all shadow-md shadow-cyan-950 flex items-center gap-1.5"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Ask DeepSeek</span>
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
+              </form>
+            )}
           </div>
         </div>
       )}
