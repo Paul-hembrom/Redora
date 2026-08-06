@@ -93,6 +93,29 @@ export function AskButton() {
     };
   }, []);
 
+  // Web Speech API fallback
+  const speakWithWebSpeech = (textToSpeak: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      setIsPlayingAnswerAudio(false);
+      return;
+    }
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.rate = 0.95;
+      utterance.onend = () => {
+        setIsPlayingAnswerAudio(false);
+      };
+      utterance.onerror = () => {
+        setIsPlayingAnswerAudio(false);
+      };
+      setIsPlayingAnswerAudio(true);
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      setIsPlayingAnswerAudio(false);
+    }
+  };
+
   // Stop answer audio helper
   const stopAnswerAudio = () => {
     activeSessionRef.current = false;
@@ -104,6 +127,11 @@ export function AskButton() {
       } catch (e) {}
       answerAudioRef.current = null;
     }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+    }
     objectUrlsRef.current.forEach((url) => {
       try {
         URL.revokeObjectURL(url);
@@ -112,10 +140,10 @@ export function AskButton() {
     objectUrlsRef.current = [];
   };
 
-  // Play answer using Cartesia TTS
-  const playAnswerAudio = async (text: string) => {
+  // Play answer using Cartesia TTS or Web Speech fallback
+  const playAnswerAudio = async (textToPlay: string) => {
     stopAnswerAudio();
-    if (!text) return;
+    if (!textToPlay) return;
 
     activeSessionRef.current = true;
     setIsPlayingAnswerAudio(true);
@@ -124,12 +152,11 @@ export function AskButton() {
       const res = await fetch('/api/tts/cartesia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: textToPlay }),
       });
 
       if (!res.ok || !res.body) {
-        setIsPlayingAnswerAudio(false);
-        return;
+        throw new Error(`Cartesia HTTP error ${res.status}`);
       }
 
       const reader = res.body.getReader();
@@ -137,6 +164,7 @@ export function AskButton() {
       let buffer = '';
       const queue: string[] = [];
       let isPlayingQueue = false;
+      let hasQueuedAudio = false;
 
       const playNextChunk = () => {
         if (!activeSessionRef.current) return;
@@ -156,10 +184,14 @@ export function AskButton() {
         audio.onended = () => {
           playNextChunk();
         };
-        audio.onerror = () => {
+        audio.onerror = (e) => {
+          console.warn('[ask-tts] chunk play error, continuing:', e);
           playNextChunk();
         };
-        audio.play().catch(() => playNextChunk());
+        audio.play().catch((err) => {
+          console.warn('[ask-tts] play() catch:', err);
+          playNextChunk();
+        });
       };
 
       while (activeSessionRef.current) {
@@ -173,16 +205,14 @@ export function AskButton() {
           if (line.trim()) {
             try {
               const data = JSON.parse(line);
-              if (data.audio) {
-                const binaryStr = atob(data.audio);
-                const bytes = new Uint8Array(binaryStr.length);
-                for (let i = 0; i < binaryStr.length; i++) {
-                  bytes[i] = binaryStr.charCodeAt(i);
-                }
-                const blob = new Blob([bytes], { type: 'audio/wav' });
-                const blobUrl = URL.createObjectURL(blob);
-                objectUrlsRef.current.push(blobUrl);
-                queue.push(blobUrl);
+              let audioSrc = data.audioUrl;
+              if (!audioSrc && data.audio) {
+                audioSrc = data.audio.startsWith('data:') ? data.audio : `data:audio/wav;base64,${data.audio}`;
+              }
+
+              if (audioSrc) {
+                hasQueuedAudio = true;
+                queue.push(audioSrc);
 
                 if (!isPlayingQueue) {
                   playNextChunk();
@@ -192,9 +222,15 @@ export function AskButton() {
           }
         }
       }
+
+      if (!hasQueuedAudio && activeSessionRef.current) {
+        speakWithWebSpeech(textToPlay);
+      }
     } catch (err) {
-      console.error('[ask-tts] Audio playback error:', err);
-      setIsPlayingAnswerAudio(false);
+      console.warn('[ask-tts] Cartesia TTS call failed, falling back to Web Speech:', err);
+      if (activeSessionRef.current) {
+        speakWithWebSpeech(textToPlay);
+      }
     }
   };
 
@@ -479,24 +515,42 @@ export function AskButton() {
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-[11px] text-cyan-400">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isPlayingAnswerAudio) {
+                        stopAnswerAudio();
+                      } else {
+                        playAnswerAudio(answerText);
+                      }
+                    }}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 border",
+                      isPlayingAnswerAudio
+                        ? "bg-cyan-500/20 border-cyan-400 text-cyan-300 animate-pulse"
+                        : "bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200 hover:text-white"
+                    )}
+                    title={isPlayingAnswerAudio ? "Stop reading aloud" : "Read answer aloud"}
+                  >
                     {isPlayingAnswerAudio ? (
                       <>
-                        <Volume2 className="w-3.5 h-3.5 animate-pulse text-cyan-400" />
-                        <span>Reading aloud...</span>
+                        <Square className="w-3.5 h-3.5 fill-current text-cyan-400" />
+                        <span>Stop Voice</span>
                       </>
                     ) : (
-                      <span className="text-slate-400">Explanation ready</span>
+                      <>
+                        <Volume2 className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Read Aloud</span>
+                      </>
                     )}
-                  </div>
+                  </button>
 
                   <button
                     type="button"
                     onClick={handleCloseModal}
-                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-xs font-medium transition-colors"
                   >
-                    {isPlayingAnswerAudio && <Square className="w-3 h-3 fill-current" />}
-                    <span>{isPlayingAnswerAudio ? 'Stop' : 'Done'}</span>
+                    Done
                   </button>
                 </div>
               </div>
@@ -566,7 +620,7 @@ export function AskButton() {
                     className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-all shadow-md flex items-center gap-1.5"
                   >
                     <Send className="w-3 h-3" />
-                    <span>Ask DeepSeek</span>
+                    <span>Ask Readora AI</span>
                   </button>
                 </div>
               </form>
