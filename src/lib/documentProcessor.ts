@@ -1019,7 +1019,7 @@ async function processDocumentViaSpace(
   console.log('[documentProcessor] Uploaded to', ticket.objectPath);
 
   // --- Step 3: ask the Space to process it (direct; no Vercel timeout) ---
-  onProgress('Processing document with Docling… this can take several minutes.');
+  onProgress('Processing the Documents... this take several minutes');
   console.log('[documentProcessor] Calling', `${ticket.spaceUrl}/process-url`);
 
   const response = await fetch(`${ticket.spaceUrl}/process-url`, {
