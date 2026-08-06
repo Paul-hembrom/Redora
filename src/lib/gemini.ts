@@ -1632,7 +1632,8 @@ export async function synthesizeElevenLabsSpeech(text: string): Promise<any[] | 
        sentences = matchResult.map((s: string) => s.trim()).filter(Boolean);
     }
 
-    const limit = (await import('./documentProcessor.js')).createConcurrencyLimit(3);
+    const { createConcurrencyLimit } = await import('./concurrency.js');
+    const limit = createConcurrencyLimit(3);
     const chunks = await Promise.all(
       sentences.map((sentence: string, index: number) => limit(async () => {
        const response = await fetch(url, {

@@ -662,7 +662,23 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      setUploadError(err.message || 'Failed to process document. Please ensure it is a valid PDF, DOCX, or TXT file.');
+      
+      // Log to backend
+      fetch('/api/log-client-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: err.message,
+          stack: err.stack,
+          source: 'App.tsx handleUpload'
+        })
+      }).catch(() => {});
+
+      if (err.message && err.message.includes('dynamically imported module')) {
+        setUploadError('App version updated. Please refresh the page to continue.');
+      } else {
+        setUploadError('Failed to process document. Please try again or ensure it is a valid format.');
+      }
     } finally {
       setIsUploading(false);
       setUploadProgress('');

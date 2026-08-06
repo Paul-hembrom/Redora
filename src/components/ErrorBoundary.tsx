@@ -44,9 +44,8 @@ export default class ErrorBoundary extends Component<Props, State> {
                <AlertTriangle className="w-8 h-8 text-red-500" />
             </div>
             <h2 className="text-xl font-semibold mb-3">{this.props.fallbackText || 'Something went wrong while loading your workspace.'}</h2>
-            <div className="text-white/50 text-xs mb-8 break-words text-left max-h-32 overflow-y-auto w-full p-4 bg-black/50 border border-white/5 rounded-lg font-mono">
-              <p style={{ color: 'red', marginTop: '1rem', whiteSpace: 'pre-wrap', textAlign: 'left' }}>{this.state.error?.message}</p>
-              <p style={{ color: '#ffaaaa', marginTop: '0.5rem', fontSize: '10px', whiteSpace: 'pre-wrap', textAlign: 'left' }}>{this.state.error?.stack}</p>
+            <div className="text-white/50 text-sm mb-8 text-center w-full">
+              <p>An unexpected error occurred. This has been logged.</p>
             </div>
             <div className="flex gap-3 w-full">
                <button 

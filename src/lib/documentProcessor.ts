@@ -1,3 +1,4 @@
+import { createConcurrencyLimit } from "./concurrency";
 import { MODELS } from './models.js';
 // @ts-ignore
 import mammoth from 'mammoth';
@@ -77,7 +78,7 @@ export function preprocessText(text: string, options: PreprocessOptions): string
 // ---------------------------------------------------------------------------
 // Concurrency limiter
 // ---------------------------------------------------------------------------
-export function createConcurrencyLimit(concurrency: number) {
+function createConcurrencyLimit_old(concurrency: number) {
   let active = 0;
   const queue: Array<() => void> = [];
 
