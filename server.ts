@@ -1012,21 +1012,15 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
 });
 
 
-import crypto from 'crypto';
-
-app.post('/api/documents/process-ticket', authenticate, async (req: any, res) => {
+import crypto from 'crypto';app.post('/api/documents/process-ticket', authenticate, async (req: any, res) => {
   try {
-    // --- Resolve config, matching the naming already used elsewhere in this file ---
-    const SUPABASE_URL_ENV =
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const SUPABASE_KEY_ENV =
       process.env.SUPABASE_SERVICE_ROLE_KEY ||
       process.env.SUPABASE_KEY ||
       process.env.SUPABASE_SERVICE_KEY;
-    const SPACE_URL_ENV =
-      process.env.HF_SPACE_URL || process.env.VITE_HF_SPACE_URL;
+    const SPACE_URL_ENV = process.env.HF_SPACE_URL || process.env.VITE_HF_SPACE_URL;
 
-    // --- Fail loudly and specifically, so the client can report which one ---
     const missing: string[] = [];
     if (!process.env.INTERNAL_API_KEY) missing.push('INTERNAL_API_KEY');
     if (!SUPABASE_URL_ENV) missing.push('SUPABASE_URL');
@@ -1043,11 +1037,22 @@ app.post('/api/documents/process-ticket', authenticate, async (req: any, res) =>
     if (!filename || typeof filename !== 'string') {
       return res.status(400).json({ error: 'filename is required' });
     }
-    
+
+    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+    const objectPath = `uploads/${req.userId}/${uuidv4()}_${safeName}`;
+    const BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'assets';
+
+    // ---- CREATE THE CLIENT BEFORE ANY USE ----
+    // Renamed from `supabase` to `storageClient`: a later `const supabase`
+    // in this scope (or shadowing an outer one) put the whole block in the
+    // temporal dead zone, producing
+    // "ReferenceError: Cannot access 'supabase' before initialization".
+    const { createClient } = await import('@supabase/supabase-js');
+    const storageClient = createClient(SUPABASE_URL_ENV as string, SUPABASE_KEY_ENV as string);
 
     if (contentHash) {
       // Check documents
-      const { data: existingDoc } = await supabase
+      const { data: existingDoc } = await storageClient
         .from('documents')
         .select('id')
         .eq('user_id', req.userId)
@@ -1059,7 +1064,7 @@ app.post('/api/documents/process-ticket', authenticate, async (req: any, res) =>
       }
 
       // Check locks
-      const { data: existingLock } = await supabase
+      const { data: existingLock } = await storageClient
         .from('upload_locks')
         .select('hash')
         .eq('user_id', req.userId)
@@ -1072,41 +1077,35 @@ app.post('/api/documents/process-ticket', authenticate, async (req: any, res) =>
       }
 
       // Insert lock
-      await supabase
+      await storageClient
         .from('upload_locks')
         .insert({ hash: contentHash, user_id: req.userId })
         .select()
         .single();
     }
 
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
-    const objectPath = `uploads/${req.userId}/${uuidv4()}_${safeName}`;
-
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(SUPABASE_URL_ENV!, SUPABASE_KEY_ENV!);
-
-    const { data: signed, error: signErr } = await supabase
-      .storage.from('assets')
+    const { data: signed, error: signErr } = await storageClient
+      .storage.from(BUCKET)
       .createSignedUploadUrl(objectPath);
 
     if (signErr || !signed) {
+      const hint = (signErr as any)?.statusCode === '404'
+        ? ` — does the Supabase bucket "${BUCKET}" exist?`
+        : '';
       console.error('[process-ticket] createSignedUploadUrl failed:', signErr);
       return res.status(500).json({
-        error: `Could not create upload URL: ${signErr?.message || 'unknown'}`,
+        error: `Could not create upload URL: ${signErr?.message || 'unknown'}${hint}`,
       });
     }
 
-    // HMAC token, valid 10 minutes, verified by the Space.
     const exp = Math.floor(Date.now() / 1000) + 600;
     const sig = crypto
       .createHmac('sha256', process.env.INTERNAL_API_KEY!)
       .update(String(exp))
       .digest('hex');
 
-    const { data: pub } = supabase.storage.from('assets').getPublicUrl(objectPath);
-
-    // Strip any trailing slash so `${spaceUrl}/process-url` can't become `//process-url`
-    const spaceUrl = SPACE_URL_ENV!.replace(/\/+$/, '');
+    const { data: pub } = storageClient.storage.from(BUCKET).getPublicUrl(objectPath);
+    const spaceUrl = SPACE_URL_ENV.replace(/\/+$/, '');
 
     console.log(`[process-ticket] Issued ticket for ${objectPath} -> ${spaceUrl}`);
 
@@ -4233,7 +4232,7 @@ async function startServer() {
       } catch (e) {}
     }, 5000);
   }
-  const PORT = parseInt(process.env.PORT || '3000', 10);
+  const PORT = 3000;
 
   // --- Vite Middleware ---
   app.use(express.static(path.join(process.cwd(), 'public')));
