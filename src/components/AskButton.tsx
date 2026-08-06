@@ -123,9 +123,10 @@ export function AskButton() {
     if (answerAudioRef.current) {
       try {
         answerAudioRef.current.pause();
+        answerAudioRef.current.onended = null;
+        answerAudioRef.current.onerror = null;
         answerAudioRef.current.removeAttribute('src');
       } catch (e) {}
-      answerAudioRef.current = null;
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
@@ -138,6 +139,22 @@ export function AskButton() {
       } catch (e) {}
     });
     objectUrlsRef.current = [];
+  };
+
+  // Helper to convert base64 data URIs to Blob URLs for better media decoder compatibility
+  const base64ToBlobUrl = (base64Data: string): string => {
+    try {
+      const cleanBase64 = base64Data.replace(/^data:audio\/\w+;base64,/, '');
+      const binaryStr = atob(cleanBase64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: 'audio/wav' });
+      return URL.createObjectURL(blob);
+    } catch (e) {
+      return base64Data;
+    }
   };
 
   // Play answer using Cartesia TTS or Web Speech fallback
@@ -178,8 +195,14 @@ export function AskButton() {
         setIsPlayingAnswerAudio(true);
         const nextUrl = queue.shift()!;
 
-        const audio = new Audio(nextUrl);
-        answerAudioRef.current = audio;
+        if (!answerAudioRef.current) {
+          answerAudioRef.current = new Audio();
+        }
+        const audio = answerAudioRef.current;
+        audio.onended = null;
+        audio.onerror = null;
+        audio.pause();
+        audio.src = nextUrl;
 
         audio.onended = () => {
           playNextChunk();
@@ -188,10 +211,16 @@ export function AskButton() {
           console.warn('[ask-tts] chunk play error, continuing:', e);
           playNextChunk();
         };
-        audio.play().catch((err) => {
-          console.warn('[ask-tts] play() catch:', err);
-          playNextChunk();
-        });
+
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('[ask-tts] audio.play() was prevented/failed:', err);
+            if (activeSessionRef.current) {
+              speakWithWebSpeech(textToPlay);
+            }
+          });
+        }
       };
 
       while (activeSessionRef.current) {
@@ -211,8 +240,14 @@ export function AskButton() {
               }
 
               if (audioSrc) {
+                let blobUrl = audioSrc;
+                if (audioSrc.startsWith('data:')) {
+                  blobUrl = base64ToBlobUrl(audioSrc);
+                  objectUrlsRef.current.push(blobUrl);
+                }
+
                 hasQueuedAudio = true;
-                queue.push(audioSrc);
+                queue.push(blobUrl);
 
                 if (!isPlayingQueue) {
                   playNextChunk();
@@ -354,6 +389,15 @@ export function AskButton() {
     const q = questionInput.trim();
     if (!q || q.length > 350) return;
 
+    // Unlock media element during user gesture so browser allows autoplay after async response
+    if (!answerAudioRef.current) {
+      answerAudioRef.current = new Audio();
+    }
+    try {
+      answerAudioRef.current.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      answerAudioRef.current.play().catch(() => {});
+    } catch (e) {}
+
     setState('asking');
     setIsLoadingAnswer(true);
     setErrorMsg(null);
@@ -386,7 +430,7 @@ export function AskButton() {
       setState('answering');
       setIsLoadingAnswer(false);
 
-      // Play answer via TTS
+      // Play answer via TTS immediately upon generation
       playAnswerAudio(ans);
     } catch (err: any) {
       console.error('[ask] error:', err);
