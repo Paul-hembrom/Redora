@@ -4248,6 +4248,7 @@ app.get('/api/curriculum-test', (req, res) => {
 
        const topic = {
           id: `topic_${docId}_${chap.id}_${topicNumber}`,
+          subtopic_id: row.id ? String(row.id) : undefined,
           chapterNumber: topicNumber,
           title: row.subtopic,
           summary: '',

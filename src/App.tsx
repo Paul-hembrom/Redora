@@ -225,9 +225,18 @@ export default function App() {
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    const roleParam = urlParams.get('role');
+    const orgIdParam = urlParams.get('org_id');
+
+    if (roleParam) {
+      document.cookie = `sb-role=${encodeURIComponent(roleParam)}; path=/; max-age=604800; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`;
+    }
+    if (orgIdParam) {
+      document.cookie = `sb-org-id=${encodeURIComponent(orgIdParam)}; path=/; max-age=604800; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`;
+    }
+
     const sharedDocId = urlParams.get('sharedDoc');
 
-    
     const source = urlParams.get('source');
     const grade = urlParams.get('grade');
     const subject = urlParams.get('subject');
@@ -264,8 +273,10 @@ export default function App() {
                     }
                  };
                  traverse(data.chapters);
-                 const target = allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
-                                 || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()));
+                 const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
+                                 || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
+                                 || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
+                                 || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
                  if (target) {
                     setInitialScrollChapterId(target.id);
                  }
@@ -379,8 +390,10 @@ export default function App() {
                             }
                          };
                          traverse(currDoc.chapters);
-                         const target = allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
-                                         || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()));
+                         const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
+                                         || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
+                                         || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
+                                         || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
                          if (target) {
                             targetChapterId = target.id;
                          }
