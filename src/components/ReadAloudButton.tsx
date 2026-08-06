@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Volume2, Square, Loader2, AudioLines, Info, Pause, Play } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { publishReadAloud } from '../lib/readAloudBus';
 
 interface Props {
   playbackRate?: number;
@@ -289,6 +290,19 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     } catch (e) {}
   };
 
+  const getParagraphTextForChunk = (chunk: any): string => {
+    if (!chunk) return '';
+    try {
+      const domIndex = chunk.domIndex !== undefined ? chunk.domIndex : chunk.index;
+      const scopeRoot = getScopeRoot();
+      const el = scopeRoot.querySelector(`[id="${idPrefix}${domIndex}"]`) as HTMLElement | null;
+      const text = (el?.innerText || '').trim();
+      return text.length > 1200 ? text.slice(0, 1200) : text;
+    } catch {
+      return chunk.text || '';
+    }
+  };
+
   const stopPlaying = () => {
     playSessionIdRef.current += 1;
     if (animationFrameIdRef.current !== null) {
@@ -316,6 +330,8 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
     pausedStateRef.current = null;
     resumeStateRef.current = null;
     currentChunkRef.current = null;
+
+    publishReadAloud({ type: 'stopped' });
   };
 
   const handlePause = () => {
@@ -353,9 +369,18 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
       cancelAnimationFrame(animationFrameIdRef.current);
       animationFrameIdRef.current = null;
     }
+
+    publishReadAloud({
+      type: 'paused',
+      sentence: currentChunkRef.current?.text || '',
+      paragraph: getParagraphTextForChunk(currentChunkRef.current),
+      wordIndex: lastSpokenWordIndex,
+      chunkIndex: currentChunkRef.current?.index ?? 0,
+    });
   };
 
   const handleResume = () => {
+    publishReadAloud({ type: 'resumed' });
     setIsPaused(false);
     if (pausedStateRef.current) {
        const { chunkIndex, wordIndex } = pausedStateRef.current;

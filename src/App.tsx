@@ -19,6 +19,7 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { CreditsPanel } from './components/CreditsPanel';
+import { AskButton } from './components/AskButton';
 
 import { processDocument, hashFile } from './lib/documentProcessor';
 
@@ -1174,6 +1175,7 @@ export default function App() {
           })()}
         </div>
       </div>
+      <AskButton />
     </div>
   );
 }
