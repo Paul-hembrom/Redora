@@ -4,6 +4,9 @@ import sql from './db.js';
 import { v4 as uuidv4 } from 'uuid';
 import { renderManimScene } from '../src/services/manimRenderer.js';
 import { callLLM } from '../src/lib/gemini.js';
+import { createConcurrencyLimit } from '../src/lib/concurrency.js';
+
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Mock delay function
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -31,11 +34,12 @@ async function uploadToSupabaseStorage(base64: string, filename: string, content
 }
 
 export async function processInteractiveProJob(job_id: string, chapter_id: string, org_id: string, document_id: string) {
+  const validOrgId = (org_id && uuidRegex.test(org_id)) ? org_id : null;
   try {
     const sbId = uuidv4();
     await sql`
       INSERT INTO storyboards (id, organization_id, generation_job_id, document_id, chapter_id, title)
-      VALUES (${sbId}, ${org_id}, ${job_id}, ${document_id}, ${chapter_id}, 'Interactive Pro Lesson')
+      VALUES (${sbId}, ${validOrgId}, ${job_id}, ${document_id}, ${chapter_id}, 'Interactive Pro Lesson')
     `;
 
     const chapters = await sql`SELECT * FROM chapters WHERE id = ${chapter_id}`;
@@ -104,7 +108,7 @@ Output only that JSON object, with no markdown formatting.`;
       const rendererKind = sc.visual?.kind || 'veo';
       await sql`
         INSERT INTO scenes (id, storyboard_id, organization_id, scene_number, narration, visual_prompt, estimated_duration_seconds)
-        VALUES (${sceneId}, ${sbId}, ${org_id}, ${i}, ${narration}, ${visualPrompt}, ${duration})
+        VALUES (${sceneId}, ${sbId}, ${validOrgId}, ${i}, ${narration}, ${visualPrompt}, ${duration})
       `;
       dbScenes.push({ id: sceneId, visual_prompt: visualPrompt, narration, duration, renderer: rendererKind });
       i++;
@@ -113,11 +117,41 @@ Output only that JSON object, with no markdown formatting.`;
     await sql`UPDATE generation_jobs SET progress = 30 WHERE id = ${job_id}`;
 
     let processed = 0;
-    for (const scene of dbScenes) {
-      await processSceneAssets(scene.id, org_id, scene.visual_prompt, scene.narration, scene.duration, scene.renderer);
-      processed++;
-      const sceneProgress = 30 + Math.floor((processed / dbScenes.length) * 60);
-      await sql`UPDATE generation_jobs SET progress = ${sceneProgress} WHERE id = ${job_id}`;
+    const limit = createConcurrencyLimit(2);
+    let veoCount = 0;
+    const MAX_VEO_PER_LESSON = 3;
+
+    await Promise.all(
+      dbScenes.map((scene) =>
+        limit(async () => {
+          let sceneRenderer = scene.renderer;
+          if (sceneRenderer === 'veo') {
+            veoCount++;
+            if (veoCount > MAX_VEO_PER_LESSON) {
+              sceneRenderer = 'image';
+            }
+          }
+          await processSceneAssets(scene.id, validOrgId || '', scene.visual_prompt, scene.narration, scene.duration, sceneRenderer);
+          processed++;
+          const sceneProgress = 30 + Math.floor((processed / dbScenes.length) * 60);
+          await sql`UPDATE generation_jobs SET progress = ${sceneProgress} WHERE id = ${job_id}`;
+        })
+      )
+    );
+
+    // Quality gate: verify at least some non-placeholder visuals were rendered
+    const quality = await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE v.model_used = 'fallback_image') AS placeholder_visuals,
+        COUNT(*) AS total
+      FROM scenes s
+      LEFT JOIN visual_metadata v ON v.scene_id = s.id
+      WHERE s.storyboard_id = ${sbId}
+    `;
+    const q = quality[0];
+    console.log(`[Pro] Quality check: ${q.placeholder_visuals}/${q.total} placeholder visuals.`);
+    if (Number(q.total) > 0 && Number(q.placeholder_visuals) === Number(q.total)) {
+      throw new Error('All scene visual renders failed and fell back to placeholders');
     }
 
     await sql`UPDATE generation_jobs SET progress = 90 WHERE id = ${job_id}`;
@@ -140,7 +174,6 @@ Output only that JSON object, with no markdown formatting.`;
   } catch (err: any) {
     console.error('Interactive Pro Job failed:', err);
     await sql`UPDATE generation_jobs SET status = 'failed', error_message = ${err.message} WHERE id = ${job_id}`;
-    // don't fail if we don't have job id but we do
     try {
         await sql`UPDATE storyboards SET status = 'failed' WHERE generation_job_id = ${job_id}`;
     } catch(e) {}
@@ -256,6 +289,7 @@ function detectRendererFromPrompt(visualPrompt: string): 'manim' | 'veo' {
 }
 
 export async function processSceneAssets(scene_id: string, org_id: string, visual_prompt: string, narration: string, duration: number, rendererOverride?: string) {
+  const validOrgId = (org_id && uuidRegex.test(org_id)) ? org_id : null;
   const kind = (rendererOverride || '').toLowerCase();
   let renderer: 'manim' | 'veo' =
       kind === 'manim' ? 'manim'
@@ -292,7 +326,7 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
   // Insert Visual Metadata
   await sql`
     INSERT INTO visual_metadata (id, org_id, scene_id, image_url, prompt, model_used)
-    VALUES (${uuidv4()}, ${org_id}, ${scene_id}, ${image_url}, ${visual_prompt}, ${model_used})
+    VALUES (${uuidv4()}, ${validOrgId}, ${scene_id}, ${image_url}, ${visual_prompt}, ${model_used})
     ON CONFLICT (scene_id) DO UPDATE SET image_url = EXCLUDED.image_url, model_used = EXCLUDED.model_used, prompt = EXCLUDED.prompt
   `;
 
@@ -321,7 +355,7 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
   if (audioUrl) {
     await sql`
       INSERT INTO narration_assets (id, org_id, scene_id, asset_url, voice_name, duration_ms)
-      VALUES (${uuidv4()}, ${org_id}, ${scene_id}, ${audioUrl}, ${voiceName}, ${Math.round(duration * 1000)})
+      VALUES (${uuidv4()}, ${validOrgId}, ${scene_id}, ${audioUrl}, ${voiceName}, ${Math.round(duration * 1000)})
       ON CONFLICT (scene_id) DO UPDATE SET asset_url = EXCLUDED.asset_url, voice_name = EXCLUDED.voice_name, duration_ms = EXCLUDED.duration_ms
     `;
   }

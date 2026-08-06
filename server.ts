@@ -1356,10 +1356,11 @@ app.delete('/api/documents/:id', authenticate, async (req: any, res) => {
 
 app.post('/api/lessons/generate', authenticate, async (req: any, res) => {
   try {
-    const orgId = req.body.organization_id || req.query.org_id;
-    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    const rawOrg = req.body.organization_id || req.query.org_id;
+    const userRole = await getUserRoleInOrg(req.userId, rawOrg);
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
 
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const { 
       organization_id, document_id, chapter_id, title, summary, 
       key_concepts, subject, grade_level, visual_style, narration_style 
@@ -1369,6 +1370,7 @@ app.post('/api/lessons/generate', authenticate, async (req: any, res) => {
       return res.status(400).json({ error: 'organization_id and chapter_id are required' });
     }
 
+    const validOrgId = (organization_id && uuidRegex.test(organization_id)) ? organization_id : null;
     const jobId = uuidv4();
     
     // Create initial storyboard job entry
@@ -1377,7 +1379,7 @@ app.post('/api/lessons/generate', authenticate, async (req: any, res) => {
         id, organization_id, document_id, chapter_id, title, 
         visual_style, narration_style, grade_level, subject, status
       ) VALUES (
-        ${jobId}, ${organization_id}, ${document_id}, ${chapter_id}, ${title},
+        ${jobId}, ${validOrgId}, ${document_id}, ${chapter_id}, ${title},
         ${visual_style}, ${narration_style}, ${grade_level}, ${subject}, 'pending'
       )
     `;
@@ -1385,9 +1387,11 @@ app.post('/api/lessons/generate', authenticate, async (req: any, res) => {
     // Start async generation
     await sql`
       INSERT INTO job_queue (id, job_type, payload, status)
-      VALUES (${uuidv4()}, 'generate_storyboard',
-              ${sql.json({ jobId, organization_id, document_id, chapter_id, title, summary, key_concepts, subject, grade_level, visual_style, narration_style })}, 'queued')
+      VALUES (${uuidv4()}, 'storyboard',
+              ${sql.json({ jobId, organization_id: validOrgId, document_id, chapter_id, title, summary, key_concepts, subject, grade_level, visual_style, narration_style })}, 'queued')
     `;
+
+    triggerBackgroundDrain();
 
     res.json({ success: true, jobId });
   } catch (err: any) {
@@ -1400,9 +1404,6 @@ app.get('/api/storyboards/:id', authenticate, async (req: any, res) => {
     const sbId = req.params.id;
     const sbs = await sql`SELECT * FROM storyboards WHERE id = ${sbId}`;
     if (sbs.length === 0) return res.status(404).json({ error: 'Storyboard not found' });
-    
-    // Check if the user is authorized for this organization (skipping tight auth for now, or assume organization_id is valid for user)
-    // Could add user-to-organization checks here if orgs were modeled
     
     const sb = sbs[0];
     const scenes = await sql`
@@ -1435,16 +1436,8 @@ app.post('/api/chapters/:id/summarize', authenticate, async (req: any, res) => {
     const chapterId = req.params.id;
     const { summaryDetail = 'detailed', org_id } = req.body;
     
-    // Check if user is a student attempting to summarize a chapter they don't have access to?
-    // "The button must be visible for all user types" - We skip strict read-checks to speed this up, 
-    // or just rely on the existing read checks if needed.
-    
     const chaps = await sql`SELECT content, parent_id, document_id FROM chapters WHERE id = ${chapterId}`;
     if (!chaps.length) return res.status(404).json({ error: 'Chapter not found' });
-    
-    // We intentionally SKIP verifyAndIncrementUsage for on-demand summaries to keep it accessible.
-    // However, if we wanted to enforce it:
-    // await verifyAndIncrementUsage(req.userId, 'summary', orgId);
     
     const content = chaps[0].content || '';
     if (!content.trim()) {
@@ -1481,26 +1474,33 @@ app.post('/api/chapters/:id/generate-lesson', authenticate, generateLessonLimite
 
 app.post('/api/lessons/generate-pro', authenticate, generateLessonLimiter, async (req: any, res) => {
   try {
-    const orgId = req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id'];
-    const userRole = await getUserRoleInOrg(req.userId, orgId);
-    
-    // Gating Interactive Pro to admin/teachers, just like the regular video generation pipeline.
-    // Self-serve for students would be risky since every click triggers a DeepSeek call, Kokoro calls, and Veo/Manim renders.
-    // These heavy backend processes require rate limiting and real cost considerations.
+    const { chapterId } = req.body;
+    if (!chapterId) return res.status(400).json({ error: 'chapterId is required' });
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const rawOrg = req.body.org_id || req.body.organization_id || req.query.org_id || req.cookies?.['sb-org-id'];
+    const validOrgId = (rawOrg && uuidRegex.test(rawOrg)) ? rawOrg : null;
+
+    const userRole = await getUserRoleInOrg(req.userId, validOrgId || undefined);
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
+
+    // Prevent duplicate concurrent runs on the same chapter
+    const inFlight = await sql`
+      SELECT id FROM generation_jobs
+      WHERE chapter_id = ${chapterId} AND status IN ('pending', 'processing')
+      LIMIT 1
+    `;
+    if (inFlight.length) {
+      return res.status(409).json({ error: 'A lesson generation job is already in progress for this chapter.' });
+    }
     
+    // Verify usage limit WITHOUT incrementing (increment occurs in worker on job completion)
     try {
-      await verifyAndIncrementUsage(req.userId, 'video', orgId);
+      await verifyAndIncrementUsage(req.userId, 'video', validOrgId || undefined, true);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
     }
-    
-    const { chapterId } = req.body;
-    if (!chapterId) return res.status(400).json({ error: 'chapterId is required' });
-
-    let { org_id } = req.body;
-    if (!org_id || org_id === 'default') org_id = orgId || 'default_org';
     
     const chaps = await sql`SELECT document_id FROM chapters WHERE id = ${chapterId}`;
     if (!chaps.length) return res.status(404).json({ error: 'Chapter not found' });
@@ -1509,17 +1509,18 @@ app.post('/api/lessons/generate-pro', authenticate, generateLessonLimiter, async
     const jobId = uuidv4();
     await sql`
       INSERT INTO generation_jobs (id, org_id, document_id, chapter_id, status, progress)
-      VALUES (${jobId}, ${org_id}, ${document_id}, ${chapterId}, 'pending', 0)
+      VALUES (${jobId}, ${validOrgId}, ${document_id}, ${chapterId}, 'pending', 0)
     `;
     
     // Start background processing
     await sql`
       INSERT INTO job_queue (id, job_type, payload, status)
       VALUES (${uuidv4()}, 'interactive_pro',
-              ${sql.json({ jobId, chapterId, org_id, document_id, userId: req.userId })}, 'queued')
+              ${sql.json({ jobId, chapterId, org_id: validOrgId, document_id, userId: req.userId })}, 'queued')
     `;
     
-    // Return early, same job ID system as existing generation pipeline
+    triggerBackgroundDrain();
+
     res.status(202).json({ job_id: jobId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1568,7 +1569,6 @@ app.patch('/api/scenes/:id', authenticate, async (req: any, res) => {
     const scenes = await sql`SELECT * FROM scenes WHERE id = ${sceneId}`;
     if (!scenes.length) return res.status(404).json({ error: 'Scene not found' });
     
-    // update only provided fields
     if (narration !== undefined) {
       await sql`UPDATE scenes SET narration = ${narration} WHERE id = ${sceneId}`;
     }
@@ -1583,8 +1583,11 @@ app.patch('/api/scenes/:id', authenticate, async (req: any, res) => {
 
 app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
   try {
-    const orgId = req.body.org_id || req.query.org_id;
-    const userRole = await getUserRoleInOrg(req.userId, orgId);
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const rawOrg = req.body.org_id || req.query.org_id;
+    const validOrgId = (rawOrg && uuidRegex.test(rawOrg)) ? rawOrg : null;
+
+    const userRole = await getUserRoleInOrg(req.userId, validOrgId || undefined);
     if (userRole === 'student') return res.status(403).json({ error: 'Students cannot modify content' });
 
     const sceneId = req.params.id;
@@ -1598,9 +1601,21 @@ app.post('/api/scenes/:id/regenerate', authenticate, async (req: any, res) => {
     await sql`
       INSERT INTO job_queue (id, job_type, payload, status)
       VALUES (${uuidv4()}, 'scene_assets',
-              ${sql.json({ scene_id: scene.id, organization_id: scene.organization_id, visual_prompt: scene.visual_prompt, narration: scene.narration, estimated_duration_seconds: scene.estimated_duration_seconds })}, 'queued')
+              ${sql.json({
+                sceneId: scene.id,
+                scene_id: scene.id,
+                orgId: scene.organization_id,
+                organization_id: scene.organization_id,
+                visualPrompt: scene.visual_prompt,
+                visual_prompt: scene.visual_prompt,
+                narration: scene.narration,
+                duration: scene.estimated_duration_seconds,
+                estimated_duration_seconds: scene.estimated_duration_seconds
+              })}, 'queued')
     `;
     
+    triggerBackgroundDrain();
+
     res.json({ status: 'regenerating' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4154,11 +4169,7 @@ app.get('/api/curriculum-test', (req, res) => {
 
 const MAX_JOB_ATTEMPTS = 3;
 
-app.post('/api/jobs/drain', async (req, res) => {
-  if (req.headers['x-cron-secret'] !== (process.env.CRON_SECRET || 'dev_secret')) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
+async function drainOneJob(): Promise<{ drained: number; job_type?: string; status?: string; error?: string }> {
   const claimed = await sql`
     UPDATE job_queue
        SET status = 'running', started_at = NOW(), attempts = attempts + 1
@@ -4171,7 +4182,7 @@ app.post('/api/jobs/drain', async (req, res) => {
      )
     RETURNING *
   `;
-  if (!claimed.length) return res.json({ drained: 0 });
+  if (!claimed.length) return { drained: 0 };
 
   const job = claimed[0];
   const p = typeof job.payload === 'string' ? JSON.parse(job.payload) : job.payload;
@@ -4180,27 +4191,39 @@ app.post('/api/jobs/drain', async (req, res) => {
     switch (job.job_type) {
       case 'interactive_pro':
         await processInteractiveProJob(p.jobId, p.chapterId, p.org_id, p.document_id);
-        if (p.userId) await incrementUsage(p.userId, 'video', p.org_id); // quota on completion
+        if (p.userId) {
+          try {
+            await incrementUsage(p.userId, 'video', p.org_id);
+          } catch (e: any) {
+            console.error('[jobs] Usage increment error:', e.message);
+          }
+        }
         break;
       case 'video_lesson':
         await processVideoLessonJob(p.jobId, p.chapterId, p.org_id, p.document_id);
         break;
       case 'storyboard':
+      case 'generate_storyboard':
         const { generateStoryboardJob } = await import('./server/storyboardEngine.js');
         await generateStoryboardJob(
-          p.jobId, p.organization_id, p.document_id, p.chapter_id, p.title, p.summary,
+          p.jobId, p.organization_id || p.org_id, p.document_id, p.chapter_id || p.chapterId, p.title, p.summary,
           p.key_concepts, p.subject, p.grade_level, p.visual_style, p.narration_style
         );
         break;
       case 'scene_assets':
-        await processSceneAssets(p.sceneId, p.orgId, p.visualPrompt, p.narration, p.duration);
+        const sceneId = p.sceneId || p.scene_id;
+        const orgId = p.orgId || p.organization_id || p.org_id;
+        const visualPrompt = p.visualPrompt || p.visual_prompt;
+        const narration = p.narration;
+        const duration = p.duration || p.estimated_duration_seconds;
+        await processSceneAssets(sceneId, orgId, visualPrompt, narration, duration);
         break;
       default:
         throw new Error(`Unknown job_type: ${job.job_type}`);
     }
 
     await sql`UPDATE job_queue SET status = 'done', finished_at = NOW() WHERE id = ${job.id}`;
-    res.json({ drained: 1, job_type: job.job_type, status: 'done' });
+    return { drained: 1, job_type: job.job_type, status: 'done' };
 
   } catch (e: any) {
     const finalStatus = job.attempts >= MAX_JOB_ATTEMPTS ? 'failed' : 'queued';
@@ -4211,24 +4234,52 @@ app.post('/api/jobs/drain', async (req, res) => {
              finished_at = ${finalStatus === 'failed' ? sql`NOW()` : null}
        WHERE id = ${job.id}
     `;
+
+    // P0-4: Mark generation_job as failed if job permanently failed
+    if (finalStatus === 'failed' && p.jobId) {
+      try {
+        await sql`
+          UPDATE generation_jobs
+             SET status = 'failed', error_message = ${e.message}
+           WHERE id = ${p.jobId}
+        `;
+      } catch (_) {}
+    }
+
     console.error(`[jobs] ${job.job_type} attempt ${job.attempts} failed:`, e.message);
-    res.json({ drained: 1, job_type: job.job_type, status: finalStatus });
+    return { drained: 1, job_type: job.job_type, status: finalStatus, error: e.message };
+  }
+}
+
+function triggerBackgroundDrain() {
+  setTimeout(() => {
+    drainOneJob().catch(err => console.error('[bg-drain] error:', err));
+  }, 10);
+}
+
+app.all('/api/jobs/drain', async (req, res) => {
+  const secret = process.env.CRON_SECRET || 'dev_secret';
+  const reqSecret = req.headers['x-cron-secret'] || (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : '');
+  const isVercelCron = req.headers['x-vercel-cron'] === '1';
+
+  if (!isVercelCron && reqSecret !== secret && process.env.NODE_ENV === 'production' && process.env.VERCEL) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const result = await drainOneJob();
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-    // In-process worker for non-Vercel environments
+  if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL || process.env.WORKER_MODE === '1') {
+    // In-process worker loop
     setInterval(async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:${PORT}/api/jobs/drain`, {
-          method: 'POST',
-          headers: { 'x-cron-secret': (process.env.CRON_SECRET || 'dev_secret') || 'dev_secret' }
-        });
-        const data = await res.json();
-        if (data.error) {
-           console.log("[worker] drain error:", data.error);
-        }
+        await drainOneJob();
       } catch (e) {}
     }, 5000);
   }
@@ -4236,8 +4287,6 @@ async function startServer() {
 
   // --- Vite Middleware ---
   app.use(express.static(path.join(process.cwd(), 'public')));
-
-
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

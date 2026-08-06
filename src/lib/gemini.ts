@@ -240,7 +240,12 @@ async function callVeo31Lite(
     config: { aspectRatio },
   });
 
+  const MAX_POLLS = 60; // 60 x 10s = 10 minutes max
+  let polls = 0;
   while (!operation.done) {
+    if (++polls > MAX_POLLS) {
+      throw new Error(`Veo generation timed out after ${MAX_POLLS * 10} seconds`);
+    }
     await new Promise(r => setTimeout(r, 10_000));
     operation = await ai.operations.getVideosOperation({ operation });
   }

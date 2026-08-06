@@ -8,6 +8,12 @@
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/auth/(.*)", "destination": "/api/index" }
   ],
+  "crons": [
+    {
+      "path": "/api/jobs/drain",
+      "schedule": "* * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/auth/token-exchange",

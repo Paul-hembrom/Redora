@@ -2,7 +2,11 @@ import { callLLM } from '../lib/gemini.js';
 import crypto from 'crypto';
 import sql from '../../server/db.js';
 
-const MANIM_API_URL = `${process.env.HF_SPACE_URL || 'https://paulhemb-redora.hf.space'}/render`;
+function getManimApiUrl(): string {
+  const base = process.env.MANIM_API_URL || process.env.HF_SPACE_URL || 'https://paulhemb-redora.hf.space';
+  const cleanBase = base.replace(/\/+$/, '');
+  return cleanBase.endsWith('/render') ? cleanBase : `${cleanBase}/render`;
+}
 
 // The name we *ask* the model to use. This is just a hint for the prompt —
 // the actual name sent to the render backend is always parsed back out of
@@ -108,18 +112,19 @@ export async function renderManimScene(
   }
   const { code: manimCode, sceneName } = await generateManimCode(visualPrompt);
 
-  console.log('[Manim] Calling HF Space:', MANIM_API_URL, '| scene:', sceneName, '| quality:', quality);
+  const apiUrl = getManimApiUrl();
+  console.log('[Manim] Calling HF Space:', apiUrl, '| scene:', sceneName, '| quality:', quality);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), RENDER_TIMEOUT_MS);
 
   let response: Response;
   try {
-    response = await fetch(MANIM_API_URL, {
+    response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Internal-Key': process.env.INTERNAL_API_KEY || ''
+        'X-Internal-Key': process.env.INTERNAL_API_KEY || process.env.MANIM_API_KEY || ''
       },
       body: JSON.stringify({
         script_code: manimCode,

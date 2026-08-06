@@ -77,6 +77,9 @@ Return ONLY the raw JSON object. Do not include markdown formatting like \`\`\`j
 
     await sql`UPDATE storyboards SET progress = 70 WHERE id = ${jobId}`;
 
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validOrgId = (organization_id && uuidRegex.test(organization_id)) ? organization_id : null;
+
     for (const scene of parsed.scenes) {
       const sceneId = uuidv4();
       await sql`
@@ -85,7 +88,7 @@ Return ONLY the raw JSON object. Do not include markdown formatting like \`\`\`j
           animation_instructions, camera_directions, labels, transition_to_next, 
           estimated_duration_seconds, visual_prompt, educational_metadata
         ) VALUES (
-          ${sceneId}, ${jobId}, ${organization_id}, ${scene.scene_number}, ${scene.narration},
+          ${sceneId}, ${jobId}, ${validOrgId}, ${scene.scene_number}, ${scene.narration},
           ${scene.animation_instructions}, ${scene.camera_directions}, ${JSON.stringify(scene.labels || [])},
           ${scene.transition_to_next}, ${scene.estimated_duration_seconds}, ${scene.visual_prompt},
           ${JSON.stringify(scene.educational_metadata || {})}
