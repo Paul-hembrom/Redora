@@ -20,6 +20,8 @@ import { motion, AnimatePresence } from 'motion/react';
 
 import { CreditsPanel } from './components/CreditsPanel';
 
+import { processDocument, hashFile } from './lib/documentProcessor';
+
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -577,7 +579,6 @@ export default function App() {
       for (const file of files) {
         const tempDocId = uuidv4();
         
-        const { processDocument } = await import('./lib/documentProcessor');
         const chapters = await processDocument(file, options, setUploadProgress, {
           onDiscovered: (initialChapters) => {
             const newDoc: Document = {
@@ -611,7 +612,6 @@ export default function App() {
           }
         });
 
-        const { hashFile } = await import('./lib/documentProcessor');
         const contentHash = await hashFile(file);
         const finalDoc: any = {
           id: tempDocId,
