@@ -33,7 +33,42 @@ try {
 const url = new URL(finalDbUrl);
 console.log(`Connecting to database: ${url.hostname}:${url.port} as username: ${url.username}`);
 
-export let dbReady = true;
+export let dbReady = process.env.VERCEL ? true : false;
+
+// Handle background connection rejections gracefully without crashing process
+const isDbError = (err: any) => {
+  if (!err) return false;
+  const msg = (err.message || String(err)).toLowerCase();
+  const code = (err.code || '').toLowerCase();
+  return (
+    msg.includes('authentication did not complete') ||
+    msg.includes('failed to connect to database') ||
+    msg.includes('unable to check out connection') ||
+    msg.includes('echeckouttimeout') ||
+    msg.includes('connection_closed') ||
+    msg.includes('connect_timeout') ||
+    code === 'echeckouttimeout' ||
+    code === 'connect_timeout'
+  );
+};
+
+process.on('unhandledRejection', (reason: any) => {
+  if (isDbError(reason)) {
+    console.warn('[db] Background database connection issue caught:', reason?.message || reason);
+    dbReady = false;
+  } else {
+    console.error('[process] Unhandled Rejection:', reason);
+  }
+});
+
+process.on('uncaughtException', (err: any) => {
+  if (isDbError(err)) {
+    console.warn('[db] Background database connection error caught:', err?.message || err);
+    dbReady = false;
+  } else {
+    console.error('[process] Uncaught Exception:', err);
+  }
+});
 
 const isLocal = finalDbUrl.includes('localhost') || finalDbUrl.includes('127.0.0.1');
 
@@ -63,6 +98,7 @@ export async function initDb() {
       console.log(`Database connection attempt ${4 - retries}/3...`);
       await sql`SELECT 1`;
       connected = true;
+      dbReady = true;
       console.log('Database connected successfully.');
     } catch (err: any) {
       console.warn(`Connection attempt failed: ${err.message}`);
@@ -248,16 +284,6 @@ export async function initDb() {
       );
     `;
 
-    
-    try {
-      await sql`DELETE FROM visual_metadata a USING visual_metadata b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
-      await sql`DELETE FROM narration_assets a USING narration_assets b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
-      await sql`ALTER TABLE visual_metadata ADD CONSTRAINT visual_metadata_scene_uniq UNIQUE (scene_id)`;
-    } catch (e) {}
-    try {
-      await sql`ALTER TABLE narration_assets ADD CONSTRAINT narration_assets_scene_uniq UNIQUE (scene_id)`;
-    } catch(e) {}
-    
     await sql`
       CREATE TABLE IF NOT EXISTS visual_metadata (
         id TEXT PRIMARY KEY,
@@ -269,6 +295,15 @@ export async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `;
+
+    try {
+      await sql`DELETE FROM visual_metadata a USING visual_metadata b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
+      await sql`DELETE FROM narration_assets a USING narration_assets b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
+      await sql`ALTER TABLE visual_metadata ADD CONSTRAINT visual_metadata_scene_uniq UNIQUE (scene_id)`;
+    } catch (e) {}
+    try {
+      await sql`ALTER TABLE narration_assets ADD CONSTRAINT narration_assets_scene_uniq UNIQUE (scene_id)`;
+    } catch(e) {}
 
     await sql`
       CREATE TABLE IF NOT EXISTS student_memory (
@@ -346,10 +381,14 @@ export async function initDb() {
   }
 }
 
-// Run initialization safely
-initDb().catch((err) => {
-  console.error('initDb unhandled error:', err);
-  dbReady = false;
-});
+// Run initialization safely (skipped on Vercel)
+if (!process.env.VERCEL) {
+  initDb().catch((err) => {
+    console.error('initDb unhandled error:', err);
+    dbReady = false;
+  });
+} else {
+  console.log('[db] Skipping initDb on Vercel — schema managed by worker/migration.');
+}
 
 export default sql;

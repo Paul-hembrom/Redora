@@ -4394,17 +4394,20 @@ async function drainOneJob(): Promise<{ drained: number; job_type?: string; stat
 }
 
 function triggerBackgroundDrain() {
+  if (process.env.VERCEL && process.env.WORKER_MODE !== '1') {
+    return;
+  }
   setTimeout(() => {
     drainOneJob().catch(err => console.error('[bg-drain] error:', err));
   }, 10);
 }
 
 app.all('/api/jobs/drain', async (req, res) => {
-  const secret = process.env.CRON_SECRET || 'dev_secret';
-  const reqSecret = req.headers['x-cron-secret'] || (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : '');
+  const secret = process.env.CRON_SECRET;
+  const reqSecret = (req.headers['x-cron-secret'] as string) || (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, '') : '');
   const isVercelCron = req.headers['x-vercel-cron'] === '1';
 
-  if (!isVercelCron && reqSecret !== secret && process.env.NODE_ENV === 'production' && process.env.VERCEL) {
+  if (!isVercelCron && (!secret || reqSecret !== secret)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

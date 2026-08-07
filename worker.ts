@@ -68,6 +68,22 @@ async function drainOne(): Promise<boolean> {
   return true;
 }
 
+async function reclaimStaleJobs() {
+  try {
+    const reclaimed = await sql`
+      UPDATE job_queue
+         SET status = 'queued', started_at = NULL
+       WHERE status = 'running'
+         AND started_at < NOW() - INTERVAL '30 minutes'
+      RETURNING id`;
+    if (reclaimed.length) {
+      console.log(`[worker] reclaimed ${reclaimed.length} stale job(s)`);
+    }
+  } catch (e: any) {
+    console.error('[worker] reclaimStaleJobs error:', e.message);
+  }
+}
+
 let shuttingDown = false;
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   process.on(sig, () => { console.log(`[worker] ${sig} received`); shuttingDown = true; });
@@ -75,8 +91,13 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 
 (async function loop() {
   console.log('[worker] started');
+  let loopCount = 0;
   while (!shuttingDown) {
     try {
+      loopCount++;
+      if (loopCount % 12 === 1) {
+        await reclaimStaleJobs();
+      }
       const did = await drainOne();
       await new Promise(r => setTimeout(r, did ? 250 : 5000));
     } catch (e) {
