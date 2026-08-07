@@ -34,18 +34,14 @@ export function AskButton() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<any>(null);
+  const speechRecognitionRef = useRef<any>(null);
+
+  // Smooth scroll container ref for reading answer
+  const answerContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    try {
-      const cookies = document.cookie.split('; ');
-      const orgCookie = cookies.find(r => r.startsWith('sb-org-id='))?.split('=')[1];
-      const isOrg = Boolean(orgCookie && orgCookie !== 'demo' && orgCookie !== 'default_org');
-
-      const micSetting = isOrg
-        ? localStorage.getItem('readora.ask.micEnabled') === '1'
-        : localStorage.getItem('readora.ask.micEnabled') !== '0';
-      setMicAllowed(micSetting);
-    } catch (e) {}
+    // Mic is enabled for all users by default
+    setMicAllowed(true);
   }, []);
 
   // Draggable position
@@ -302,8 +298,64 @@ export function AskButton() {
     } catch (e) {}
   };
 
-  // Mic handlers
+  // Smooth scrolling loop during read aloud
+  useEffect(() => {
+    if (!isPlayingAnswerAudio || !answerContainerRef.current) return;
+    const container = answerContainerRef.current;
+    let animId: number;
+    let startTime = Date.now();
+
+    const scrollLoop = () => {
+      if (!container || !activeSessionRef.current) return;
+      const maxScroll = container.scrollHeight - container.clientHeight;
+      if (maxScroll > 0) {
+        const elapsed = (Date.now() - startTime) / 1000;
+        // Smoothly scroll down at ~20px/s to keep up with spoken audio
+        const targetScroll = Math.min(maxScroll, elapsed * 22);
+        container.scrollTo({ top: targetScroll, behavior: 'smooth' });
+      }
+      animId = requestAnimationFrame(scrollLoop);
+    };
+
+    animId = requestAnimationFrame(scrollLoop);
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [isPlayingAnswerAudio, answerText]);
+
+  // Mic handlers with live Web Speech recognition + backend Whisper fallback
   const startRecording = async () => {
+    // 1. Web Speech API for real-time live transcription
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        const initialInput = questionInput;
+        recognition.onresult = (event: any) => {
+          let transcript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            transcript += event.results[i][0].transcript;
+          }
+          if (transcript) {
+            const combined = (initialInput ? initialInput + ' ' + transcript : transcript).trim();
+            setQuestionInput(combined.slice(0, 350));
+          }
+        };
+        recognition.onerror = (e: any) => {
+          console.warn('[ask-mic] SpeechRecognition error:', e);
+        };
+        recognition.start();
+        speechRecognitionRef.current = recognition;
+      } catch (e) {
+        console.warn('[ask-mic] SpeechRecognition start failed:', e);
+      }
+    }
+
+    // 2. MediaRecorder for backend audio transcription fallback
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioChunksRef.current = [];
@@ -336,9 +388,11 @@ export function AskButton() {
 
           if (res.ok) {
             const data = await res.json();
-            if (data.text) {
+            if (data.text && data.text.trim()) {
               setQuestionInput((prev) => {
-                const combined = (prev ? prev + ' ' + data.text : data.text).trim();
+                const text = data.text.trim();
+                if (prev.includes(text)) return prev;
+                const combined = (prev ? prev + ' ' + text : text).trim();
                 return combined.slice(0, 350);
               });
             }
@@ -365,11 +419,17 @@ export function AskButton() {
       }, 1000);
     } catch (err) {
       console.warn('[ask-mic] mic permission denied:', err);
-      setMicAllowed(false);
+      // Fallback: user can still type
     }
   };
 
   const stopRecording = () => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (e) {}
+      speechRecognitionRef.current = null;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -554,7 +614,10 @@ export function AskButton() {
               </div>
             ) : state === 'answering' ? (
               <div className="flex flex-col justify-between space-y-3">
-                <div className="max-h-[220px] overflow-y-auto pr-1 text-slate-200 text-xs md:text-sm leading-relaxed">
+                <div
+                  ref={answerContainerRef}
+                  className="max-h-[220px] overflow-y-auto pr-1 text-slate-200 text-xs md:text-sm leading-relaxed scroll-smooth"
+                >
                   <p>{answerText}</p>
                 </div>
 
@@ -571,7 +634,7 @@ export function AskButton() {
                     className={cn(
                       "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 border",
                       isPlayingAnswerAudio
-                        ? "bg-cyan-500/20 border-cyan-400 text-cyan-300 animate-pulse"
+                        ? "bg-cyan-500/20 border-cyan-400 text-cyan-300 animate-pulse shadow-sm shadow-cyan-500/30"
                         : "bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200 hover:text-white"
                     )}
                     title={isPlayingAnswerAudio ? "Stop reading aloud" : "Read answer aloud"}
@@ -579,7 +642,14 @@ export function AskButton() {
                     {isPlayingAnswerAudio ? (
                       <>
                         <Square className="w-3.5 h-3.5 fill-current text-cyan-400" />
-                        <span>Stop Voice</span>
+                        <span className="flex items-center gap-1">
+                          <span>Speaking</span>
+                          <span className="flex gap-0.5 items-center">
+                            <span className="w-1 h-2 bg-cyan-400 rounded-full animate-pulse"></span>
+                            <span className="w-1 h-3 bg-cyan-400 rounded-full animate-pulse delay-75"></span>
+                            <span className="w-1 h-1.5 bg-cyan-400 rounded-full animate-pulse delay-150"></span>
+                          </span>
+                        </span>
                       </>
                     ) : (
                       <>
@@ -605,11 +675,16 @@ export function AskButton() {
                   <textarea
                     value={questionInput}
                     onChange={(e) => setQuestionInput(e.target.value.slice(0, 350))}
-                    placeholder="What is confusing about this sentence?"
+                    placeholder={isRecording ? "Listening to your question..." : "What is confusing about this sentence?"}
                     rows={2}
                     maxLength={350}
                     autoFocus
-                    className="w-full bg-slate-950/90 border border-slate-800 rounded-xl p-2.5 pr-10 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 resize-none"
+                    className={cn(
+                      "w-full bg-slate-950/90 border rounded-xl p-2.5 pr-10 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none resize-none transition-all",
+                      isRecording
+                        ? "border-red-500/60 ring-1 ring-red-500/40 bg-red-950/20"
+                        : "border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                    )}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
@@ -617,45 +692,59 @@ export function AskButton() {
                       }
                     }}
                   />
+                  
+                  {/* Embedded Microphone Quick Action inside text area corner */}
+                  <button
+                    type="button"
+                    onClick={toggleRecording}
+                    disabled={isTranscribing}
+                    className={cn(
+                      "absolute right-2 top-2 p-1.5 rounded-lg transition-all",
+                      isRecording
+                        ? "bg-red-500 text-white animate-bounce shadow-md shadow-red-500/50"
+                        : "text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80"
+                    )}
+                    title={isRecording ? "Click to stop recording" : "Click to speak question"}
+                  >
+                    {isTranscribing ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                    ) : (
+                      <Mic className={cn("w-3.5 h-3.5", isRecording && "text-white")} />
+                    )}
+                  </button>
+
                   <div className="absolute right-2 bottom-2 text-[10px] text-slate-500 select-none">
                     {350 - questionInput.length}
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  {/* Microphone Button */}
-                  {micAllowed ? (
-                    <button
-                      type="button"
-                      onClick={toggleRecording}
-                      disabled={isTranscribing}
-                      className={cn(
-                        'px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 text-xs font-medium',
-                        isRecording
-                          ? 'bg-red-500/20 border-red-500 text-red-300 animate-pulse'
-                          : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
-                      )}
-                      title={isRecording ? 'Click to stop recording' : 'Click to speak question'}
-                    >
-                      {isTranscribing ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                      ) : (
-                        <Mic className={cn('w-3.5 h-3.5', isRecording && 'text-red-400')} />
-                      )}
-                      <span>
-                        {isRecording
-                          ? `Recording (${recordingTime}s)...`
-                          : isTranscribing
-                          ? 'Transcribing...'
-                          : 'Voice'}
-                      </span>
-                    </button>
-                  ) : (
-                    <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                      <MicOff className="w-3 h-3" />
-                      <span>Type question</span>
-                    </div>
-                  )}
+                  {/* Microphone Status Indicator */}
+                  <button
+                    type="button"
+                    onClick={toggleRecording}
+                    disabled={isTranscribing}
+                    className={cn(
+                      'px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 text-xs font-medium',
+                      isRecording
+                        ? 'bg-red-500/20 border-red-500 text-red-300 animate-pulse'
+                        : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
+                    )}
+                    title={isRecording ? 'Click to stop recording' : 'Click to speak question'}
+                  >
+                    {isTranscribing ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                    ) : (
+                      <Mic className={cn('w-3.5 h-3.5', isRecording ? 'text-red-400' : 'text-slate-400')} />
+                    )}
+                    <span>
+                      {isRecording
+                        ? `Recording (${recordingTime}s)...`
+                        : isTranscribing
+                        ? 'Transcribing...'
+                        : 'Voice Input'}
+                    </span>
+                  </button>
 
                   {/* Submit Button */}
                   <button
