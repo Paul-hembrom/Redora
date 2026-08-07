@@ -43,7 +43,7 @@ const sql = postgres(finalDbUrl, {
   max: 1, // ONE connection per serverless instance to prevent pool exhaustion in transaction mode
   idle_timeout: 20, // seconds - release idle connections quickly
   max_lifetime: 60 * 10, // recycle connections every 10 minutes
-  connect_timeout: 30, // 30 seconds connection timeout for high-latency or pooler handshakes
+  connect_timeout: 10, // Fail fast instead of blocking a request for 15s
   prepare: false, // REQUIRED for Supavisor transaction mode (prepared statements disabled)
   connection: { application_name: 'readora-vercel' },
   onnotice: () => {},

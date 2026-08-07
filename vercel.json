@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/index.ts": {
-      "maxDuration": 1800
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -9,12 +9,7 @@
     { "source": "/auth/(.*)", "destination": "/api/index" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
-  "crons": [
-    {
-      "path": "/api/jobs/drain",
-      "schedule": "*/2 * * * *"
-    }
-  ],
+  "crons": [],
   "headers": [
     {
       "source": "/auth/token-exchange",
