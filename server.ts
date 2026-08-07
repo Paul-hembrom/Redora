@@ -346,15 +346,15 @@ async function incrementUsage(userId: string, type: string, orgId?: string, tx?:
   const schoolId = orgs[0].school_id;
   
   if (type === 'document') {
-    await q.unsafe(`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+    await q`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
   } else if (type === 'video') {
-    await q.unsafe(`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+    await q`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
   } else if (type === 'image') {
-    await q.unsafe(`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+    await q`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
   } else if (type === 'interactive') {
-    await q.unsafe(`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
+    await q`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
   } else if (type === 'youtube') {
-    await q.unsafe(`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = '${schoolId}'`);
+    await q`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = ${schoolId}`;
   }
 }
 
@@ -494,22 +494,23 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
   if (verifyOnly) return;
   await incrementUsage(userId, type, orgId);
   return;
-  // (dead code below removed)
-  if (false && type === 'document') {
-    await sql.unsafe(`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
-  } else if (type === 'video') {
-    await sql.unsafe(`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
-  } else if (type === 'image') {
-    await sql.unsafe(`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
-  } else if (type === 'interactive') {
-    await sql.unsafe(`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = '${schoolId}'`);
-  } else if (type === 'youtube') {
-    await sql.unsafe(`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = '${schoolId}'`);
-  }
 }
 
-
-
+// --- Database Health Check Route ---
+app.get('/api/health/db', async (req: any, res: any) => {
+  const started = Date.now();
+  try {
+    const rows = await sql`
+      SELECT count(*)::int AS total,
+             count(*) FILTER (WHERE state = 'idle in transaction')::int AS idle_in_tx
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+    `;
+    res.json({ ok: true, ms: Date.now() - started, ...rows[0] });
+  } catch (e: any) {
+    res.status(503).json({ ok: false, ms: Date.now() - started, error: e.message });
+  }
+});
 
 // --- Auth Middleware ---
 const authenticate = async (req: any, res: any, next: any) => {
@@ -1150,48 +1151,74 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
       throw e;
     }
 
-    await sql.begin(async (tx: any) => {
-      const cleanName = (name || '').replace(/\x00/g, '');
-      const isPublic = false;
-      const safeTags = tags ? JSON.stringify(tags) : '[]';
-      await tx`
+    const flatChapters: any[] = [];
+    if (chapters && chapters.length > 0) {
+      const flatten = (nodes: any[], parentId: string | null = null) => {
+        nodes.forEach((ch, idx) => {
+          flatChapters.push({
+            id: ch.id,
+            document_id: id,
+            chapter_number: ch.chapterNumber || (idx + 1),
+            title: (ch.title || '').replace(/\x00/g, ''),
+            summary: (ch.summary || '').replace(/\x00/g, ''),
+            content: (ch.content || '').replace(/\x00/g, ''),
+            parent_id: parentId || ch.parentId || null,
+            sort_order: ch.sortOrder || idx,
+            type: ch.type || (parentId ? 'topic' : 'chapter')
+          });
+          if (ch.children && ch.children.length > 0) {
+            flatten(ch.children, ch.id);
+          }
+        });
+      };
+      flatten(chapters);
+    }
+
+    const MAX_ROWS_PER_TX = 2000;
+    const cleanName = (name || '').replace(/\x00/g, '');
+    const isPublic = false;
+    const safeTags = tags ? JSON.stringify(tags) : '[]';
+
+    if (flatChapters.length > MAX_ROWS_PER_TX) {
+      console.warn(`[documents] ${flatChapters.length} chapter rows — inserting outside a single transaction to prevent pool checkout timeout.`);
+      await sql`
         INSERT INTO documents (id, user_id, name, upload_date, tags, is_public, content_hash) 
         VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic}, ${contentHash || null})
       `;
       if (contentHash) {
-        await tx`DELETE FROM upload_locks WHERE hash = ${contentHash}`;
+        await sql`DELETE FROM upload_locks WHERE hash = ${contentHash}`;
       }
-      
-      if (chapters && chapters.length > 0) {
-        const flatChapters: any[] = [];
-        const flatten = (nodes: any[], parentId: string | null = null) => {
-          nodes.forEach((ch, idx) => {
-            flatChapters.push({
-              id: ch.id,
-              document_id: id,
-              chapter_number: ch.chapterNumber || (idx + 1),
-              title: (ch.title || '').replace(/\x00/g, ''),
-              summary: (ch.summary || '').replace(/\x00/g, ''),
-              content: (ch.content || '').replace(/\x00/g, ''),
-              parent_id: parentId || ch.parentId || null,
-              sort_order: ch.sortOrder || idx,
-              type: ch.type || (parentId ? 'topic' : 'chapter')
-            });
-            if (ch.children && ch.children.length > 0) {
-              flatten(ch.children, ch.id);
-            }
-          });
-        };
-        flatten(chapters);
-
+      try {
         const BATCH = 500;
         for (let i = 0; i < flatChapters.length; i += BATCH) {
           const slice = flatChapters.slice(i, i + BATCH);
-          await tx`INSERT INTO chapters ${tx(slice)}`;
+          await sql`INSERT INTO chapters ${sql(slice)}`;
         }
-        console.log(`[documents] Inserted ${flatChapters.length} chapter rows in ${Math.ceil(flatChapters.length / BATCH)} batches.`);
+        await incrementUsage(req.userId, 'document', orgId);
+      } catch (e) {
+        await sql`DELETE FROM chapters WHERE document_id = ${id}`;
+        await sql`DELETE FROM documents WHERE id = ${id}`;
+        throw e;
       }
-    });
+    } else {
+      await sql.begin(async (tx: any) => {
+        await tx`
+          INSERT INTO documents (id, user_id, name, upload_date, tags, is_public, content_hash) 
+          VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic}, ${contentHash || null})
+        `;
+        if (contentHash) {
+          await tx`DELETE FROM upload_locks WHERE hash = ${contentHash}`;
+        }
+        
+        if (flatChapters.length > 0) {
+          const BATCH = 500;
+          for (let i = 0; i < flatChapters.length; i += BATCH) {
+            const slice = flatChapters.slice(i, i + BATCH);
+            await tx`INSERT INTO chapters ${tx(slice)}`;
+          }
+        }
+      });
+    }
     res.json({ success: true, document_id: id });
   } catch (err: any) {
     // Log the FULL error so we can see exactly what column/constraint is failing
@@ -4281,6 +4308,10 @@ app.get('/api/curriculum-test', (req, res) => {
 const MAX_JOB_ATTEMPTS = 3;
 
 async function drainOneJob(): Promise<{ drained: number; job_type?: string; status?: string; error?: string }> {
+  // Cheap check before taking locks
+  const pending = await sql`SELECT 1 FROM job_queue WHERE status = 'queued' LIMIT 1`;
+  if (!pending.length) return { drained: 0 };
+
   const claimed = await sql`
     UPDATE job_queue
        SET status = 'running', started_at = NOW(), attempts = attempts + 1
@@ -4390,7 +4421,9 @@ async function startServer() {
     // In-process worker loop
     setInterval(async () => {
       try {
-        await drainOneJob();
+        if (dbReady) {
+          await drainOneJob();
+        }
       } catch (e) {}
     }, 5000);
   }

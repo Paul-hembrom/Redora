@@ -39,9 +39,14 @@ const isLocal = finalDbUrl.includes('localhost') || finalDbUrl.includes('127.0.0
 
 // Configure postgres client
 const sql = postgres(finalDbUrl, {
-  ssl: isLocal ? false : 'require', // Supabase requires SSL for all remote connections
-  max: 10, // Max number of connections
-  connect_timeout: 30, // Updated to 30 seconds
+  ssl: isLocal ? false : { rejectUnauthorized: false }, // Avoid SSL certificate validation hangs/failures on remote connection
+  max: 1, // ONE connection per serverless instance to prevent pool exhaustion in transaction mode
+  idle_timeout: 20, // seconds - release idle connections quickly
+  max_lifetime: 60 * 10, // recycle connections every 10 minutes
+  connect_timeout: 30, // 30 seconds connection timeout for high-latency or pooler handshakes
+  prepare: false, // REQUIRED for Supavisor transaction mode (prepared statements disabled)
+  connection: { application_name: 'readora-vercel' },
+  onnotice: () => {},
 });
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -59,10 +64,17 @@ export async function initDb() {
       console.log('Database connected successfully.');
     } catch (err: any) {
       console.warn(`Connection attempt failed: ${err.message}`);
+      if (err.message?.includes('authentication did not complete') || err.message?.includes('CONNECT_TIMEOUT') || err.code === 'CONNECT_TIMEOUT') {
+        console.error('\n================================================================================\n' +
+          'DATABASE AUTHENTICATION / CONNECTION TIMEOUT DETECTED.\n' +
+          'Please verify your DATABASE_URL environment variable has the correct password and project reference.\n' +
+          'Format: postgres://postgres.[project-ref]:[password]@...pooler.supabase.com:6543/postgres\n' +
+          '================================================================================\n');
+      }
       retries--;
       if (retries > 0) {
-        console.log('Waiting 5 seconds before retrying...');
-        await sleep(5000);
+        console.log('Waiting 2 seconds before retrying...');
+        await sleep(2000);
       }
     }
   }
@@ -71,6 +83,19 @@ export async function initDb() {
     console.warn('All database connection retries failed. Setting flag dbReady = false. This is expected if DATABASE_URL is not configured.');
     dbReady = false;
     return;
+  }
+
+  // Avoid running heavy DDL / locks on every serverless cold start if table already exists
+  try {
+    const existingTable = await sql`
+      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users' LIMIT 1
+    `;
+    if (existingTable.length > 0) {
+      console.log('Database schema already initialized. Skipping DDL execution on cold start.');
+      return;
+    }
+  } catch (e) {
+    // Proceed to create tables if check failed
   }
 
   try {
@@ -319,7 +344,10 @@ export async function initDb() {
   }
 }
 
-// Run initialization
-initDb();
+// Run initialization safely
+initDb().catch((err) => {
+  console.error('initDb unhandled error:', err);
+  dbReady = false;
+});
 
 export default sql;
