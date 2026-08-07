@@ -37,15 +37,17 @@ export let dbReady = true;
 
 const isLocal = finalDbUrl.includes('localhost') || finalDbUrl.includes('127.0.0.1');
 
+const isServerless = Boolean(process.env.VERCEL);
+
 // Configure postgres client
 const sql = postgres(finalDbUrl, {
   ssl: isLocal ? false : { rejectUnauthorized: false }, // Avoid SSL certificate validation hangs/failures on remote connection
-  max: 1, // ONE connection per serverless instance to prevent pool exhaustion in transaction mode
-  idle_timeout: 20, // seconds - release idle connections quickly
+  max: isServerless ? 1 : 5, // 1 for Vercel serverless, 5 for persistent Railway worker/server
+  idle_timeout: isServerless ? 20 : 0, // Release idle connections quickly on Vercel
   max_lifetime: 60 * 10, // recycle connections every 10 minutes
   connect_timeout: 10, // Fail fast instead of blocking a request for 15s
   prepare: false, // REQUIRED for Supavisor transaction mode (prepared statements disabled)
-  connection: { application_name: 'readora-vercel' },
+  connection: { application_name: isServerless ? 'readora-vercel' : 'readora-worker' },
   onnotice: () => {},
 });
 
