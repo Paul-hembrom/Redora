@@ -571,15 +571,15 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 function getDocUserFilter(req: any) {
   if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
-    return sql`user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})`;
+    return sql`(user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}) OR user_id = ${req.userId})`;
   }
   return sql`user_id = ${req.userId}`;
 }
 
 function getDocAliasUserFilter(req: any, alias: string) {
   if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
-    if (alias === 'd') return sql`d.user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})`;
-    if (alias === 'c') return sql`c.document_id IN (SELECT id FROM documents WHERE user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}))`;
+    if (alias === 'd') return sql`(d.user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}) OR d.user_id = ${req.userId})`;
+    if (alias === 'c') return sql`(c.document_id IN (SELECT id FROM documents WHERE user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})) OR c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId}))`;
   }
   if (alias === 'd') return sql`d.user_id = ${req.userId}`;
   if (alias === 'c') return sql`c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId})`;
@@ -947,8 +947,8 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
     if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
       docs = await sql`
         SELECT DISTINCT d.* FROM documents d
-        JOIN organization_members om ON d.user_id = om.user_id
-        WHERE om.organization_id = ${req.orgId}
+        LEFT JOIN organization_members om ON d.user_id = om.user_id
+        WHERE (om.organization_id = ${req.orgId} OR d.user_id = ${req.userId})
         ORDER BY d.upload_date DESC
       `;
     } else {

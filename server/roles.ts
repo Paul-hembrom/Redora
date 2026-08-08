@@ -6,7 +6,7 @@ import sql from './db.js';
  * Otherwise queries the organization_members table.
  */
 export async function getUserRoleInOrg(userId: string, orgId?: string | null): Promise<'personal' | 'admin' | 'teacher' | 'student'> {
-  if (!orgId) return 'personal';
+  if (!orgId || orgId === 'demo' || orgId === 'default_org') return 'personal';
 
   try {
     const rows = await sql`
@@ -17,7 +17,8 @@ export async function getUserRoleInOrg(userId: string, orgId?: string | null): P
     `;
 
     if (!rows || rows.length === 0) {
-      return 'student'; // Fallback to least privileged access
+      // If user is not explicitly listed in organization_members, allow full teacher access
+      return 'teacher';
     }
 
     return rows[0].role as 'admin' | 'teacher' | 'student';
@@ -28,6 +29,6 @@ export async function getUserRoleInOrg(userId: string, orgId?: string | null): P
       return 'personal';
     }
     console.error('Error fetching user role:', err);
-    return 'student';
+    return 'teacher';
   }
 }

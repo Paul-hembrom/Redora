@@ -21,7 +21,7 @@ Text to normalize:
 ${text}`;
 
     try {
-        const normalized = await callLLM(prompt);
+        const normalized = await callLLM(prompt, undefined, undefined, undefined, undefined, undefined, 'normalizeTextWithLLM');
         const result = normalized.trim();
         ttsNormalizationCache.set(text, result);
         return result;

@@ -403,6 +403,7 @@ export default function ChatArea({ isFocusMode, focusFontSize = "xl", chapter, d
     }
 
     fetch(`/api/chats/${encodeURIComponent(chapter.id)}`, {
+      credentials: 'include',
       headers: {
         ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
       }
@@ -920,6 +921,7 @@ const handleFetchImages = async () => {
     if (!chapter.id.startsWith('lib_')) {
       fetch('/api/chats', {
         method: 'POST',
+        credentials: 'include',
         headers: { 
           'Content-Type': 'application/json',
           ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})
@@ -967,6 +969,7 @@ const handleFetchImages = async () => {
     if (!chapter.id.startsWith('lib_')) {
       fetch('/api/chats', {
         method: 'POST',
+        credentials: 'include',
         headers: { 
           'Content-Type': 'application/json',
           ...(localStorage.getItem('token') ? { 'Authorization': `Bearer ${localStorage.getItem('token')}` } : {})

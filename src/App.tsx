@@ -145,7 +145,7 @@ export default function App() {
     if (isSyncing || isOffline) return;
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/documents');
+      const res = await fetch('/api/documents', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -334,12 +334,12 @@ export default function App() {
       }
       
       // Sequence initialization: fetch context, then documents
-      fetch('/api/me/context')
+      fetch('/api/me/context', { credentials: 'include' })
         .then(res => {
           if (!res.ok) throw new Error('Failed to fetch org context');
           return res.json();
         })
-        .then(() => fetch('/api/documents'))
+        .then(() => fetch('/api/documents', { credentials: 'include' }))
         .then(res => {
           if (res.status === 401) {
             logout();
@@ -590,10 +590,14 @@ export default function App() {
     setIsUploading(true);
     setUploadError(null);
     try {
+      const uploadOptions: PreprocessOptions = {
+        ...options,
+        deepProcess: false, // titles come from the book; summaries come from the star icon
+      };
       for (const file of files) {
         const tempDocId = uuidv4();
         
-        const chapters = await processDocument(file, options, setUploadProgress, {
+        const chapters = await processDocument(file, uploadOptions, setUploadProgress, {
           onDiscovered: (initialChapters) => {
             const newDoc: Document = {
               id: tempDocId,
@@ -637,6 +641,7 @@ export default function App() {
         
         const res = await fetch('/api/documents', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(finalDoc)
         });
@@ -648,7 +653,7 @@ export default function App() {
 
         // Re-fetch document list after successful upload
         try {
-          const docsRes = await fetch('/api/documents');
+          const docsRes = await fetch('/api/documents', { credentials: 'include' });
           if (docsRes.ok) {
             const data = await docsRes.json();
             if (Array.isArray(data)) {
@@ -691,7 +696,7 @@ export default function App() {
       if (err.message && err.message.includes('dynamically imported module')) {
         setUploadError('App version updated. Please refresh the page to continue.');
       } else {
-        setUploadError('Failed to process document. Please try again or ensure it is a valid format.');
+        setUploadError(err.message || 'Failed to process document. Please try again or ensure it is a valid format.');
       }
     } finally {
       setIsUploading(false);

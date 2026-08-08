@@ -179,7 +179,8 @@ export async function initDb() {
     `;
 
     try {
-      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES chapters(id) ON DELETE CASCADE`;
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id TEXT`;
+      await sql`ALTER TABLE chapters ALTER COLUMN parent_id TYPE TEXT USING parent_id::text`;
     } catch(e) {}
     try {
       await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;

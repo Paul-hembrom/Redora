@@ -78,6 +78,7 @@ async function callDeepSeek(
   maxRetries = 3,
   temperature = 0.2,
   imageUrl?: string,
+  callerLabel = 'unknown',
 ): Promise<string> {
   const messages: any[] = [];
   if (systemInstruction) messages.push({ role: 'system', content: systemInstruction });
@@ -134,8 +135,19 @@ async function callDeepSeek(
     }
 
     const data = await res.json();
-    let content = data.choices[0].message.content;
-    const finishReason = data.choices[0].finish_reason;
+    let content = data.choices[0]?.message?.content || '';
+    const finishReason = data.choices[0]?.finish_reason;
+    
+    // Log token usage and cost
+    const usage = data.usage || {};
+    const promptTokens = usage.prompt_tokens || 0;
+    const completionTokens = usage.completion_tokens || 0;
+    const reasoningTokens = usage.prompt_tokens_details?.reasoning_tokens || usage.completion_tokens_details?.reasoning_tokens || 0;
+    const estCostUSD = (promptTokens * 0.00000014) + (completionTokens * 0.00000028);
+
+    console.log(
+      `[llm-cost] func="${callerLabel}" | tokens_in=${promptTokens} | tokens_out=${completionTokens} | reasoning_tokens=${reasoningTokens} | est_cost=$${estCostUSD.toFixed(6)}`
+    );
     
     if (finishReason === 'length' && responseFormat === 'json_object') {
       if (attempt < maxRetries) {
@@ -406,10 +418,11 @@ export async function callLLM(
   maxTokens?: number,
   temperature?: number,
   imageUrl?: string,
+  callerLabel = 'callLLM',
 ): Promise<string> {
   if (hasKey(DEEPSEEK_KEY)) {
     try { 
-      return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens, imageUrl ? 0 : 3, temperature ?? 0.2, imageUrl); 
+      return await callDeepSeek(prompt, systemInstruction, responseFormat, maxTokens, imageUrl ? 0 : 3, temperature ?? 0.2, imageUrl, callerLabel); 
     } catch (e) { 
       console.warn('DeepSeek failed, falling back to Gemini', e); 
       if (imageUrl) throw e; 
@@ -497,7 +510,7 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object', 8192, 0);
+      const raw = await callLLM(prompt, undefined, 'json_object', 8192, 0, undefined, 'generateBatchChapterMetadata');
       const parsed = JSON.parse(raw);
       
       const result: { [chapterNumber: number]: { title: string, summary: string } } = {};
@@ -574,7 +587,7 @@ No markdown formatting, no explanation.
 
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const raw = await callLLM(prompt, undefined, 'json_object', 8192, 0);
+      const raw = await callLLM(prompt, undefined, 'json_object', 8192, 0, undefined, 'generateChapterMetadata');
       const parsed = JSON.parse(raw);
       let summaryObj = parsed.summary;
       if (Array.isArray(summaryObj)) {
