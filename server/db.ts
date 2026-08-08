@@ -138,6 +138,16 @@ export async function initDb() {
 
   try {
     await sql`
+      CREATE TABLE IF NOT EXISTS upload_locks (
+        user_id TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '2 minutes',
+        PRIMARY KEY (user_id, hash)
+      );
+    `;
+
+    await sql`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -167,32 +177,6 @@ export async function initDb() {
       await sql`ALTER TABLE storyboards ADD COLUMN IF NOT EXISTS generation_job_id TEXT`;
     } catch (e) {
       // Ignore if columns already exist or syntax error on older PG versions
-    }
-
-    try {
-      await sql`
-        UPDATE documents d
-        SET organization_id = om.organization_id
-        FROM organization_members om
-        WHERE d.organization_id IS NULL
-          AND om.user_id = d.user_id
-          AND (SELECT count(*) FROM organization_members x WHERE x.user_id = d.user_id) = 1
-      `;
-
-      const unresolved = await sql`
-        SELECT d.id, d.name, d.user_id,
-               (SELECT count(*) FROM organization_members x WHERE x.user_id = d.user_id) AS class_count
-        FROM documents d
-        WHERE d.organization_id IS NULL
-        ORDER BY class_count DESC
-      `;
-      if (unresolved.length > 0) {
-        console.info(`[db] Unresolved documents for organization_id backfill (${unresolved.length} rows):`, unresolved);
-      } else {
-        console.info(`[db] Backfill completed with 0 unresolved documents.`);
-      }
-    } catch (e) {
-      console.warn('[db] Backfill for documents.organization_id skipped/failed:', e);
     }
 
     await sql`
@@ -328,11 +312,11 @@ export async function initDb() {
     try {
       await sql`DELETE FROM visual_metadata a USING visual_metadata b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
       await sql`DELETE FROM narration_assets a USING narration_assets b WHERE a.ctid < b.ctid AND a.scene_id = b.scene_id`;
+      await sql`ALTER TABLE visual_metadata DROP CONSTRAINT IF EXISTS visual_metadata_scene_uniq`;
       await sql`ALTER TABLE visual_metadata ADD CONSTRAINT visual_metadata_scene_uniq UNIQUE (scene_id)`;
-    } catch (e) {}
-    try {
+      await sql`ALTER TABLE narration_assets DROP CONSTRAINT IF EXISTS narration_assets_scene_uniq`;
       await sql`ALTER TABLE narration_assets ADD CONSTRAINT narration_assets_scene_uniq UNIQUE (scene_id)`;
-    } catch(e) {}
+    } catch (e) {}
 
     await sql`
       CREATE TABLE IF NOT EXISTS student_memory (
@@ -418,6 +402,7 @@ if (!process.env.VERCEL) {
   });
 } else {
   console.log('[db] Skipping initDb on Vercel — schema managed by worker/migration.');
+  dbReady = true;
 }
 
 export default sql;
