@@ -247,6 +247,11 @@ app.all(['/auth/token-exchange', '/api/auth/token-exchange'], async (req, res) =
     console.log('Setting cookies with domain:', cookieDomain || 'none');
     console.log('Cookie options:', JSON.stringify(cookieOptions));
     
+    res.clearCookie('sb-org-id', { path: '/' });
+    res.clearCookie('sb-role',   { path: '/' });
+    res.clearCookie('sb-org-id', { path: '/', domain: '.alphanexoraai.com' });
+    res.clearCookie('sb-role',   { path: '/', domain: '.alphanexoraai.com' });
+
     // If verification succeeds, set the cookie exactly as your existing login does
     res.cookie('token', localToken, cookieOptions);
     
@@ -540,6 +545,11 @@ const authenticate = async (req: any, res: any, next: any) => {
   
   if (!validUserId) return res.status(401).json({ error: 'Invalid token' });
   req.userId = validUserId;
+
+  const dupOrg = (req.headers.cookie?.match(/(?:^|;\s*)sb-org-id=/g) || []).length;
+  if (dupOrg > 1) {
+    console.warn(`[auth] ${dupOrg} sb-org-id cookies present — org scoping unreliable for user ${req.userId}`);
+  }
   
   const orgId = req.cookies['sb-org-id'];
   req.orgId = null;
@@ -571,44 +581,34 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 function getDocUserFilter(req: any) {
   if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
-    // CLASS-SCOPED ONLY.
+    // Scope by the class the document BELONGS TO, not by who is a member of it.
     //
-    // Each class is a row in `organizations`, so a teacher has one membership
-    // row per class. A document belongs to the class it was uploaded in.
-    //
-    // DO NOT add `OR user_id = ${req.userId}` here. That was introduced to fix
-    // documents vanishing on reload, but the real cause was duplicate
-    // organization_members rows — now fixed with UNIQUE (organization_id,
-    // user_id). Re-adding it breaks class isolation: a teacher's Grade 7
-    // uploads appear in their Grade 5 class.
-    return sql`user_id IN (
-      SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}
-    )`;
+    // The membership-based filter could not isolate a multi-class teacher:
+    // they appear in every class's member list, so all their documents appeared
+    // in every class they teach. This is a direct indexed comparison and also
+    // removes the IN-subquery.
+    return sql`organization_id = ${req.orgId}`;
   }
-  // Personal workspace (no org cookie): own documents only.
-  return sql`user_id = ${req.userId}`;
+  // Personal workspace: own documents not bound to any class.
+  return sql`(organization_id IS NULL AND user_id = ${req.userId})`;
 }
 
 function getDocAliasUserFilter(req: any, alias: string) {
   if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
-    if (alias === 'd') {
-      return sql`d.user_id IN (
-        SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}
-      )`;
-    }
+    if (alias === 'd') return sql`d.organization_id = ${req.orgId}`;
     if (alias === 'c') {
       return sql`c.document_id IN (
-        SELECT id FROM documents WHERE user_id IN (
-          SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}
-        )
+        SELECT id FROM documents WHERE organization_id = ${req.orgId}
       )`;
     }
   }
-  if (alias === 'd') return sql`d.user_id = ${req.userId}`;
+  if (alias === 'd') return sql`(d.organization_id IS NULL AND d.user_id = ${req.userId})`;
   if (alias === 'c') {
-    return sql`c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId})`;
+    return sql`c.document_id IN (
+      SELECT id FROM documents WHERE organization_id IS NULL AND user_id = ${req.userId}
+    )`;
   }
-  return sql`user_id = ${req.userId}`;
+  return sql`(organization_id IS NULL AND user_id = ${req.userId})`;
 }
 
 // --- Trial & Feature Gating limits ---
