@@ -595,109 +595,119 @@ export default function App() {
         deepProcess: false, // titles come from the book; summaries come from the star icon
       };
       for (const file of files) {
-        const tempDocId = uuidv4();
-        
-        const chapters = await processDocument(file, uploadOptions, setUploadProgress, {
-          onDiscovered: (initialChapters) => {
-            const newDoc: Document = {
-              id: tempDocId,
-              name: file.name,
-              uploadDate: new Date().toISOString(),
-              chapters: initialChapters
-            };
-            setDocuments(prev => [newDoc, ...prev]);
-            if (true) {
-              setSelectedDocId(newDoc.id);
-              if (initialChapters.length > 0) {
-                setSelectedChapterId(initialChapters[0].id);
-              } else {
-                setSelectedChapterId(null);
-              }
-            }
-          },
-          onChapterDone: (idOrIdx: any, title: string, summary: string) => {
-            setDocuments(prev => prev.map(d => {
-              if (d.id !== tempDocId) return d;
-              const nextChap = [...d.chapters];
-              
-              // Find by id if idOrIdx is string (we changed to passing ID, but handle both)
-              let targetIdx = typeof idOrIdx === 'number' ? idOrIdx : nextChap.findIndex(c => c.id === idOrIdx);
-              if (targetIdx >= 0 && targetIdx < nextChap.length) {
-                 nextChap[targetIdx] = { ...nextChap[targetIdx], title, summary, isGenerating: false };
-              }
-              return { ...d, chapters: nextChap };
-            }));
-          }
-        });
-
-        const contentHash = await hashFile(file);
-        const finalDoc: any = {
-          id: tempDocId,
-          name: file.name,
-          uploadDate: new Date().toISOString(),
-          chapters,
-          contentHash
-        };
-        
-        const res = await fetch('/api/documents', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(finalDoc)
-        });
-
-        if (!res.ok) {
-           const errData = await res.json().catch(() => ({}));
-           throw new Error(errData.error || 'Failed to sync document to server');
-        }
-
-        // Re-fetch document list after successful upload
+        let savedOk = false;
         try {
-          const docsRes = await fetch('/api/documents', { credentials: 'include' });
-          if (docsRes.ok) {
-            const data = await docsRes.json();
-            if (Array.isArray(data)) {
-              setDocuments(data);
-              import('./lib/offline').then(m => m.cacheDocuments(data));
-              
-              // Find the newly uploaded document (by tempDocId which was preserved, or just use the response if available)
-              const newDocInList = data.find((d: any) => d.id === finalDoc.id);
-              if (newDocInList) {
-                setSelectedDocId(newDocInList.id);
-                // Clear selectedChapter or currentChapterId state so the reader shows the new book's first chapter
-                if (newDocInList.chapters && newDocInList.chapters.length > 0) {
-                  setSelectedChapterId(newDocInList.chapters[0].id);
+          const tempDocId = uuidv4();
+          
+          const chapters = await processDocument(file, uploadOptions, setUploadProgress, {
+            onDiscovered: (initialChapters) => {
+              const newDoc: Document = {
+                id: tempDocId,
+                name: file.name,
+                uploadDate: new Date().toISOString(),
+                chapters: initialChapters
+              };
+              setDocuments(prev => [newDoc, ...prev]);
+              if (true) {
+                setSelectedDocId(newDoc.id);
+                if (initialChapters.length > 0) {
+                  setSelectedChapterId(initialChapters[0].id);
                 } else {
                   setSelectedChapterId(null);
                 }
               }
+            },
+            onChapterDone: (idOrIdx: any, title: string, summary: string) => {
+              setDocuments(prev => prev.map(d => {
+                if (d.id !== tempDocId) return d;
+                const nextChap = [...d.chapters];
+                
+                // Find by id if idOrIdx is string (we changed to passing ID, but handle both)
+                let targetIdx = typeof idOrIdx === 'number' ? idOrIdx : nextChap.findIndex(c => c.id === idOrIdx);
+                if (targetIdx >= 0 && targetIdx < nextChap.length) {
+                   nextChap[targetIdx] = { ...nextChap[targetIdx], title, summary, isGenerating: false };
+                }
+                return { ...d, chapters: nextChap };
+              }));
             }
-          }
-        } catch (e) {
-          console.error('Failed to refetch documents after upload', e);
-        }
+          });
 
-        window.dispatchEvent(new Event('usage-updated'));
+          const contentHash = await hashFile(file);
+          const finalDoc: any = {
+            id: tempDocId,
+            name: file.name,
+            uploadDate: new Date().toISOString(),
+            chapters,
+            contentHash
+          };
+          
+          const res = await fetch('/api/documents', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(finalDoc)
+          });
+
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new Error(`Save failed (${res.status}): ${body.slice(0, 200)}`);
+          }
+          savedOk = true;
+
+          // Everything below is presentation only. A failure here must NOT be
+          // reported as an upload failure — the document is already saved.
+          try {
+            const listRes = await fetch('/api/documents', { credentials: 'include' });
+            if (listRes.ok) {
+              const data = await listRes.json();
+              if (Array.isArray(data)) {
+                setDocuments(data);
+                import('./lib/offline').then(m => m.cacheDocuments(data));
+
+                const newDocInList = data.find((d: any) => d.id === finalDoc.id);
+                if (newDocInList) {
+                  setSelectedDocId(newDocInList.id);
+                  if (newDocInList.chapters && newDocInList.chapters.length > 0) {
+                    setSelectedChapterId(newDocInList.chapters[0].id);
+                  } else {
+                    setSelectedChapterId(null);
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[upload] Document saved, but refresh/selection failed:', e);
+          }
+
+          window.dispatchEvent(new Event('usage-updated'));
+        } catch (err: any) {
+          console.error('[upload] failed:', err);
+
+          // Log to backend
+          fetch('/api/log-client-error', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: err.message,
+              stack: err.stack,
+              source: 'App.tsx handleUpload'
+            })
+          }).catch(() => {});
+
+          if (savedOk) {
+            console.warn('[upload] Post-save step failed; the document IS saved.');
+          } else if (err.message?.includes('dynamically imported module')) {
+            setUploadError('App version updated. Please refresh the page to continue.');
+          } else if (err.message?.includes('504') || err.message?.includes('TIMEOUT')) {
+            setUploadError('Saving took too long and timed out. Please try again.');
+          } else {
+            setUploadError(`Failed to save document: ${err.message}`);
+          }
+        }
       }
     } catch (err: any) {
-      console.error(err);
-      
-      // Log to backend
-      fetch('/api/log-client-error', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: err.message,
-          stack: err.stack,
-          source: 'App.tsx handleUpload'
-        })
-      }).catch(() => {});
-
-      if (err.message && err.message.includes('dynamically imported module')) {
-        setUploadError('App version updated. Please refresh the page to continue.');
-      } else {
-        setUploadError(err.message || 'Failed to process document. Please try again or ensure it is a valid format.');
-      }
+      console.error('[upload] outer failed:', err);
+      setUploadError(`Failed to process document: ${err.message}`);
     } finally {
       setIsUploading(false);
       setUploadProgress('');

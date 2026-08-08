@@ -17,18 +17,17 @@ export async function getUserRoleInOrg(userId: string, orgId?: string | null): P
     `;
 
     if (!rows || rows.length === 0) {
-      // If user is not explicitly listed in organization_members, allow full teacher access
-      return 'teacher';
+      console.warn(`[roles] No membership for user=${userId} org=${orgId} — defaulting to 'student'`);
+      return 'student';
     }
 
     return rows[0].role as 'admin' | 'teacher' | 'student';
   } catch (err: any) {
     if (err.message?.includes('does not exist')) {
-      // If table doesn't exist yet, default to personal to avoid breaking the app entirely
       console.warn('organization_members table does not exist. Defaulting to personal role.');
       return 'personal';
     }
     console.error('Error fetching user role:', err);
-    return 'teacher';
+    return 'student';
   }
 }
