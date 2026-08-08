@@ -162,9 +162,37 @@ export async function initDb() {
     try {
       await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'`;
       await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`;
+      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS organization_id TEXT`;
+      await sql`CREATE INDEX IF NOT EXISTS idx_documents_org ON documents (organization_id)`;
       await sql`ALTER TABLE storyboards ADD COLUMN IF NOT EXISTS generation_job_id TEXT`;
     } catch (e) {
       // Ignore if columns already exist or syntax error on older PG versions
+    }
+
+    try {
+      await sql`
+        UPDATE documents d
+        SET organization_id = om.organization_id
+        FROM organization_members om
+        WHERE d.organization_id IS NULL
+          AND om.user_id = d.user_id
+          AND (SELECT count(*) FROM organization_members x WHERE x.user_id = d.user_id) = 1
+      `;
+
+      const unresolved = await sql`
+        SELECT d.id, d.name, d.user_id,
+               (SELECT count(*) FROM organization_members x WHERE x.user_id = d.user_id) AS class_count
+        FROM documents d
+        WHERE d.organization_id IS NULL
+        ORDER BY class_count DESC
+      `;
+      if (unresolved.length > 0) {
+        console.info(`[db] Unresolved documents for organization_id backfill (${unresolved.length} rows):`, unresolved);
+      } else {
+        console.info(`[db] Backfill completed with 0 unresolved documents.`);
+      }
+    } catch (e) {
+      console.warn('[db] Backfill for documents.organization_id skipped/failed:', e);
     }
 
     await sql`

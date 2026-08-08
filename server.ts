@@ -571,18 +571,43 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 function getDocUserFilter(req: any) {
   if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
-    return sql`(user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}) OR user_id = ${req.userId})`;
+    // CLASS-SCOPED ONLY.
+    //
+    // Each class is a row in `organizations`, so a teacher has one membership
+    // row per class. A document belongs to the class it was uploaded in.
+    //
+    // DO NOT add `OR user_id = ${req.userId}` here. That was introduced to fix
+    // documents vanishing on reload, but the real cause was duplicate
+    // organization_members rows — now fixed with UNIQUE (organization_id,
+    // user_id). Re-adding it breaks class isolation: a teacher's Grade 7
+    // uploads appear in their Grade 5 class.
+    return sql`user_id IN (
+      SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}
+    )`;
   }
+  // Personal workspace (no org cookie): own documents only.
   return sql`user_id = ${req.userId}`;
 }
 
 function getDocAliasUserFilter(req: any, alias: string) {
   if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
-    if (alias === 'd') return sql`(d.user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}) OR d.user_id = ${req.userId})`;
-    if (alias === 'c') return sql`(c.document_id IN (SELECT id FROM documents WHERE user_id IN (SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId})) OR c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId}))`;
+    if (alias === 'd') {
+      return sql`d.user_id IN (
+        SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}
+      )`;
+    }
+    if (alias === 'c') {
+      return sql`c.document_id IN (
+        SELECT id FROM documents WHERE user_id IN (
+          SELECT user_id FROM organization_members WHERE organization_id = ${req.orgId}
+        )
+      )`;
+    }
   }
   if (alias === 'd') return sql`d.user_id = ${req.userId}`;
-  if (alias === 'c') return sql`c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId})`;
+  if (alias === 'c') {
+    return sql`c.document_id IN (SELECT id FROM documents WHERE user_id = ${req.userId})`;
+  }
   return sql`user_id = ${req.userId}`;
 }
 
@@ -947,8 +972,7 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
     if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
       docs = await sql`
         SELECT DISTINCT d.* FROM documents d
-        LEFT JOIN organization_members om ON d.user_id = om.user_id
-        WHERE (om.organization_id = ${req.orgId} OR d.user_id = ${req.userId})
+        WHERE ${getDocAliasUserFilter(req, 'd')}
         ORDER BY d.upload_date DESC
       `;
     } else {
@@ -1178,12 +1202,13 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     const cleanName = (name || '').replace(/\x00/g, '');
     const isPublic = false;
     const safeTags = tags ? JSON.stringify(tags) : '[]';
+    const orgIdForDoc = (orgId && orgId !== 'demo' && orgId !== 'default_org') ? orgId : null;
 
     if (flatChapters.length > MAX_ROWS_PER_TX) {
       console.warn(`[documents] ${flatChapters.length} chapter rows — inserting outside a single transaction to prevent pool checkout timeout.`);
       await sql`
-        INSERT INTO documents (id, user_id, name, upload_date, tags, is_public, content_hash) 
-        VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic}, ${contentHash || null})
+        INSERT INTO documents (id, user_id, name, upload_date, tags, is_public, content_hash, organization_id) 
+        VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic}, ${contentHash || null}, ${orgIdForDoc})
       `;
       if (contentHash) {
         await sql`DELETE FROM upload_locks WHERE hash = ${contentHash}`;
@@ -1203,8 +1228,8 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     } else {
       await sql.begin(async (tx: any) => {
         await tx`
-          INSERT INTO documents (id, user_id, name, upload_date, tags, is_public, content_hash) 
-          VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic}, ${contentHash || null})
+          INSERT INTO documents (id, user_id, name, upload_date, tags, is_public, content_hash, organization_id) 
+          VALUES (${id}, ${req.userId}, ${cleanName}, NOW(), ${safeTags}, ${isPublic}, ${contentHash || null}, ${orgIdForDoc})
         `;
         if (contentHash) {
           await tx`DELETE FROM upload_locks WHERE hash = ${contentHash}`;
