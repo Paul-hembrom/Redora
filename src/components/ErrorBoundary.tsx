@@ -57,10 +57,14 @@ export default class ErrorBoundary extends Component<Props, State> {
                </button>
                <button 
                   onClick={() => {
+                     // eslint-disable-next-line no-restricted-syntax
                      document.cookie.split(";").forEach((c) => {
-                        document.cookie = c
-                           .replace(/^ +/, "")
-                           .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+                        const name = c.replace(/^ +/, "").replace(/=.*/, "");
+                        const expiry = "=;expires=" + new Date().toUTCString() + ";path=/";
+                        // eslint-disable-next-line no-restricted-syntax
+                        document.cookie = name + expiry;                                  // host-only scope
+                        // eslint-disable-next-line no-restricted-syntax
+                        document.cookie = name + expiry + ";domain=.alphanexoraai.com";   // parent-domain scope
                      });
                      window.location.reload();
                   }}

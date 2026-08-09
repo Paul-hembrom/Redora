@@ -249,14 +249,37 @@ export default function App() {
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const roleParam = urlParams.get('role');
     const orgIdParam = urlParams.get('org_id');
 
-    if (roleParam) {
-      document.cookie = `sb-role=${encodeURIComponent(roleParam)}; path=/; max-age=604800; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`;
-    }
+    // NEVER write sb-org-id / sb-role / token from client JavaScript.
+    //
+    // document.cookie cannot set a `domain`, so it creates a HOST-ONLY cookie on
+    // redora.alphanexoraai.com. The server sets the same names on the PARENT
+    // domain .alphanexoraai.com (D1 /auth/token-exchange, D2 joinClass /
+    // enterSchoolContentWorkspace / OAuth callback). The browser treats those as
+    // two separate cookies and sends BOTH; cookie-parser reads the first, so
+    // req.orgId becomes unpredictable.
+    //
+    // Because this effect depends on `currentSearch`, it re-ran on every
+    // navigation and kept recreating the stale host-only cookie — which is why
+    // isolation worked right after a manual cookie clear and then broke again
+    // minutes later.
+    //
+    // It also downgrades an httpOnly cookie to script-readable.
+
     if (orgIdParam) {
-      document.cookie = `sb-org-id=${encodeURIComponent(orgIdParam)}; path=/; max-age=604800; SameSite=Lax${window.location.protocol === 'https:' ? '; Secure' : ''}`;
+      fetch('/api/session/org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId: orgIdParam }),
+      }).catch(console.error);
+    }
+
+    if (urlParams.has('org_id') || urlParams.has('role')) {
+      urlParams.delete('org_id');
+      urlParams.delete('role');
+      const clean = urlParams.toString();
+      window.history.replaceState({}, '', window.location.pathname + (clean ? `?${clean}` : ''));
     }
 
     const sharedDocId = urlParams.get('sharedDoc');

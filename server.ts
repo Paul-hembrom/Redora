@@ -976,6 +976,45 @@ app.get('/api/organizations', authenticate, async (req: any, res) => {
   }
 });
 
+app.post('/api/session/org', authenticate, async (req: any, res) => {
+  try {
+    const { orgId } = req.body || {};
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!orgId || !uuidRegex.test(orgId)) {
+      return res.status(400).json({ error: 'Invalid orgId' });
+    }
+
+    // Verify membership. The previous document.cookie version let anyone set
+    // any class id simply by editing the URL.
+    const membership = await sql`
+      SELECT role FROM organization_members
+      WHERE organization_id = ${orgId} AND user_id = ${req.userId}
+      LIMIT 1`;
+    if (!membership.length) {
+      return res.status(403).json({ error: 'Not a member of this class' });
+    }
+
+    const cookieDomain = req.hostname.endsWith('.alphanexoraai.com') ? '.alphanexoraai.com' : undefined;
+    const opts: any = {
+      httpOnly: true, secure: true, sameSite: 'lax', path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      ...(cookieDomain ? { domain: cookieDomain } : {}),
+    };
+
+    // Remove any legacy host-only cookie before setting the parent-domain one.
+    res.clearCookie('sb-org-id', { path: '/' });
+    res.clearCookie('sb-role', { path: '/' });
+
+    res.cookie('sb-org-id', orgId, opts);
+    res.cookie('sb-role', membership[0].role, opts);
+
+    res.json({ ok: true, role: membership[0].role });
+  } catch (err: any) {
+    console.error('[session/org] failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Document Routes ---
 app.get('/api/documents', authenticate, async (req: any, res) => {
   try {
