@@ -375,7 +375,7 @@ export default function App() {
                     return;
                   }
                   if (currDoc) {
-                    docs = [currDoc, ...docs];
+                    docs = [currDoc]; // In school content / curriculum workspace (V2), only display the preloaded curriculum document and isolate from user-uploaded V1 docs
                     setSelectedDocId(currDoc.id);
                     if (currDoc.chapters && currDoc.chapters.length > 0) {
                       const subtopicTitle = urlParams.get('subtopic');
