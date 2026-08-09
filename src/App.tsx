@@ -375,8 +375,19 @@ export default function App() {
                     return;
                   }
                   if (currDoc) {
-                    docs = [currDoc]; // In school content / curriculum workspace (V2), only display the preloaded curriculum document and isolate from user-uploaded V1 docs
-                    setSelectedDocId(currDoc.id);
+                    // Filter docs state to isolate curriculum workspace (V2) from personal user-uploaded V1 documents
+                    const curriculumDoc = { ...currDoc, category: 'curriculum', isCurriculum: true };
+                    const isCurriculumMode = source === 'curriculum';
+                    
+                    if (isCurriculumMode) {
+                      // Explicitly filter out any personal or user-uploaded documents when in curriculum workspace mode
+                      docs = [curriculumDoc];
+                    } else {
+                      const nonPersonalDocs = docs.filter(d => d.category !== 'personal' && !d.tags?.includes('personal'));
+                      docs = [curriculumDoc, ...nonPersonalDocs];
+                    }
+
+                    setSelectedDocId(curriculumDoc.id);
                     if (currDoc.chapters && currDoc.chapters.length > 0) {
                       const subtopicTitle = urlParams.get('subtopic');
                       let targetChapterId = null;

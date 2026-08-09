@@ -28,6 +28,8 @@ export interface Document {
   chapters: Chapter[];
   tags?: string[];
   isPublic?: boolean;
+  category?: 'personal' | 'curriculum' | string;
+  isCurriculum?: boolean;
 }
 
 export interface ChatMessage {
