@@ -223,6 +223,30 @@ export default function App() {
     };
   }, []);
 
+  const [currentSearch, setCurrentSearch] = useState(() => window.location.search);
+
+  useEffect(() => {
+    const handleLocationChange = () => {
+      setCurrentSearch(window.location.search);
+    };
+    window.addEventListener('popstate', handleLocationChange);
+    const origPushState = window.history.pushState;
+    const origReplaceState = window.history.replaceState;
+    window.history.pushState = function (...args) {
+      origPushState.apply(this, args);
+      handleLocationChange();
+    };
+    window.history.replaceState = function (...args) {
+      origReplaceState.apply(this, args);
+      handleLocationChange();
+    };
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+      window.history.pushState = origPushState;
+      window.history.replaceState = origReplaceState;
+    };
+  }, []);
+
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const roleParam = urlParams.get('role');
@@ -314,7 +338,7 @@ export default function App() {
         })
         .catch(console.error);
     }
-  }, [user]);
+  }, [user, currentSearch]);
 
   const [isDocsLoading, setIsDocsLoading] = useState(true);
 
@@ -455,6 +479,14 @@ export default function App() {
                if (doc && doc.chapters.length > 0) {
                  setSelectedChapterId(doc.chapters[0].id);
                }
+            } else if (source !== 'curriculum') {
+               // When in standard V1 mode, ensure selectedDocId points to a valid doc in docs
+               setSelectedDocId(prev => {
+                 if (prev && docs.some(d => d.id === prev)) {
+                   return prev;
+                 }
+                 return docs.length > 0 ? docs[0].id : null;
+               });
             }
             
             setDocuments(docs);
@@ -468,7 +500,7 @@ export default function App() {
     } else {
       setIsDocsLoading(false);
     }
-  }, [user, logout]);
+  }, [user, logout, currentSearch]);
 
   useEffect(() => {
     if (selectedDocId) {
