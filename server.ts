@@ -46,6 +46,17 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-
 
 export const app = express();
 
+app.set('etag', false); // disable ETag generation for API responses
+
+// stop caching /api/* and /auth/*
+app.use(['/api', '/auth'], (req, res, next) => {
+  // Per-user, per-class data must never be cached or revalidated by ETag.
+  // A shared ETag across classes caused 304s that replayed another class's document list.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 app.use(cookieParser());
