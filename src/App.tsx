@@ -375,16 +375,15 @@ export default function App() {
                     return;
                   }
                   if (currDoc) {
-                    // Filter docs state to isolate curriculum workspace (V2) from personal user-uploaded V1 documents
                     const curriculumDoc = { ...currDoc, category: 'curriculum', isCurriculum: true };
                     const isCurriculumMode = source === 'curriculum';
                     
                     if (isCurriculumMode) {
-                      // Explicitly filter out any personal or user-uploaded documents when in curriculum workspace mode
+                      // In curriculum (V2) workspace mode, show ONLY preloaded curriculum content
                       docs = [curriculumDoc];
                     } else {
-                      const nonPersonalDocs = docs.filter(d => d.category !== 'personal' && !d.tags?.includes('personal'));
-                      docs = [curriculumDoc, ...nonPersonalDocs];
+                      // In standard V1 mode, prepend curriculum content if present alongside user uploaded docs
+                      docs = [curriculumDoc, ...docs.filter(d => d.id !== curriculumDoc.id)];
                     }
 
                     setSelectedDocId(curriculumDoc.id);
