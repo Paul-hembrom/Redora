@@ -1,12 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Document } from '../types';
 import { BookOpen, Download } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { markdownComponents, QuestionContext } from './MarkdownComponents';
-import remarkGfm from 'remark-gfm';
 import { cn } from '../lib/utils';
 import { ReadAloudButton } from './ReadAloudButton';
-import { smartNormalizeText } from '../lib/utils';
+import { StructuredContentRenderer } from './StructuredContentRenderer';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
 
@@ -228,52 +225,27 @@ export default function DocumentReader({ isFocusMode, focusFontSize = "xl", docu
                   <div className="bg-white/5 border-l-4 border-cyan-500/50 p-4 mb-8 rounded-r-lg relative group/summary">
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-xs font-semibold uppercase tracking-widest text-cyan-400">Summary</h4>
-                      <ReadAloudButton text={chapter.summary} className="bg-transparent" iconSizeClasses="w-4 h-4" idPrefix="tts-summary-" />
+                      <ReadAloudButton text={typeof chapter.summary === 'string' ? chapter.summary : ''} className="bg-transparent" iconSizeClasses="w-4 h-4" idPrefix="tts-summary-" />
                     </div>
                     <div className={cn("prose prose-invert max-w-none text-white/70 font-light", isFocusMode ? `prose-${focusFontSize} focus-mode-text` : "prose-sm")}>
-                      {(() => {
-                        const content = typeof chapter.summary === 'string' ? smartNormalizeText(chapter.summary) : '';
-                        let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
-                        if (!blocks.length) blocks = [content];
-                        
-                        return blocks.map((s, idx) => (
-                          <div key={idx} id={`tts-summary-${idx}`}>
-                            <ReactMarkdown 
-                              remarkPlugins={[remarkGfm]}
-                              components={markdownComponents}
-                            >
-                              {s}
-                            </ReactMarkdown>
-                          </div>
-                        ));
-                      })()}
+                      <StructuredContentRenderer
+                        content={chapter.summary}
+                        topicTitle={chapter.title}
+                        isFocusMode={isFocusMode}
+                        focusFontSize={focusFontSize}
+                        idPrefix={`tts-summary-${index}-`}
+                      />
                     </div>
                   </div>
                 )}
                 <div className={cn("prose prose-invert max-w-none text-white/80 font-serif leading-relaxed markdown-body", isFocusMode ? `prose-${focusFontSize} focus-mode-text` : "")}>
-                  {(() => {
-                    const content = typeof chapter.content === 'string' ? smartNormalizeText(chapter.content) : '';
-                    let blocks: string[] = content.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
-                    if (!blocks.length) blocks = [content];
-                    
-                    return blocks.map((s, idx) => (
-                      <QuestionContext.Provider key={idx} value={{
-                        blockText: s,
-                        grade: undefined,
-                        subject: undefined,
-                        topic: chapter.title
-                      }}>
-                        <div id={`tts-chapter-${idx}`}>
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]}
-                            components={markdownComponents}
-                          >
-                            {s}
-                          </ReactMarkdown>
-                        </div>
-                      </QuestionContext.Provider>
-                    ));
-                  })()}
+                  <StructuredContentRenderer
+                    content={chapter.content}
+                    topicTitle={chapter.title}
+                    isFocusMode={isFocusMode}
+                    focusFontSize={focusFontSize}
+                    idPrefix={`tts-chapter-${index}-`}
+                  />
                 </div>
 
                 {/* Chapter Navigation Linking */}
