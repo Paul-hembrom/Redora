@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { generateExerciseAnswer } from '../lib/gemini';
 import { motion, AnimatePresence } from 'motion/react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { markdownComponents } from './MarkdownComponents';
+import { Markdown } from './MarkdownComponents';
 
 interface ExerciseCardProps {
   question: string;
@@ -44,12 +42,7 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
   return (
     <div className="group relative bg-white/[0.02] border border-white/5 rounded-xl p-6 transition-all hover:bg-white/[0.04]">
       <div className="prose prose-invert prose-sm max-w-none text-white/90 leading-relaxed font-serif whitespace-pre-wrap break-words pr-12">
-        <ReactMarkdown 
-          remarkPlugins={[remarkGfm]}
-          components={markdownComponents}
-        >
-          {question}
-        </ReactMarkdown>
+        <Markdown>{question}</Markdown>
       </div>
       
       <div className="absolute top-4 right-4 flex items-center gap-2">
@@ -94,7 +87,7 @@ export function ExerciseCard({ question, chapterContent, onAskAI }: ExerciseCard
               ) : (
                 <div className="prose prose-invert prose-sm max-w-none text-white/80 leading-relaxed font-sans">
                   {answer ? (
-                    <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>{answer}</ReactMarkdown>
+                    <Markdown>{answer}</Markdown>
                   ) : (
                     <div className="flex flex-col gap-2">
                        <div className="h-4 bg-white/5 rounded w-3/4 animate-pulse"></div>

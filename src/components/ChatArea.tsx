@@ -1,9 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Chapter, ChatMessage, ReadingPersona } from '../types';
 import { Send, Loader2, Sparkles, AlertTriangle, Copy, Check, Trash2, Download, CloudDownload, Zap, BookA, Target, Video, Film, Newspaper, MessageCircleQuestion, X, PlayCircle, Wand2, Pin, PinOff, Volume2, Square, FastForward, Lock, Mic, MicOff } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { markdownComponents, QuestionContext } from './MarkdownComponents';
-import remarkGfm from 'remark-gfm';
+import { Markdown, markdownComponents, QuestionContext } from './MarkdownComponents';
 import RelationshipGraph from './RelationshipGraph';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -1303,12 +1301,9 @@ const handleFetchImages = async () => {
                     
                     return blocks.map((s, idx) => (
                       <div key={idx} id={`tts-summary-${idx}`}>
-                        <ReactMarkdown 
-                          remarkPlugins={[remarkGfm]}
-                          components={markdownComponents}
-                        >
+                        <Markdown>
                           {s}
-                        </ReactMarkdown>
+                        </Markdown>
                       </div>
                     ));
                   })()}
@@ -1346,12 +1341,9 @@ const handleFetchImages = async () => {
                         topic: chapter.title
                       }}>
                         <div id={`tts-chapter-${chapter.id}-${idx}`}>
-                          <ReactMarkdown 
-                            remarkPlugins={[remarkGfm]}
-                            components={markdownComponents}
-                          >
+                          <Markdown>
                             {s}
-                          </ReactMarkdown>
+                          </Markdown>
                         </div>
                       </QuestionContext.Provider>
                     ));
@@ -1406,9 +1398,9 @@ const handleFetchImages = async () => {
                       return (
                         <div key={subIdx} className="mb-8 last:mb-0">
                           {headingText && (
-                            <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                            <Markdown>
                               {`#### ${headingText}`}
-                            </ReactMarkdown>
+                            </Markdown>
                           )}
                           <div className="space-y-4">
                             {questions.map((q, qIdx) => (
@@ -1471,12 +1463,9 @@ const handleFetchImages = async () => {
                         
                         return blocks.map((s, idx) => (
                           <div key={idx} id={`tts-msg-${msg.id}-${idx}`} className="mb-4 last:mb-0">
-                            <ReactMarkdown 
-                              remarkPlugins={[remarkGfm]}
-                              components={markdownComponents}
-                            >
+                            <Markdown>
                               {s}
-                            </ReactMarkdown>
+                            </Markdown>
                           </div>
                         ));
                       })()

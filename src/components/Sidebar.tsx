@@ -5,9 +5,7 @@ import { Document, PreprocessOptions, ReadingPersona } from '../types';
 import { UploadCloud, Book, ChevronRight, ChevronDown, Settings2, Search, ArrowUpDown, Download, Trash2, MessageSquare, Camera, Share2, Tag, Plus, X, Copy, Check, Layers, CheckCircle2, Circle, Loader2, BookOpen, Sparkles, BookA, Target, Lock } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import ReactMarkdown from 'react-markdown';
-import { markdownComponents } from './MarkdownComponents';
-import remarkGfm from 'remark-gfm';
+import { Markdown, markdownComponents } from './MarkdownComponents';
 import { ReadAloudButton } from './ReadAloudButton';
 import { useAuth } from '../contexts/AuthContext';
 import { smartNormalizeText } from '../lib/utils';
@@ -199,7 +197,7 @@ const ChapterNode = ({
           ) : (
             <>
               <div className="prose prose-invert prose-sm max-w-none font-light">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{smartNormalizeText(chapter.summary)}</ReactMarkdown>
+                <Markdown>{smartNormalizeText(chapter.summary)}</Markdown>
               </div>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/summary:opacity-100 transition-opacity">
                 <ReadAloudButton text={chapter.summary} className="p-1 bg-black/40 hover:bg-black/60 rounded text-white/40 hover:text-cyan-400" />
@@ -1200,7 +1198,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
            </button>
            {studyPlan && (
              <div className="mt-4 prose prose-invert prose-sm max-w-none prose-h2:text-cyan-400 prose-h2:text-lg prose-p:text-white/80 prose-li:text-white/80 pb-10">
-               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{smartNormalizeText(studyPlan)}</ReactMarkdown>
+               <Markdown>{smartNormalizeText(studyPlan)}</Markdown>
              </div>
            )}
         </div>

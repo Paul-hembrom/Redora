@@ -7,8 +7,16 @@ export function cn(...inputs: ClassValue[]) {
 
 export function smartNormalizeText(text: string): string {
   if (!text) return text;
+
+  // Protect math blocks ($$...$$ and $...$) from text normalization
+  const mathBlocks: string[] = [];
+  const placeholderText = text.replace(/(\$\$[\s\S]*?\$\$|\$[^\$\n]+?\$)/g, (match) => {
+    mathBlocks.push(match);
+    return `___MATH_BLOCK_${mathBlocks.length - 1}___`;
+  });
+
   // 1. Fix the corrupted 'y' bullet points.
-  const fixedBullets = text.replace(/^[ \t]*y\s+/gm, '- ');
+  const fixedBullets = placeholderText.replace(/^[ \t]*y\s+/gm, '- ');
 
   // 1.5 Fix literal bullet points to use standard markdown syntax, and remove any weird leading newlines after them.
   // This ensures that "• \nText" becomes "- Text" instead of "- \nText" which might parse as a loose list or break.
@@ -22,7 +30,12 @@ export function smartNormalizeText(text: string): string {
   const spaced = unwrapped
     .replace(/(\n\s*Fig:)/g, '\n\n$1');
 
-  return spaced.trim();
+  // Restore math blocks
+  const restored = spaced.replace(/___MATH_BLOCK_(\d+)___/g, (_, index) => {
+    return mathBlocks[Number(index)] ?? '';
+  });
+
+  return restored.trim();
 }
 
 export function safeParseJSON(val: any): any[] {

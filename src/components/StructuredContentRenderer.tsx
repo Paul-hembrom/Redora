@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { markdownComponents, QuestionContext } from './MarkdownComponents';
+import { Markdown, markdownComponents, QuestionContext } from './MarkdownComponents';
 import { smartNormalizeText } from '../lib/utils';
 import { Copy, Check, Table as TableIcon, Code as CodeIcon, Image as ImageIcon, Calculator } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -61,9 +59,7 @@ export function ParagraphBlock({ text, isFocusMode, focusFontSize }: { text: str
   const normalized = smartNormalizeText(text);
   return (
     <div className={cn("text-white/80 leading-relaxed my-3 font-serif", isFocusMode ? `prose-${focusFontSize} focus-mode-text` : "text-base")}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {normalized}
-      </ReactMarkdown>
+      <Markdown>{normalized}</Markdown>
     </div>
   );
 }
@@ -135,10 +131,11 @@ export function TableBlock({ headers, rows, caption }: { headers?: string[]; row
 }
 
 export function FormulaBlock({ text }: { text: string }) {
+  const formulaMarkdown = text.trim().startsWith('$') ? text : `$$${text.trim()}$$`;
   return (
     <div className="my-4 p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-cyan-200 font-mono text-center overflow-x-auto shadow-inner flex items-center justify-center gap-3">
       <Calculator className="w-5 h-5 text-cyan-400 shrink-0" />
-      <span className="text-base md:text-lg tracking-wide">{text}</span>
+      <Markdown>{formulaMarkdown}</Markdown>
     </div>
   );
 }
@@ -192,9 +189,7 @@ export function ListBlock({ items, ordered }: { items: string[]; ordered?: boole
     <ul className={cn("my-3 space-y-1.5 pl-4 text-white/80", ordered ? "list-decimal" : "list-disc")}>
       {items.map((item, idx) => (
         <li key={idx} className="leading-relaxed">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-            {smartNormalizeText(item)}
-          </ReactMarkdown>
+          <Markdown>{smartNormalizeText(item)}</Markdown>
         </li>
       ))}
     </ul>
@@ -324,12 +319,7 @@ export function StructuredContentRenderer({
           }}
         >
           <div id={`${idPrefix}${idx}`}>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
-            >
-              {s}
-            </ReactMarkdown>
+            <Markdown>{s}</Markdown>
           </div>
         </QuestionContext.Provider>
       ))}
