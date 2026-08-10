@@ -1,12 +1,10 @@
 import React, { useState, useId } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
 import { ReadAloudButton } from './ReadAloudButton';
 import { generatePracticeQuestionExplanation } from '../lib/gemini';
+import { Markdown } from './Markdown';
+export { Markdown };
 export const QuestionContext = React.createContext<{
   blockText?: string;
   grade?: string;
@@ -263,24 +261,4 @@ export const markdownComponents = {
     return <a href={href} className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
   }
 };
-
-interface MarkdownProps {
-  children: string;
-  components?: any;
-  className?: string;
-}
-
-export function Markdown({ children, components, className }: MarkdownProps) {
-  return (
-    <div className={className}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[[rehypeKatex, { throwOnError: false, errorColor: '#f87171' }]]}
-        components={components || markdownComponents}
-      >
-        {children}
-      </ReactMarkdown>
-    </div>
-  );
-}
 
