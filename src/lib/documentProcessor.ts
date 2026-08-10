@@ -1019,7 +1019,7 @@ async function processDocumentViaSpace(
   console.log('[documentProcessor] Uploaded to', ticket.objectPath);
 
   // --- Step 3: ask the Space to process it (direct; no Vercel timeout) ---
-  onProgress('Processing the Documents... this take several minutes');
+  onProgress('Processing document… this can take several minutes for a large book.');
   console.log('[documentProcessor] Calling', `${ticket.spaceUrl}/process-url`);
 
   const response = await fetch(`${ticket.spaceUrl}/process-url`, {
@@ -1028,13 +1028,52 @@ async function processDocumentViaSpace(
     body: JSON.stringify({ file_url: ticket.fileUrl, token: ticket.processToken }),
   });
 
-  if (!response.ok) {
+  if (!response.ok || !response.body) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`Space /process-url failed (${response.status}): ${errText.slice(0, 500)}`);
+    throw new Error(`Space /process-url failed (${response.status}): ${errText.slice(0, 300)}`);
   }
 
-  onProgress('Receiving structured content…');
-  const chapters: Chapter[] = await response.json();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let chapters: Chapter[] | null = null;
+  let streamError: string | null = null;
+
+  const handleLine = (line: string) => {
+    if (!line.trim()) return;
+    let msg: any;
+    try { msg = JSON.parse(line); } catch { return; }
+
+    if (msg.status === 'downloading') {
+      onProgress('Downloading document to the processor…');
+    } else if (msg.status === 'processing') {
+      const stage = msg.stage === 'format' ? 'Formatting content' : 'Analysing document layout';
+      onProgress(`${stage}… ${msg.elapsed}s`);
+    } else if (msg.status === 'done') {
+      chapters = msg.chapters;
+    } else if (msg.status === 'failed') {
+      streamError = msg.error || 'Unknown processing error';
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl = buffer.indexOf('\n');
+    while (nl !== -1) {
+      handleLine(buffer.slice(0, nl));
+      buffer = buffer.slice(nl + 1);
+      nl = buffer.indexOf('\n');
+    }
+  }
+  if (buffer.trim()) handleLine(buffer);
+
+  if (streamError) throw new Error(`Space processing failed: ${streamError}`);
+  if (!chapters) {
+    // Stream ended without a terminal line -> the connection dropped mid-job.
+    throw new Error('Connection to the processor was lost before it finished.');
+  }
 
   // --- Guard: never accept an empty/thin structure (Phase 3.7) ---
   if (!Array.isArray(chapters) || chapters.length === 0) {
@@ -1082,10 +1121,24 @@ export async function processDocument(
   try {
     return await processDocumentViaSpace(file, options, onProgress, callbacks);
   } catch (error: any) {
-    // If it's a known duplicate or upload in progress, do NOT fallback
+    // Intentional short-circuits — surface these to the UI.
     if (error?.message?.includes('DUPLICATE_DOCUMENT') || error?.message?.includes('UPLOAD_IN_PROGRESS')) {
       throw error;
     }
+
+    // A NETWORK-level failure does not mean the Space failed. On large books the
+    // Space finishes but the connection is closed first, so re-running locally
+    // costs ~$0.30 in DeepSeek calls AND produces a worse result than the Space
+    // already computed. Only fall back when the Space genuinely rejected the job.
+    const msg = error?.message || '';
+    const isNetworkFailure =
+      /Failed to fetch|NetworkError|network error|timeout|timed out|aborted|socket|ERR_|Connection to the processor was lost/i.test(msg);
+
+    if (isNetworkFailure) {
+      console.error('[documentProcessor] Lost connection to the Space — NOT falling back.', error);
+      throw new Error('Processing is taking longer than expected. Please wait a few minutes and check your library.');
+    }
+
     console.error('[documentProcessor] SPACE PIPELINE FAILED — falling back to local.', {
       message: error?.message,
       stack: error?.stack,
