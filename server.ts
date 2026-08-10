@@ -43,6 +43,16 @@ export function createConcurrencyLimit(concurrency: number) {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-prod';
 
+process.on('unhandledRejection', (reason: any) => {
+  // Do NOT let a stray promise rejection kill the serverless function.
+  // A single DB statement timeout was terminating the process (exit 128),
+  // taking every concurrent in-flight request down with it.
+  console.error('[unhandledRejection]', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err: any) => {
+  console.error('[uncaughtException]', err?.message || err);
+});
 
 export const app = express();
 
@@ -140,6 +150,9 @@ const globalApiLimiter = rateLimit({
     
     // Exempt vercel health checks
     if (path.startsWith('/_vercel/')) return true;
+
+    // Exempt error logging
+    if (path === '/api/log-client-error') return true;
 
     // Exempt ask and tts endpoints from global limit (they have dedicated limiters)
     if (path.startsWith('/api/ask/') || path.startsWith('/api/tts')) return true;
@@ -297,7 +310,8 @@ const preventStudentModification = (req: any, res: any, next: any) => {
         '/api/tts',
         '/api/stt/transcribe',
         '/api/nvidia/',
-        '/api/ask/'
+        '/api/ask/',
+        '/api/log-client-error'
       ];
       
       const isAllowedPrefix = allowedStudentPrefixes.some(prefix => req.path.startsWith(prefix));
@@ -316,7 +330,7 @@ app.use(preventStudentModification);
 // Database readiness check
 app.use((req, res, next) => {
   const isTokenExchange = req.path === '/auth/token-exchange' || req.path === '/api/auth/token-exchange';
-  const isAuthExempt = ['/api/auth/login', '/api/auth/signup', '/api/auth/me', '/api/auth/logout'].includes(req.path);
+  const isAuthExempt = ['/api/auth/login', '/api/auth/signup', '/api/auth/me', '/api/auth/logout', '/api/log-client-error'].includes(req.path);
   if (!dbReady && !isTokenExchange && !isAuthExempt && (req.path.startsWith('/api/') || req.path.startsWith('/auth/'))) {
     return res.status(503).json({ error: 'Database service unavailable' });
   }
@@ -579,8 +593,11 @@ const authenticate = async (req: any, res: any, next: any) => {
         req.orgId = orgId;
         req.orgRole = membership[0].role;
       } catch (err: any) {
+        console.error('[auth] org membership check failed:', err?.message);
+        if (err?.code === '57014') {                 // statement timeout
+          return res.status(503).json({ error: 'Service busy, please retry.' });
+        }
         if (!err.message || !err.message.includes('does not exist')) {
-           console.error('Org access check error:', err);
            return res.status(500).json({ error: 'Server error check org membership' });
         }
       }
@@ -857,7 +874,7 @@ app.get('/api/me/context', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/log-client-error', express.json(), (req, res) => {
-  const { message, stack, source } = req.body;
+  const { message, stack, source } = req.body || {};
   console.error(`[Client Error] ${source || 'Unknown Source'}:`, message);
   if (stack) {
     console.error(stack);
@@ -3542,13 +3559,6 @@ function safeParse(val: any) {
 // --- Chat Routes ---
 app.get('/api/chats/:chapterId', authenticate, async (req: any, res) => {
   try {
-
-    try {
-      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
-      await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
-      await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
-      await sql`ALTER TABLE chats ALTER COLUMN chapter_id TYPE TEXT`;
-    } catch(e) {}
     const chats = await sql`
       SELECT * FROM chats
       WHERE chapter_id = ${req.params.chapterId}
@@ -3612,10 +3622,6 @@ app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
 app.post('/api/chats', authenticate, async (req: any, res) => {
   const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos, images } = req.body;
   try {
-    try {
-      await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
-      await sql`ALTER TABLE chats ALTER COLUMN chapter_id TYPE TEXT`;
-    } catch(e) {}
     await sql`
       INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos, images) 
       VALUES (
@@ -3943,10 +3949,6 @@ app.post('/api/curriculum/generate', authenticate, async (req: any, res) => {
     if (!Array.isArray(items)) {
       return res.status(400).json({ error: 'Expected an array' });
     }
-
-    try {
-      await sql`ALTER TABLE curriculum_library ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0`;
-    } catch(e) {}
 
     const results = [];
     let currentChapter = "";

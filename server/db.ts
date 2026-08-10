@@ -193,14 +193,14 @@ export async function initDb() {
     try {
       await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id TEXT`;
       await sql`ALTER TABLE chapters ALTER COLUMN parent_id TYPE TEXT USING parent_id::text`;
-    } catch(e) {}
+    } catch(e: any) { console.error('[initDb] chapters parent_id error:', e?.message); }
     try {
       await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
-    } catch(e) {}
+    } catch(e: any) { console.error('[initDb] chapters sort_order error:', e?.message); }
     try {
       await sql`ALTER TABLE chapters DROP CONSTRAINT IF EXISTS chapters_type_check`;
       await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'`;
-    } catch(e) {}
+    } catch(e: any) { console.error('[initDb] chapters type error:', e?.message); }
 
     await sql`
       CREATE TABLE IF NOT EXISTS chats (
@@ -221,14 +221,14 @@ export async function initDb() {
     try {
       await sql`ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`;
       await sql`ALTER TABLE chats ALTER COLUMN chapter_id TYPE TEXT`;
-    } catch(e) {}
+    } catch(e: any) { console.error('[initDb] chats chapter_id error:', e?.message); }
     try {
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS type TEXT`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS action_data TEXT`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS recommended_videos TEXT`;
       await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE`;
-    } catch (e) {
-      // Ignore
+    } catch (e: any) {
+      console.error('[initDb] chats columns error:', e?.message);
     }
     await sql`
       CREATE TABLE IF NOT EXISTS storyboards (
@@ -316,7 +316,7 @@ export async function initDb() {
       await sql`ALTER TABLE visual_metadata ADD CONSTRAINT visual_metadata_scene_uniq UNIQUE (scene_id)`;
       await sql`ALTER TABLE narration_assets DROP CONSTRAINT IF EXISTS narration_assets_scene_uniq`;
       await sql`ALTER TABLE narration_assets ADD CONSTRAINT narration_assets_scene_uniq UNIQUE (scene_id)`;
-    } catch (e) {}
+    } catch (e: any) { console.error('[initDb] constraints error:', e?.message); }
 
     await sql`
       CREATE TABLE IF NOT EXISTS student_memory (
@@ -363,7 +363,7 @@ export async function initDb() {
       await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
       await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
       await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
-    } catch(e) {}
+    } catch(e: any) { console.error('[initDb] user_usage columns error:', e?.message); }
 
     console.log('Database schema initialized successfully.');
   } catch (error: any) {

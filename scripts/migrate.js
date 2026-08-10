@@ -94,6 +94,9 @@ await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS type TEXT`;
 await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS action_data TEXT`;
 await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS recommended_videos TEXT`;
 await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE`;
+await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
+await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
+await sql`ALTER TABLE curriculum_library ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0`;
 
 await sql`
   CREATE TABLE IF NOT EXISTS storyboards (
