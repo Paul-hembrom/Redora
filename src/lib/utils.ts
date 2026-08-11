@@ -24,10 +24,31 @@ export function smartNormalizeText(text: string): string {
 
   // 2. Remove hard wraps (lines ending with a letter/number but NOT a period)
   // We use a negative lookahead to preserve intentional markdown structures like tables, lists, headers, etc.
-  const unwrapped = fixedLiteralBullets.replace(/([a-zA-Z0-9_,;:])\n(?!\s*\n|[-*+]\s|\d+\.\s|\||>|#|```|\[|!\[|\*)/g, '$1 ');
+  // NOTE: the trailing "_" was removed from the character class. Math is
+  // replaced with ___MATH_BLOCK_n___ placeholders BEFORE this runs, and those
+  // end in "_" -- so a line ending in math was being joined to the next line,
+  // which destroyed any table that followed it.
+  const unwrapped = fixedLiteralBullets.replace(
+    /([a-zA-Z0-9,;:])\n(?!\s*\n|[-*+]\s|\d+\.\s|\||>|#|```|\[|!\[|\*|___MATH_BLOCK_)/g,
+    '$1 '
+  );
+
+  // 2.5 Guarantee a blank line before and after every table block.
+  //
+  // GFM will not parse a table unless a blank line precedes it. Content
+  // frequently arrives as:
+  //     #### Match the following
+  //     | Column A | Column B |
+  // which renders as literal pipes. Same for a table directly after a prose
+  // line or a math block.
+  const tableSpaced = unwrapped
+    // blank line BEFORE a table row that follows a non-blank, non-table line
+    .replace(/([^\n|])\n(\|[^\n]*\|)/g, '$1\n\n$2')
+    // blank line AFTER the last table row when followed by non-table content
+    .replace(/(\|[^\n]*\|)\n(?!\s*$|\s*\||\s*\n)/g, '$1\n\n');
 
   // 3. Ensure captions have space, but DO NOT mess with lists to avoid extra spacing breaking the flow
-  const spaced = unwrapped
+  const spaced = tableSpaced
     .replace(/(\n\s*Fig:)/g, '\n\n$1');
 
   // Restore math blocks
