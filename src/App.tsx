@@ -820,18 +820,32 @@ export default function App() {
   const handleDeleteChapter = async (chapterId: string, title: string) => {
     if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
 
-    try {
-      const res = await fetch(`/api/chapters/${chapterId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
+    const doDelete = async (cascade = false) => {
+      const url = `/api/chapters/${chapterId}${cascade ? '?cascade=true' : ''}`;
+      const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
+      if (res.ok) return { ok: true as const };
+      const body = await res.json().catch(() => ({}));
+      return { ok: false as const, status: res.status, body };
+    };
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Delete failed (${res.status})`);
+    try {
+      let result = await doDelete(false);
+
+      // 409 = has children. Ask once more, then cascade.
+      if (!result.ok && result.status === 409 && result.body?.canCascade) {
+        const n = result.body.childCount;
+        if (!window.confirm(`"${title}" contains ${n} section(s). Delete the chapter and all of them?`)) {
+          return;
+        }
+        result = await doDelete(true);
       }
 
-      // Refetch documents to get the updated tree and avoid numbering drift
+      if (!result.ok) {
+        throw new Error(result.body?.error || `Delete failed (${result.status})`);
+      }
+
+      // Refetch rather than mutating local state: sort_order and the tree shape
+      // are rebuilt server-side, and a stale local tree causes numbering drift.
       const listRes = await fetch('/api/documents', { credentials: 'include' });
       if (listRes.ok) {
         const data = await listRes.json();
@@ -845,7 +859,7 @@ export default function App() {
         setSelectedChapterId(null);
       }
     } catch (e: any) {
-      alert(e.message || 'Failed to delete subtopic. Please try again.');
+      alert(e.message || 'Failed to delete. Please try again.');
     }
   };
 

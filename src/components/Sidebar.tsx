@@ -47,6 +47,7 @@ interface Props {
   onOpenTerminology?: (doc: Document) => void;
   onSummarizeChapter?: (docId: string, chapterId: string) => void;
   summarizingChapters?: Set<string>;
+  isStaff?: boolean;
   isStudent?: boolean;
   isCurriculum?: boolean;
   onDeleteChapter?: (chapterId: string, title: string) => void;
@@ -64,6 +65,9 @@ interface ChapterNodeProps {
   onSummarizeChapter?: (docId: string, chapterId: string) => void;
   summarizingChapters?: Set<string>;
   onDeleteChapter?: (chapterId: string, title: string) => void;
+  isStaff?: boolean;
+  isStudent?: boolean;
+  isCurriculum?: boolean;
 }
 
 const ChapterNode = ({ 
@@ -85,6 +89,7 @@ const ChapterNode = ({
   handleCopySummary,
   onSummarizeChapter,
   summarizingChapters,
+  isStaff = true,
   isStudent,
   isCurriculum = false,
   onDeleteChapter
@@ -97,6 +102,7 @@ const ChapterNode = ({
   cancelEditingSummary: (e: React.MouseEvent) => void;
   copiedSummaryId: string | null;
   handleCopySummary: (e: React.MouseEvent, id: string, summary: string) => void;
+  isStaff?: boolean;
   isStudent?: boolean;
   isCurriculum?: boolean;
 }) => {
@@ -106,6 +112,7 @@ const ChapterNode = ({
   
   const isSummarizing = summarizingChapters?.has(chapter.id);
   const hasSummary = !!chapter.summary && chapter.summary.trim() !== '' && chapter.summary !== 'Generating summary...';
+  const isV2Curriculum = isCurriculum || (typeof chapter.id === 'string' && chapter.id.startsWith('curr_'));
   
   return (
     <div className="flex flex-col">
@@ -173,14 +180,14 @@ const ChapterNode = ({
             </div>
           )}
           
-          {!isStudent && (chapter.type === 'topic' || level > 0) && onDeleteChapter && (
-            <span 
+          {isStaff && !isV2Curriculum && onDeleteChapter && (
+            <button 
               onClick={(e) => { e.stopPropagation(); onDeleteChapter(chapter.id, chapter.title); }}
-              className="p-1 hover:bg-red-500/20 rounded text-white/40 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-              title="Delete Subtopic"
+              className="p-1 rounded opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 transition-opacity"
+              title={level === 0 ? 'Delete chapter' : 'Delete section'}
             >
-              <Trash2 className="w-3 h-3" />
-            </span>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           )}
 
           <span 
@@ -259,6 +266,7 @@ const ChapterNode = ({
               handleCopySummary={handleCopySummary}
               onSummarizeChapter={onSummarizeChapter}
               summarizingChapters={summarizingChapters}
+              isStaff={isStaff}
               isStudent={isStudent}
               isCurriculum={isCurriculum}
               onDeleteChapter={onDeleteChapter}
@@ -270,7 +278,7 @@ const ChapterNode = ({
   );
 };
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, onSummarizeChapter, summarizingChapters, isStudent: propIsStudent, isCurriculum = false, onDeleteChapter }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, onSummarizeChapter, summarizingChapters, isStaff: propIsStaff, isStudent: propIsStudent, isCurriculum = false, onDeleteChapter }: Props) {
   const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed', deepProcess: false });
@@ -312,7 +320,19 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
   }, [editingSummaryId, editingSummaryDraft]);
   
   const [userUsage, setUserUsage] = useState<any>(null);
-  const isStudent = propIsStudent || (userUsage?.role === 'student') || (user?.role === 'student');
+  const resolvedRole = userUsage?.role || user?.role || null;
+  const orgId = userUsage?.orgId;
+  const isOrgUser = Boolean(orgId && orgId !== 'demo' && orgId !== 'default_org');
+
+  const isStaff = propIsStaff !== undefined 
+    ? propIsStaff 
+    : (!isOrgUser || resolvedRole === 'teacher' || resolvedRole === 'admin');
+
+  const isStudent = propIsStudent || (isOrgUser && resolvedRole === 'student');
+
+  useEffect(() => {
+    fetchUsage();
+  }, []);
 
   const startEditingSummary = (e: React.MouseEvent, chapterId: string, currentSummary: string) => {
     e.stopPropagation();
@@ -1182,6 +1202,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                       handleCopySummary={handleCopySummary}
                       onSummarizeChapter={onSummarizeChapter}
                       summarizingChapters={summarizingChapters}
+                      isStaff={isStaff}
                       isStudent={isStudent}
                       isCurriculum={isCurriculum}
                       onDeleteChapter={onDeleteChapter}

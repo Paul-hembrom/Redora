@@ -1395,28 +1395,40 @@ app.delete('/api/chapters/:id', authenticate, async (req: any, res) => {
       }
     }
 
-    // Refuse to delete a node that has children, per the spec. chapters.parent_id
-    // has NO self-referencing foreign key, so deleting a parent would ORPHAN its
-    // children rather than cascade — they would vanish from the tree while
-    // remaining in the table forever.
+    const cascade = req.query.cascade === 'true';
+
     const children = await sql`
       SELECT count(*)::int AS n FROM chapters WHERE parent_id = ${chapterId}
     `;
-    if (children[0].n > 0) {
+    if (children[0].n > 0 && !cascade) {
       return res.status(409).json({
-        error: `This section has ${children[0].n} sub-section(s). Delete those first.`,
+        error: `This section has ${children[0].n} sub-section(s).`,
         childCount: children[0].n,
+        canCascade: true,
       });
     }
 
-    // chats.chapter_id has NO foreign key — migrate.js line 91 explicitly runs
-    // `ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`.
-    // Cascade will NOT fire. Without this DELETE, chat rows are orphaned
-    // permanently and count against storage forever.
     await sql.begin(async (tx: any) => {
-      await tx`DELETE FROM chats WHERE chapter_id = ${chapterId}`;
-      await tx`DELETE FROM student_memory WHERE chapter_id = ${chapterId}`;
-      await tx`DELETE FROM chapters WHERE id = ${chapterId}`;
+      // chapters.parent_id has NO self-referencing foreign key, so children are
+      // NOT removed automatically -- without this they are orphaned in the table
+      // forever, invisible in the tree but still counting against storage.
+      const ids: string[] = cascade
+        ? (await tx`
+            WITH RECURSIVE tree AS (
+              SELECT id FROM chapters WHERE id = ${chapterId}
+              UNION ALL
+              SELECT c.id FROM chapters c JOIN tree t ON c.parent_id = t.id
+            )
+            SELECT id FROM tree
+          `).map((r: any) => r.id)
+        : [chapterId];
+
+      // chats.chapter_id has NO foreign key either -- migrate.js line 91 runs
+      // `ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`.
+      // Cascade will not fire; these deletes are mandatory.
+      await tx`DELETE FROM chats WHERE chapter_id = ANY(${ids})`;
+      await tx`DELETE FROM student_memory WHERE chapter_id = ANY(${ids})`;
+      await tx`DELETE FROM chapters WHERE id = ANY(${ids})`;
     });
 
     console.log(`[chapters] user=${req.userId} deleted ${chapter.type} "${chapter.title}" (${chapterId})`);
