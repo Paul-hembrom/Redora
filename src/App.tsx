@@ -9,6 +9,7 @@ import Pricing from './components/Pricing';
 import GlobalSearchModal from './components/GlobalSearchModal';
 import TerminologyExtractorModal from './components/TerminologyExtractorModal';
 import QuizDashboardModal from './components/QuizDashboardModal';
+import DeleteChapterModal, { DeleteChapterTarget } from './components/DeleteChapterModal';
 import { useAuth } from './contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 import { useScrollSync } from './hooks/useScrollSync';
@@ -165,6 +166,7 @@ export default function App() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   
   const [summarizingChapters, setSummarizingChapters] = useState<Set<string>>(new Set());
+  const [deleteChapterTarget, setDeleteChapterTarget] = useState<DeleteChapterTarget | null>(null);
 
   const { getRootProps: getEmptyRootProps, getInputProps: getEmptyInputProps, isDragActive: isEmptyDragActive } = useDropzone({
     onDrop: (files) => {
@@ -817,49 +819,24 @@ export default function App() {
     }
   };
 
-  const handleDeleteChapter = async (chapterId: string, title: string) => {
-    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+  const handleDeleteChapter = (chapterId: string, title: string) => {
+    setDeleteChapterTarget({ id: chapterId, title });
+  };
 
-    const doDelete = async (cascade = false) => {
-      const url = `/api/chapters/${chapterId}${cascade ? '?cascade=true' : ''}`;
-      const res = await fetch(url, { method: 'DELETE', credentials: 'include' });
-      if (res.ok) return { ok: true as const };
-      const body = await res.json().catch(() => ({}));
-      return { ok: false as const, status: res.status, body };
-    };
-
-    try {
-      let result = await doDelete(false);
-
-      // 409 = has children. Ask once more, then cascade.
-      if (!result.ok && result.status === 409 && result.body?.canCascade) {
-        const n = result.body.childCount;
-        if (!window.confirm(`"${title}" contains ${n} section(s). Delete the chapter and all of them?`)) {
-          return;
-        }
-        result = await doDelete(true);
+  const handleChapterDeletedSuccess = async (chapterId: string) => {
+    // Refetch rather than mutating local state: sort_order and the tree shape
+    // are rebuilt server-side, and a stale local tree causes numbering drift.
+    const listRes = await fetch('/api/documents', { credentials: 'include' });
+    if (listRes.ok) {
+      const data = await listRes.json();
+      if (Array.isArray(data)) {
+        setDocuments(data);
+        import('./lib/offline').then(m => m.cacheDocuments(data));
       }
+    }
 
-      if (!result.ok) {
-        throw new Error(result.body?.error || `Delete failed (${result.status})`);
-      }
-
-      // Refetch rather than mutating local state: sort_order and the tree shape
-      // are rebuilt server-side, and a stale local tree causes numbering drift.
-      const listRes = await fetch('/api/documents', { credentials: 'include' });
-      if (listRes.ok) {
-        const data = await listRes.json();
-        if (Array.isArray(data)) {
-          setDocuments(data);
-          import('./lib/offline').then(m => m.cacheDocuments(data));
-        }
-      }
-
-      if (selectedChapterId === chapterId) {
-        setSelectedChapterId(null);
-      }
-    } catch (e: any) {
-      alert(e.message || 'Failed to delete. Please try again.');
+    if (selectedChapterId === chapterId) {
+      setSelectedChapterId(null);
     }
   };
 
@@ -1134,6 +1111,13 @@ export default function App() {
       <QuizDashboardModal
         isOpen={isQuizDashboardOpen}
         onClose={() => setIsQuizDashboardOpen(false)}
+      />
+
+      <DeleteChapterModal
+        isOpen={!!deleteChapterTarget}
+        target={deleteChapterTarget}
+        onClose={() => setDeleteChapterTarget(null)}
+        onSuccess={handleChapterDeletedSuccess}
       />
 
       <div className="flex flex-1 overflow-hidden relative">
