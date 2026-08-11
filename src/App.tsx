@@ -817,6 +817,38 @@ export default function App() {
     }
   };
 
+  const handleDeleteChapter = async (chapterId: string, title: string) => {
+    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Delete failed (${res.status})`);
+      }
+
+      // Refetch documents to get the updated tree and avoid numbering drift
+      const listRes = await fetch('/api/documents', { credentials: 'include' });
+      if (listRes.ok) {
+        const data = await listRes.json();
+        if (Array.isArray(data)) {
+          setDocuments(data);
+          import('./lib/offline').then(m => m.cacheDocuments(data));
+        }
+      }
+
+      if (selectedChapterId === chapterId) {
+        setSelectedChapterId(null);
+      }
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete subtopic. Please try again.');
+    }
+  };
+
   const handleClearChats = async (docId: string) => {
     try {
       const res = await fetch(`/api/chats/document/${docId}`, { method: 'DELETE' });
@@ -1113,6 +1145,7 @@ export default function App() {
             onSelectChapter={handleSelectChapter}
             onUpload={handleUpload}
             onDeleteDocument={handleDeleteDocument}
+            onDeleteChapter={handleDeleteChapter}
             onClearChats={handleClearChats}
             onUpdateTags={handleUpdateTags}
             onToggleShare={handleToggleShare}

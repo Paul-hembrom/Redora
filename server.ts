@@ -1359,6 +1359,75 @@ app.put('/api/chapters/:id', authenticate, async (req: any, res) => {
   }
 });
 
+app.delete('/api/chapters/:id', authenticate, async (req: any, res) => {
+  try {
+    const chapterId = req.params.id;
+
+    // V2 curriculum content is SHARED ACROSS ALL SCHOOLS. A teacher deleting a
+    // subtopic there would remove it for every school using that curriculum.
+    if (typeof chapterId === 'string' && chapterId.startsWith('curr_')) {
+      return res.status(403).json({
+        error: 'Curriculum content is shared and cannot be edited. Contact your administrator.',
+      });
+    }
+
+    // Load the chapter and confirm the caller can reach its document.
+    // getDocAliasUserFilter scopes to organization_id for org users and to
+    // (organization_id IS NULL AND user_id) for personal users.
+    const rows = await sql`
+      SELECT c.id, c.document_id, c.parent_id, c.type, c.title
+      FROM chapters c
+      JOIN documents d ON d.id = c.document_id
+      WHERE c.id = ${chapterId}
+        AND ${getDocAliasUserFilter(req, 'd')}
+      LIMIT 1
+    `;
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Subtopic not found' });
+    }
+    const chapter = rows[0];
+
+    // Authoritative role check. NOT the sb-role cookie.
+    if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
+      const role = await getUserRoleInOrg(req.userId, req.orgId);
+      if (role !== 'teacher' && role !== 'admin') {
+        return res.status(403).json({ error: 'Only teachers can delete content.' });
+      }
+    }
+
+    // Refuse to delete a node that has children, per the spec. chapters.parent_id
+    // has NO self-referencing foreign key, so deleting a parent would ORPHAN its
+    // children rather than cascade — they would vanish from the tree while
+    // remaining in the table forever.
+    const children = await sql`
+      SELECT count(*)::int AS n FROM chapters WHERE parent_id = ${chapterId}
+    `;
+    if (children[0].n > 0) {
+      return res.status(409).json({
+        error: `This section has ${children[0].n} sub-section(s). Delete those first.`,
+        childCount: children[0].n,
+      });
+    }
+
+    // chats.chapter_id has NO foreign key — migrate.js line 91 explicitly runs
+    // `ALTER TABLE chats DROP CONSTRAINT IF EXISTS chats_chapter_id_fkey`.
+    // Cascade will NOT fire. Without this DELETE, chat rows are orphaned
+    // permanently and count against storage forever.
+    await sql.begin(async (tx: any) => {
+      await tx`DELETE FROM chats WHERE chapter_id = ${chapterId}`;
+      await tx`DELETE FROM student_memory WHERE chapter_id = ${chapterId}`;
+      await tx`DELETE FROM chapters WHERE id = ${chapterId}`;
+    });
+
+    console.log(`[chapters] user=${req.userId} deleted ${chapter.type} "${chapter.title}" (${chapterId})`);
+    res.json({ success: true, deletedId: chapterId, documentId: chapter.document_id });
+
+  } catch (err: any) {
+    console.error('[chapters] delete failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/documents/:id/tags', authenticate, async (req: any, res) => {
   try {
     const orgId = req.body.org_id || req.query.org_id;

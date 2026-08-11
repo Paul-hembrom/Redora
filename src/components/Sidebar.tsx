@@ -49,6 +49,7 @@ interface Props {
   summarizingChapters?: Set<string>;
   isStudent?: boolean;
   isCurriculum?: boolean;
+  onDeleteChapter?: (chapterId: string, title: string) => void;
 }
 
 interface ChapterNodeProps {
@@ -62,6 +63,7 @@ interface ChapterNodeProps {
   onSelectChapter: (docId: string, chapterId: string) => void;
   onSummarizeChapter?: (docId: string, chapterId: string) => void;
   summarizingChapters?: Set<string>;
+  onDeleteChapter?: (chapterId: string, title: string) => void;
 }
 
 const ChapterNode = ({ 
@@ -84,7 +86,8 @@ const ChapterNode = ({
   onSummarizeChapter,
   summarizingChapters,
   isStudent,
-  isCurriculum = false
+  isCurriculum = false,
+  onDeleteChapter
 }: ChapterNodeProps & {
   editingSummaryId: string | null;
   editingSummaryDraft: string;
@@ -170,6 +173,16 @@ const ChapterNode = ({
             </div>
           )}
           
+          {!isStudent && (chapter.type === 'topic' || level > 0) && onDeleteChapter && (
+            <span 
+              onClick={(e) => { e.stopPropagation(); onDeleteChapter(chapter.id, chapter.title); }}
+              className="p-1 hover:bg-red-500/20 rounded text-white/40 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+              title="Delete Subtopic"
+            >
+              <Trash2 className="w-3 h-3" />
+            </span>
+          )}
+
           <span 
                onClick={(e) => { e.stopPropagation(); toggleSummary(e, chapter.id); }}
                className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
@@ -248,6 +261,7 @@ const ChapterNode = ({
               summarizingChapters={summarizingChapters}
               isStudent={isStudent}
               isCurriculum={isCurriculum}
+              onDeleteChapter={onDeleteChapter}
             />
           ))}
         </div>
@@ -256,7 +270,7 @@ const ChapterNode = ({
   );
 };
 
-export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, onSummarizeChapter, summarizingChapters, isStudent: propIsStudent, isCurriculum = false }: Props) {
+export default function Sidebar({ documents, selectedDocId, selectedChapterId, onSelectChapter, onUpload, onDeleteDocument, onClearChats, onUpdateTags, onToggleShare, isUploading, uploadProgress, uploadError, persona, setPersona, librarySelection, onToggleLibrarySelection, onOpenLibraryChat, onUpdateSummary, onOpenTerminology, onSummarizeChapter, summarizingChapters, isStudent: propIsStudent, isCurriculum = false, onDeleteChapter }: Props) {
   const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
   const [options, setOptions] = useState<PreprocessOptions>({ removeStopWords: false, applyStemming: false, summaryDetail: 'detailed', deepProcess: false });
@@ -1170,6 +1184,7 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
                       summarizingChapters={summarizingChapters}
                       isStudent={isStudent}
                       isCurriculum={isCurriculum}
+                      onDeleteChapter={onDeleteChapter}
                     />
                   ));
                 })()}
