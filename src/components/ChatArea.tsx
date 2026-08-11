@@ -9,7 +9,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { v4 as uuidv4 } from 'uuid';
 import { generateChatResponse, generateActionTool, generateExerciseAnswer, generateSearchQueries, generateNewsSearchQuery } from '../lib/gemini';
 import StoryboardScreen from './storyboard/StoryboardScreen';
-import { ImageSearchButton } from './ImageSearchButton';
 import { SerperImageSearch } from './SerperImageSearch';
 import { ScrollableActionBar } from './ScrollableActionBar';
 import { ImageCard } from './ImageCard';
@@ -640,75 +639,7 @@ export default function ChatArea({ isFocusMode, focusFontSize = "xl", chapter, d
     }
   };
 
-const handleFetchImages = async () => {
-    if (isTyping) return;
-    const currentChapterId = chapter.id;
-    
-    const userMsg: ChatMessage = { id: uuidv4(), role: 'user', text: "Find educational images for this chapter." };
-    setMessages(prev => [...prev, userMsg]);
-    setIsTyping(true);
-    setError(null);
 
-    // Ephemeral media message, don't save to DB
-
-    try {
-      const response = await fetch(`/api/topics/${chapter.id}/images`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          title: chapter.title,
-          summary: chapter.summary,
-          key_concepts: (chapter as any).key_concepts || [],
-          org_context: orgName || user?.name || 'General Education'
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to fetch images');
-      }
-
-      window.dispatchEvent(new Event('usage-updated'));
-      const data = await response.json();
-      const imagesArray = data.images || [];
-      
-      let aiMsg: ChatMessage;
-      
-      if (imagesArray.length === 0) {
-        aiMsg = {
-          id: uuidv4(),
-          role: 'model',
-          text: `I couldn't find any images for this topic. Would you like me to find related videos instead?`,
-          type: 'text' // We can just make it text, and user can click the video button.
-        };
-        // We'll append a button using Markdown or provide a UI element.
-        // Or simply text "I couldn't find any images for this topic. Click 'Videos' below to find related videos instead."
-        // The instructions ask for "a friendly message: 'I couldn't find any images for this topic. Would you like me to find related videos instead?' with a clickable link to trigger the video search."
-        aiMsg.text = "I couldn't find any images for this topic. Would you like me to find related videos instead?";
-        aiMsg.type = "image_fallback"; // Let's use a custom type so we can render a clickable link button.
-      } else {
-        aiMsg = {
-          id: uuidv4(),
-          role: 'model',
-          text: 'Here are some helpful images and diagrams for this chapter.',
-          type: 'images',
-          images: imagesArray
-        };
-      }
-
-      setMessages(prev => [...prev, aiMsg]);
-
-      // Ephemeral media message, don't save to DB
-
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Could not find images. Please try again later.');
-    } finally {
-      setIsTyping(false);
-    }
-  };
 
   const [isGeneratingPro, setIsGeneratingPro] = useState(false);
   const [proProgress, setProProgress] = useState(0);
@@ -1211,7 +1142,6 @@ const handleFetchImages = async () => {
                   <Newspaper className="w-3.5 h-3.5" /> Find News
                 </button>
                 <SerperImageSearch onSearch={handleGoogleImageSearch} isLoading={isTyping} />
-                <ImageSearchButton onClick={handleFetchImages} isLoading={isTyping} />
                 <button onClick={() => handleGenerateAction('quiz')} className="text-xs font-medium px-3 py-1.5 rounded-md text-white/60 hover:text-cyan-400 hover:bg-white/5 transition-colors flex items-center gap-1.5 shrink-0" title="Generate practice quiz">
                   <Target className="w-3.5 h-3.5" /> Quiz
                 </button>

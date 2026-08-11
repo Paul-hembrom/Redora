@@ -277,6 +277,10 @@ async function fetchKokoroWithRetry(cleanText: string, attempts = 3): Promise<an
   throw lastErr;
 }
 
+import { searchImageForPrompt } from './imageSearch.js';
+
+const USE_VEO = process.env.USE_VEO === '1';
+
 function detectRendererFromPrompt(visualPrompt: string): 'manim' | 'veo' {
   const text = (visualPrompt || '').toLowerCase();
   const manimKeywords = [
@@ -291,13 +295,14 @@ function detectRendererFromPrompt(visualPrompt: string): 'manim' | 'veo' {
 export async function processSceneAssets(scene_id: string, org_id: string, visual_prompt: string, narration: string, duration: number, rendererOverride?: string) {
   const validOrgId = (org_id && uuidRegex.test(org_id)) ? org_id : null;
   const kind = (rendererOverride || '').toLowerCase();
-  let renderer: 'manim' | 'veo' =
-      kind === 'manim' ? 'manim'
-    : (kind === 'video' || kind === 'talking_head') ? 'veo'
-    : detectRendererFromPrompt(visual_prompt);
+  let renderer: 'manim' | 'veo' = USE_VEO
+    ? (kind === 'manim' ? 'manim'
+      : (kind === 'video' || kind === 'talking_head') ? 'veo'
+      : detectRendererFromPrompt(visual_prompt))
+    : 'manim';
 
   console.log('[Manim Pipeline] Scene:', scene_id, 'visual_prompt:', visual_prompt?.substring(0, 100));
-  console.log('[Manim Pipeline] Assigned renderer:', renderer);
+  console.log('[Manim Pipeline] Assigned renderer:', renderer, '(USE_VEO=' + USE_VEO + ')');
 
   let image_url = 'https://images.unsplash.com/photo-1616469829581-73993eb86b02?w=800&q=80';
   let model_used = 'fallback_image';
@@ -307,12 +312,24 @@ export async function processSceneAssets(scene_id: string, org_id: string, visua
       image_url = await renderManimScene(visual_prompt);
       model_used = 'manim';
     } catch (error) {
-      console.error('Manim failed, falling back to Veo', error);
-      renderer = 'veo';
+      console.error('Manim failed for scene ' + scene_id, error);
+      if (USE_VEO) {
+        renderer = 'veo';
+      } else {
+        try {
+          const found = await searchImageForPrompt(visual_prompt);
+          if (found) {
+            image_url = found;
+            model_used = 'image_search';
+          }
+        } catch (e) {
+          console.warn('[scene] Image search fallback failed for ' + scene_id, e);
+        }
+      }
     }
   }
 
-  if (renderer === 'veo') {
+  if (renderer === 'veo' && USE_VEO) {
     try {
       const { generateTopicVideo } = await import('../src/lib/gemini.js');
       image_url = await generateTopicVideo(visual_prompt);

@@ -347,9 +347,7 @@ export class SubscriptionLimitError extends Error {
 
 async function verifyUsageLimit(userId: string, type: string, orgId?: string) {
   return verifyAndIncrementUsage(userId, type, orgId, true);
-}
-
-async function incrementUsage(userId: string, type: string, orgId?: string, tx?: any) {
+}async function incrementUsage(userId: string, type: string, orgId?: string, tx?: any) {
   const q = tx || sql;
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let useSchool = false;
@@ -367,6 +365,12 @@ async function incrementUsage(userId: string, type: string, orgId?: string, tx?:
       await q`UPDATE user_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE user_id = ${userId}`;
     } else if (type === 'youtube') {
       await q`UPDATE user_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'chat') {
+      await q`UPDATE user_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'tts') {
+      await q`UPDATE user_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + 1 WHERE user_id = ${userId}`;
+    } else if (type === 'ask') {
+      await q`UPDATE user_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + 1 WHERE user_id = ${userId}`;
     }
     return;
   }
@@ -385,6 +389,12 @@ async function incrementUsage(userId: string, type: string, orgId?: string, tx?:
     await q`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
   } else if (type === 'youtube') {
     await q`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'chat') {
+    await q`UPDATE school_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'tts') {
+    await q`UPDATE school_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+  } else if (type === 'ask') {
+    await q`UPDATE school_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
   }
 }
 
@@ -399,7 +409,7 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     // Personal Usage
     let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
     if (usageRows.length === 0) {
-      await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
+      await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, chat_messages_this_month, tts_requests_this_month, ask_questions_this_month, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
       usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
     }
     const subs = await sql`SELECT * FROM subscriptions WHERE user_id = ${userId}`;
@@ -414,11 +424,14 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     const dailyResetDate = usage.last_daily_reset_date ? new Date(usage.last_daily_reset_date) : new Date(0);
     
     if (todayDate.getMonth() !== resetDate.getMonth() || todayDate.getFullYear() !== resetDate.getFullYear()) {
-      await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+      await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, chat_messages_this_month = 0, tts_requests_this_month = 0, ask_questions_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
       usage.video_generations_this_month = 0;
       usage.image_searches_this_month = 0;
       usage.interactive_lessons_this_month = 0;
       usage.books_uploaded_this_month = 0;
+      usage.chat_messages_this_month = 0;
+      usage.tts_requests_this_month = 0;
+      usage.ask_questions_this_month = 0;
     }
   
     if (todayDate.getDate() !== dailyResetDate.getDate() || todayDate.getMonth() !== dailyResetDate.getMonth() || todayDate.getFullYear() !== dailyResetDate.getFullYear()) {
@@ -427,13 +440,16 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     }
 
     let limits: any = plan === 'unlimited' ? {
-       document: 'unlimited', video: 'unlimited', image: 'unlimited', interactive: 'unlimited', youtube: 'unlimited'
+       document: 'unlimited', chat: 'unlimited', tts: 'unlimited', ask: 'unlimited', interactive: 'unlimited', image: 'unlimited', youtube: 'unlimited', video: 0
     } : {
-       document: isPro ? 'unlimited' : 4,
-       video: isPro ? 10 : 2,
-       image: isPro ? 50 : 20,
-       interactive: isPro ? 30 : 10,
-       youtube: isPro ? 50 : 10
+       document: isPro ? 'unlimited' : 5,
+       chat: isPro ? 'unlimited' : 200,
+       tts: isPro ? 'unlimited' : 30,
+       ask: isPro ? 'unlimited' : 100,
+       interactive: isPro ? 50 : 2,
+       image: isPro ? 500 : 20,
+       youtube: isPro ? 'unlimited' : 20,
+       video: 0
     };
 
     let count = 0;
@@ -444,27 +460,16 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     if (type === 'interactive') count = usage.interactive_lessons_this_month || 0;
     if (type === 'document') count = usage.books_uploaded_this_month || 0;
     if (type === 'youtube') count = usage.youtube_searches_today || 0;
+    if (type === 'chat') count = usage.chat_messages_this_month || 0;
+    if (type === 'tts') count = usage.tts_requests_this_month || 0;
+    if (type === 'ask') count = usage.ask_questions_this_month || 0;
 
-    if (limit !== 'unlimited' && count >= limit) {
+    if (limit === 0 || (limit !== 'unlimited' && count >= limit)) {
       throw new SubscriptionLimitError(`Personal limit reached for ${type}. Upgrade your plan.`);
     }
 
     if (verifyOnly) return;
     await incrementUsage(userId, type, orgId);
-    return;
-    // (dead code below removed by simple match replacement in a real script, but here we just bypass)
-    if (false && type === 'document') {
-      await sql`UPDATE user_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE user_id = ${userId}`;
-    } else if (type === 'video') {
-      await sql`UPDATE user_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE user_id = ${userId}`;
-    } else if (type === 'image') {
-      await sql`UPDATE user_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE user_id = ${userId}`;
-    } else if (type === 'interactive') {
-      await sql`UPDATE user_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE user_id = ${userId}`;
-    } else if (type === 'youtube') {
-      await sql`UPDATE user_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE user_id = ${userId}`;
-    }
-
     return;
   }
 
@@ -504,9 +509,9 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     // Active usage checks
     const planName = sub.plan_type || 'Starter';
     const planLimits: any = {
-      'Starter': { document: 1000, video: 10, image: 20, interactive: 5, youtube: 50 },
-      'Growth': { document: 5000, video: 25, image: 50, interactive: 20, youtube: 100 },
-      'Enterprise': { document: 10000, video: 100, image: 200, interactive: 100, youtube: 500 }
+      'Starter': { document: 1000, video: 0, image: 500, interactive: 50, youtube: 200, chat: 'unlimited', tts: 'unlimited', ask: 'unlimited' },
+      'Growth': { document: 5000, video: 0, image: 1000, interactive: 100, youtube: 500, chat: 'unlimited', tts: 'unlimited', ask: 'unlimited' },
+      'Enterprise': { document: 10000, video: 0, image: 2000, interactive: 500, youtube: 1000, chat: 'unlimited', tts: 'unlimited', ask: 'unlimited' }
     };
     const currentLimits = planLimits[planName] || planLimits['Starter'];
     let count = 0;
@@ -515,8 +520,12 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     if (type === 'interactive') count = usage.interactive_lessons_this_month || 0;
     if (type === 'document') count = usage.books_uploaded_this_month || 0;
     if (type === 'youtube') count = usage.youtube_searches_today || 0;
+    if (type === 'chat') count = usage.chat_messages_this_month || 0;
+    if (type === 'tts') count = usage.tts_requests_this_month || 0;
+    if (type === 'ask') count = usage.ask_questions_this_month || 0;
 
-    if (count >= currentLimits[type]) {
+    const limitVal = currentLimits[type];
+    if (limitVal === 0 || (limitVal !== 'unlimited' && count >= limitVal)) {
       throw new SubscriptionLimitError(`Plan limit reached for ${planName} plan.`);
     }
   }
@@ -2868,10 +2877,20 @@ async function streamKokoroBatch(
   return delivered;
 }
 
-app.post('/api/tts/cartesia', async (req, res) => {
+app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
   try {
     const { text, hq } = req.body;
     if (!text) return res.status(400).json({ error: 'Missing text' });
+
+    try {
+      const orgId = req.body?.org_id || req.query?.org_id || req.cookies?.['sb-org-id'];
+      await verifyAndIncrementUsage(req.userId, 'tts', orgId);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') {
+        return res.status(429).json({ error: e.message, limitReached: true });
+      }
+      throw e;
+    }
 
     // NOTE: no longer a hard 500 when the ElevenLabs key is absent. Kokoro is
     // the primary engine on this route; ElevenLabs is only the fallback, so a
@@ -2902,21 +2921,13 @@ app.post('/api/tts/cartesia', async (req, res) => {
 
     // ---------------------------------------------------------------------
     // Kick off text normalization for EVERY chunk up front, in parallel.
-    //
-    // Two bugs fixed here:
-    //  1. normalizeTextWithLLM() used to be awaited inside the loop but
-    //     OUTSIDE the inner try/catch, so a single LLM failure propagated to
-    //     the outer catch, aborted the whole for-loop and ended the response
-    //     -- silently losing every remaining sentence. It now has its own
-    //     fallback and can never abort the loop.
-    //  2. Doing one LLM round-trip per chunk strictly in series put an LLM
-    //     call on the critical path before every single sentence. Starting
-    //     them all now overlaps that latency with TTS synthesis.
     // ---------------------------------------------------------------------
+    const USE_LLM_NORMALIZER = process.env.USE_LLM_NORMALIZER === '1';
     const normalizeLimiter = createConcurrencyLimit(4);
     const normalizedPromises = chunks.map((chunk) =>
       normalizeLimiter(async () => {
         const base = normalizeTextForCartesia(chunk.text);
+        if (!USE_LLM_NORMALIZER) return base;
         try {
           const out = await normalizeTextWithLLM(base);
           return (out && out.trim()) ? out : base;
@@ -3380,6 +3391,16 @@ app.post('/api/stt/transcribe', upload.single('audio'), async (req, res) => {
 
 app.post('/api/ask/answer', authenticate, async (req: any, res) => {
   try {
+    try {
+      const orgId = req.body?.org_id || req.query?.org_id || req.cookies?.['sb-org-id'];
+      await verifyAndIncrementUsage(req.userId, 'ask', orgId);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') {
+        return res.status(429).json({ error: e.message, limitReached: true });
+      }
+      throw e;
+    }
+
     const { question, sentence, paragraph, chapterTitle, gradeHint } = req.body || {};
 
     if (!question || typeof question !== 'string' || !question.trim()) {
@@ -3700,9 +3721,21 @@ app.post('/api/chats/:messageId/react', authenticate, async (req: any, res) => {
   }
 });
 
-app.post('/api/chats', authenticate, async (req: any, res) => {
+const handleSaveChat = async (req: any, res: any) => {
   const { id, chapterId, role, text, relationshipGraph, followUps, type, actionData, recommended_videos, images } = req.body;
   try {
+    if (role === 'user') {
+      try {
+        const orgId = req.body?.org_id || req.query?.org_id || req.cookies?.['sb-org-id'];
+        await verifyAndIncrementUsage(req.userId, 'chat', orgId);
+      } catch (e: any) {
+        if (e.name === 'SubscriptionLimitError') {
+          return res.status(429).json({ error: e.message, limitReached: true });
+        }
+        throw e;
+      }
+    }
+
     await sql`
       INSERT INTO chats (id, chapter_id, user_id, role, text, relationship_graph, follow_ups, type, action_data, recommended_videos, images) 
       VALUES (
@@ -3724,7 +3757,10 @@ app.post('/api/chats', authenticate, async (req: any, res) => {
     console.error('POST /api/chats error:', err);
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+app.post('/api/chats', authenticate, handleSaveChat);
+app.post('/api/chat', authenticate, handleSaveChat);
 
 app.delete('/api/chats/document/:docId', authenticate, async (req: any, res) => {
   try {

@@ -235,6 +235,13 @@ await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS image_searches_this_mo
 await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
 await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
 await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
+await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
+await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
+
+await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
+await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
 
 // One-time backfill, NOT part of initialisation:
 try {
