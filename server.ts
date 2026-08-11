@@ -2019,225 +2019,14 @@ Leave "video_id" empty if unsure, do not invent 11-char IDs.`;
   }
 });
 
-app.post('/api/topics/:id/images', authenticate, imagesLimiter, async (req: any, res) => {
-  try {
-    try {
-      await verifyAndIncrementUsage(req.userId, 'image', req.body.org_id || req.query.org_id || req.cookies?.['sb-org-id']);
-    } catch (e: any) {
-      if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
-      throw e;
-    }
-
-    const { org_context, title, key_concepts, summary } = req.body;
-    
-    const conceptsStr = Array.isArray(key_concepts) ? key_concepts.join(', ') : '';
-    const keywordPrompt = `You are an Educational Search Assistant. Based on the chapter title, key concepts, and a detailed content summary, generate a single, precise search keyword that can be used on a photo/diagram search engine to find a relevant educational image. Return ONLY a JSON object: {"keyword": "string"}
-
-Chapter Title: ${title}
-Key Concepts: ${conceptsStr}
-Content Summary: ${summary ? summary.substring(0, 2000) : ''}`;
-
-    let searchQuery = '';
-    try {
-      const raw = await callLLM(keywordPrompt, undefined, 'json_object');
-      const parsed = JSON.parse(raw);
-      if (parsed.keyword) {
-        searchQuery = parsed.keyword.trim();
-      }
-    } catch (err) {
-      console.error("DeepSeek query generation failed, using fallback query", err);
-      // Smarter fallback
-      const stopWords = new Set(["a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it", "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these", "they", "this", "to", "was", "will", "with"]);
-      let words = (summary ? summary.substring(0, 2000) : "").toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.has(w));
-      let wordCounts: Record<string, number> = {};
-      words.forEach((w: string) => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
-      let topWords = Object.keys(wordCounts).sort((a, b) => wordCounts[b] - wordCounts[a]).slice(0, 3).join(' ');
-      searchQuery = `${title} ${topWords || conceptsStr}`.substring(0, 50).trim();
-    }
-    
-    // Ensure we have a fallback if even the above is empty
-    if (!searchQuery) {
-      searchQuery = title;
-    }
-
-    const pexelsKey = process.env.IMAGE_SEARCH_API_KEY;
-    const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
-    
-    async function fetchImagesForQuery(query: string) {
-      const imgs: any[] = [];
-      if (pexelsKey) {
-        try {
-          const pexelsRes = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=6`, {
-            headers: { Authorization: pexelsKey }
-          });
-          if (pexelsRes.ok) {
-            const data = await pexelsRes.json();
-            if (data.photos && data.photos.length > 0) {
-              for (const photo of data.photos) {
-                imgs.push({
-                  url: photo.src.large || photo.src.original,
-                  thumbnail: photo.src.medium,
-                  alt: photo.alt || `Image for ${query}`,
-                  source: "pexels"
-                });
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Pexels search failed", err);
-        }
-      }
-      
-      if (imgs.length === 0 && unsplashKey) {
-        try {
-          const unsplashRes = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=6`, {
-            headers: { Authorization: `Client-ID ${unsplashKey}` }
-          });
-          if (unsplashRes.ok) {
-            const data = await unsplashRes.json();
-            if (data.results && data.results.length > 0) {
-              for (const photo of data.results) {
-                imgs.push({
-                  url: photo.urls.regular || photo.urls.full,
-                  thumbnail: photo.urls.small,
-                  alt: photo.alt_description || `Image for ${query}`,
-                  source: "unsplash"
-                });
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Unsplash search failed", err);
-        }
-      }
-
-      if (imgs.length === 0) {
-        try {
-          const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query + " diagram")}&gsrnamespace=6&prop=imageinfo&iiprop=url&format=json&origin=*`;
-          const wikiRes = await fetch(wikiUrl);
-          if (wikiRes.ok) {
-            const wikiData = await wikiRes.json();
-            const pages = wikiData.query?.pages;
-            if (pages) {
-              for (const pageId in pages) {
-                const info = pages[pageId].imageinfo?.[0];
-                if (info?.url) {
-                  imgs.push({ url: info.url, thumbnail: info.url, alt: query, source: "wikimedia-commons" });
-                  if (imgs.length >= 3) break;
-                }
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Wikimedia Commons search failed", err);
-        }
-      }
-      return imgs;
-    }
-
-    let images: any[] = [];
-    let message = undefined;
-    
-    const isSTEMGuess = /math|science|computer|physics|chemistry|biology|algebra|geometry|calculus|programming|algorithm/i.test(title + ' ' + conceptsStr);
-    
-    if (isSTEMGuess && process.env.WOLFRAM_APP_ID) {
-        const wolframPrompt = `You are a query generator for Wolfram|Alpha. Given the topic title and concepts, generate a concise query (max 50 characters) to find a relevant diagram or mathematical plot. Return ONLY a JSON object: {"query": "string"}
-Topic: ${title}
-Concepts: ${conceptsStr}`;
-        try {
-          const rawWolf = await callLLM(wolframPrompt, undefined, 'json_object');
-          const parsedWolf = JSON.parse(rawWolf.replace(/^\s*```json/, '').replace(/```\s*$/, '').trim());
-          if (parsedWolf.query) {
-            const wolframUrls = await fetchWolframImages(parsedWolf.query.trim(), process.env.WOLFRAM_APP_ID);
-            images = wolframUrls.map(url => ({
-                url: url,
-                thumbnail: url,
-                alt: `Wolfram|Alpha plot for ${parsedWolf.query}`,
-                source: 'wolfram'
-            }));
-          }
-        } catch(e) {
-          console.error("Wolfram query generation failed", e);
-        }
-    }
-
-    if (images.length === 0) {
-        images = await fetchImagesForQuery(searchQuery);
-    }
-
-    // Safety Filter (skip wolfram images as they are safe)
-    if (images.length > 0 && images[0]?.source !== 'wolfram') {
-       const unsafeWords = ["woman", "model", "fashion", "lingerie", "sexy", "bikini", "girl", "boy", "man", "attractive", "beautiful", "handsome"];
-       images = images.filter(img => {
-           const alt = (img.alt || "").toLowerCase();
-           return !unsafeWords.some(w => alt.includes(w));
-       });
-       if (images.length === 0) {
-           console.log("Images filtered or empty. Retrying with educational diagram keyword.");
-           const safeQuery = `${title} educational diagram`;
-           images = await fetchImagesForQuery(safeQuery);
-           images = images.filter(img => {
-               const alt = (img.alt || "").toLowerCase();
-               return !unsafeWords.some(w => alt.includes(w));
-           });
-       }
-    }
-
-    // Relevance Check
-    if (images.length > 0) {
-      const combinedText = images.map(img => (img.alt || "").toLowerCase()).join(" ");
-      const titleWords = title.toLowerCase().split(/\s+/);
-      const conceptWords = conceptsStr.toLowerCase().split(/[\s,]+/);
-      const checkWords = [...titleWords, ...conceptWords].filter(w => w.length > 2);
-      
-      const isRelevant = checkWords.some(w => combinedText.includes(w));
-      
-      if (!isRelevant && checkWords.length > 0) {
-        console.log(`Images flagged as irrelevant for '${searchQuery}'. Retrying with broader keyword.`);
-        // Broader keyword: Title + First key concept
-        const firstConcept = Array.isArray(key_concepts) && key_concepts.length > 0 ? key_concepts[0] : '';
-        const broaderQuery = `${title} ${firstConcept}`.trim();
-        const retryImages = await fetchImagesForQuery(broaderQuery);
-        
-        if (retryImages.length > 0) {
-           images = retryImages;
-        } else {
-           message = "Images may not be perfectly relevant. Try refining your search.";
-        }
-      }
-    }
-
-    if (images.length === 0 && req.body.generateDiagram === true) {
-      try {
-        const krokiPrompt = `Generate a simple Mermaid.js diagram description for the following topic. Only return the Mermaid code, no other text.
-Topic: ${title} (${conceptsStr})`;
-        
-        const rawKroki = await callLLM(krokiPrompt);
-        const cleanedMermaid = rawKroki.replace(/```mermaid\s*/gi, '').replace(/```\s*/gi, '').trim();
-        
-        if (cleanedMermaid) {
-           const krokiUrl = `https://kroki.io/mermaid/svg/${encodeURIComponent(cleanedMermaid)}`;
-           images.push({
-             url: krokiUrl,
-             thumbnail: krokiUrl,
-             alt: `Diagram for ${title}`,
-             source: "kroki"
-           });
-        }
-      } catch (err) {
-        console.error("Kroki diagram generation failed", err);
-      }
-    }
-
-    if (images.length === 0) {
-      return res.json({ images: [], message: "No images found. Try searching for videos instead." });
-    }
-
-    res.json(message ? { images, message } : { images });
-  } catch (err: any) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
+app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
+  // Discontinued: this generated a single search keyword via DeepSeek and
+  // queried Pexels/Unsplash stock libraries, which have no educational
+  // diagrams — hence consistently irrelevant results. Image Search Pro
+  // (POST /api/search-images, Serper/Google Images) replaces it.
+  return res.status(410).json({
+    error: 'Automatic image generation has been discontinued. Use Image Search instead.',
+  });
 });
 
 
@@ -3962,6 +3751,16 @@ INSTRUCTIONS:
 
 app.post('/api/search-images', authenticate, async (req: any, res) => {
   try {
+    try {
+      const orgId = req.body?.org_id || req.query?.org_id || req.cookies?.['sb-org-id'];
+      await verifyAndIncrementUsage(req.userId, 'image', orgId);
+    } catch (e: any) {
+      if (e.name === 'SubscriptionLimitError') {
+        return res.status(429).json({ error: e.message, limitReached: true });
+      }
+      throw e;
+    }
+
     const { query } = req.body;
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
