@@ -3906,105 +3906,8 @@ RULES:
 8. Return ONLY the final explanation text. No additional commentary.`;
         const generatedContent = await callLLM(contentPrompt);
 
-        // 2. Fetch Images
-        const keywordPrompt = `You are a safe educational image search assistant. Given the following textbook explanation for a subtopic, generate a single, highly specific search keyword that would find a relevant, classroom‑appropriate educational diagram or illustration on Pexels/Unsplash.
-
-The image must be suitable for students of ${grade}.
-
-Avoid any keyword that could return fashion, celebrity, or adult content.
-
-Return ONLY a JSON object: {"keyword": "string"}
-
-Subtopic: ${subtopic}
-Full explanation: ${generatedContent ? generatedContent.substring(0, 2000) : ''}`;
-        
-        let searchQuery = subtopic;
-        try {
-          const raw = await callLLM(keywordPrompt, undefined, 'json_object');
-          const parsed = JSON.parse(raw.replace(/^\s*```json/, '').replace(/```\s*$/, '').trim());
-          if (parsed.keyword) searchQuery = parsed.keyword.trim();
-        } catch(e) {
-           console.error("DeepSeek query generation failed, using fallback query", e);
-           const stopWords = new Set(["a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it", "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these", "they", "this", "to", "was", "will", "with"]);
-           let words = (generatedContent || "").toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter((w: string) => w.length > 2 && !stopWords.has(w));
-           let wordCounts: Record<string, number> = {};
-           words.forEach((w: string) => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
-           let topWords = Object.keys(wordCounts).sort((a, b) => wordCounts[b] - wordCounts[a]).slice(0, 3).join(' ');
-           searchQuery = `${title} ${topWords}`.substring(0, 50).trim();
-        }
-        
-        if (!searchQuery) searchQuery = subtopic;
-        
-        const pexelsKey = process.env.IMAGE_SEARCH_API_KEY;
-        const unsplashKey = process.env.UNSPLASH_ACCESS_KEY;
+        // 2. Fetch Images (Wolfram|Alpha for STEM topics)
         let images: any[] = [];
-        
-        async function fetchImagesForQuery(query: string) {
-          const imgs: any[] = [];
-          if (pexelsKey) {
-            try {
-              const pexelsRes = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=3`, {
-                headers: { Authorization: pexelsKey }
-              });
-              if (pexelsRes.ok) {
-                const data = await pexelsRes.json();
-                if (data.photos && data.photos.length > 0) {
-                  for (const photo of data.photos) {
-                    imgs.push({
-                      url: photo.src.large || photo.src.original,
-                      thumbnail: photo.src.medium,
-                      alt: photo.alt || `Image for ${query}`,
-                      source: "pexels"
-                    });
-                  }
-                }
-              }
-            } catch (err) {}
-          }
-          
-          if (imgs.length === 0 && unsplashKey) {
-            try {
-              const unsplashRes = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=3`, {
-                headers: { Authorization: `Client-ID ${unsplashKey}` }
-              });
-              if (unsplashRes.ok) {
-                const data = await unsplashRes.json();
-                if (data.results && data.results.length > 0) {
-                  for (const photo of data.results) {
-                    imgs.push({
-                      url: photo.urls.regular || photo.urls.full,
-                      thumbnail: photo.urls.small,
-                      alt: photo.alt_description || `Image for ${query}`,
-                      source: "unsplash"
-                    });
-                  }
-                }
-              }
-            } catch (err) {}
-          }
-
-          if (imgs.length === 0) {
-            try {
-              const wikiUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query + " diagram")}&gsrnamespace=6&prop=imageinfo&iiprop=url&format=json&origin=*`;
-              const wikiRes = await fetch(wikiUrl);
-              if (wikiRes.ok) {
-                const wikiData = await wikiRes.json();
-                const pages = wikiData.query?.pages;
-                if (pages) {
-                  for (const pageId in pages) {
-                    const info = pages[pageId].imageinfo?.[0];
-                    if (info?.url) {
-                      imgs.push({ url: info.url, thumbnail: info.url, alt: query, source: "wikimedia-commons" });
-                      if (imgs.length >= 3) break;
-                    }
-                  }
-                }
-              }
-            } catch (err) {}
-          }
-          return imgs;
-        }
-
         let isSTEM = false;
         if (subject) {
             const subjectLower = subject.toLowerCase();
@@ -4030,46 +3933,6 @@ Content: ${generatedContent ? generatedContent.substring(0, 500) : ''}`;
             } catch(e) {
               console.error("Wolfram query generation failed", e);
             }
-        }
-
-        if (images.length === 0) {
-            images = await fetchImagesForQuery(searchQuery);
-        }
-
-        // Safety filter
-        const unsafeWords = ["woman", "model", "fashion", "lingerie", "sexy", "bikini", "girl", "boy", "man", "attractive", "beautiful", "handsome"];
-        images = images.filter(img => {
-            const alt = (img.alt || "").toLowerCase();
-            return !unsafeWords.some(w => alt.includes(w));
-        });
-
-        if (images.length === 0) {
-           console.log("Images filtered or empty. Retrying with educational diagram keyword.");
-           const safeQuery = `${subtopic} educational diagram`;
-           images = await fetchImagesForQuery(safeQuery);
-           images = images.filter(img => {
-               const alt = (img.alt || "").toLowerCase();
-               return !unsafeWords.some(w => alt.includes(w));
-           });
-        }
-
-        // Relevance check
-        if (images.length > 0) {
-           const firstAlt = (images[0].alt || "").toLowerCase();
-           const topicWords = subtopic.toLowerCase().split(/\s+/).concat(subject.toLowerCase().split(/\s+/));
-           const checkWords = [...topicWords].filter(w => w.length > 2);
-           const isRelevant = checkWords.length === 0 || checkWords.some(w => firstAlt.includes(w));
-           if (!isRelevant) {
-              const broaderQuery = `${subject} ${title}`.trim();
-              let retryImages = await fetchImagesForQuery(broaderQuery);
-              retryImages = retryImages.filter(img => {
-                  const alt = (img.alt || "").toLowerCase();
-                  return !unsafeWords.some(w => alt.includes(w));
-              });
-              if (retryImages.length > 0) {
-                 images = retryImages;
-              }
-           }
         }
 
         // 3. Fetch Videos
