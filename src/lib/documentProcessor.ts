@@ -995,7 +995,7 @@ async function processDocumentViaSpace(
   const ticket = await ticketRes.json();
 
   // Explicit guards: without these a missing field silently produces a request
-  // to "undefined/process-url", which resolves against our OWN origin and 404s
+  // to "undefined/process-mistral", which resolves against our OWN origin and 404s
   // on Vercel — so the Space never sees anything and the cause is invisible.
   if (!ticket.uploadUrl) throw new Error('Ticket missing uploadUrl');
   if (!ticket.fileUrl) throw new Error('Ticket missing fileUrl');
@@ -1020,9 +1020,9 @@ async function processDocumentViaSpace(
 
   // --- Step 3: ask the Space to process it (direct; no Vercel timeout) ---
   onProgress('Processing document… this can take several minutes for a large book.');
-  console.log('[documentProcessor] Calling', `${ticket.spaceUrl}/process-url`);
+  console.log('[documentProcessor] Calling', `${ticket.spaceUrl}/process-mistral`);
 
-  const response = await fetch(`${ticket.spaceUrl}/process-url`, {
+  const response = await fetch(`${ticket.spaceUrl}/process-mistral`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file_url: ticket.fileUrl, token: ticket.processToken }),
@@ -1030,7 +1030,7 @@ async function processDocumentViaSpace(
 
   if (!response.ok || !response.body) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`Space /process-url failed (${response.status}): ${errText.slice(0, 300)}`);
+    throw new Error(`Space /process-mistral failed (${response.status}): ${errText.slice(0, 300)}`);
   }
 
   const reader = response.body.getReader();
