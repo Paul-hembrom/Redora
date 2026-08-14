@@ -821,14 +821,31 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
         {(uploadError || localError) && (() => {
           const rawErr = uploadError || localError;
           const friendlyErr = formatUserFriendlyError(rawErr, "Unable to process document right now. Please try again or contact support.");
+          const isDuplicate = friendlyErr.toLowerCase().includes('already been uploaded');
+          const isPending = friendlyErr.toLowerCase().includes('already being uploaded') || friendlyErr.toLowerCase().includes('processing');
           const showUpgrade = rawErr?.toLowerCase().includes('upgrade') || friendlyErr.toLowerCase().includes('limit');
+
+          const bannerStyle = isDuplicate
+            ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+            : isPending
+            ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+            : 'border-red-500/20 bg-red-500/10 text-red-400';
+
           return (
-            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 font-medium whitespace-pre-wrap flex flex-col gap-2">
+            <div className={`mt-3 p-3 border rounded-lg text-xs font-medium whitespace-pre-wrap flex flex-col gap-2 ${bannerStyle}`}>
               <div>{friendlyErr}</div>
               {showUpgrade && (
                  <button onClick={() => window.location.href = '/pricing'} className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-white rounded w-full border border-red-500/30 transition-colors font-semibold">
                    Upgrade Plan
                  </button>
+              )}
+              {isDuplicate && sidebarTab !== 'library' && (
+                <button
+                  onClick={() => setSidebarTab('library')}
+                  className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded w-full border border-amber-500/30 transition-colors font-semibold text-center"
+                >
+                  View In Library
+                </button>
               )}
             </div>
           );

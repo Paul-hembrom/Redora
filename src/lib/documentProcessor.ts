@@ -990,7 +990,19 @@ async function processDocumentViaSpace(
 
   if (!ticketRes.ok) {
     const t = await ticketRes.text().catch(() => '');
-    throw new Error(`process-ticket failed (${ticketRes.status}): ${t.slice(0, 300)}`);
+    let errCode = '';
+    try {
+      const parsed = JSON.parse(t);
+      errCode = parsed.error || '';
+    } catch (e) {}
+
+    if (errCode === 'DUPLICATE_DOCUMENT' || t.includes('DUPLICATE_DOCUMENT')) {
+      throw new Error('DUPLICATE_DOCUMENT');
+    }
+    if (errCode === 'UPLOAD_IN_PROGRESS' || t.includes('UPLOAD_IN_PROGRESS')) {
+      throw new Error('UPLOAD_IN_PROGRESS');
+    }
+    throw new Error(errCode || `Upload preparation failed (${ticketRes.status})`);
   }
   const ticket = await ticketRes.json();
 

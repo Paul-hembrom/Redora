@@ -109,6 +109,25 @@ export function formatUserFriendlyError(err: any, fallbackMessage = "Something w
 
   const lowerMsg = rawMsg.toLowerCase();
 
+  // Check for duplicate document
+  if (
+    lowerMsg.includes('duplicate_document') ||
+    lowerMsg.includes('duplicate document') ||
+    lowerMsg.includes('duplicate')
+  ) {
+    return "This document has already been uploaded. Kindly check your library, or delete the existing version if you want to re-upload it.";
+  }
+
+  // Check for upload in progress / locked
+  if (
+    lowerMsg.includes('upload_in_progress') ||
+    lowerMsg.includes('upload in progress') ||
+    lowerMsg.includes('already being processed') ||
+    lowerMsg.includes('upload_locks')
+  ) {
+    return "This document is already being uploaded or processed. Please wait a moment for it to complete.";
+  }
+
   // Check for limit / quota / subscription errors
   if (
     lowerMsg.includes('limit reached') ||
@@ -131,10 +150,16 @@ export function formatUserFriendlyError(err: any, fallbackMessage = "Something w
     lowerMsg.includes('syntax error') ||
     lowerMsg.includes('500') ||
     lowerMsg.includes('save failed (') ||
+    lowerMsg.includes('process-ticket') ||
+    lowerMsg.includes('process_ticket') ||
+    lowerMsg.includes('process-url') ||
     lowerMsg.includes('internal server error') ||
     lowerMsg.includes('pipeline') ||
     lowerMsg.includes('econnrefused') ||
-    lowerMsg.includes('fkey')
+    lowerMsg.includes('fkey') ||
+    lowerMsg.includes('supabase') ||
+    lowerMsg.includes('bucket') ||
+    lowerMsg.includes('content_hash')
   ) {
     return "We couldn't process your document right now. Please try again or contact support if the issue persists.";
   }
@@ -151,6 +176,7 @@ export function formatUserFriendlyError(err: any, fallbackMessage = "Something w
   let clean = rawMsg
     .replace(/^failed to save document:\s*/i, '')
     .replace(/^failed to process document:\s*/i, '')
+    .replace(/^process-ticket failed.*:\s*/i, '')
     .replace(/^save failed \(\d+\):\s*/i, '')
     .replace(/^error:\s*/i, '')
     .trim();

@@ -718,7 +718,12 @@ export default function App() {
 
           if (!res.ok) {
             const body = await res.text().catch(() => '');
-            throw new Error(`Save failed (${res.status}): ${body.slice(0, 200)}`);
+            let errMessage = '';
+            try {
+              const json = JSON.parse(body);
+              errMessage = json.error || '';
+            } catch (e) {}
+            throw new Error(errMessage || `Unable to save document (${res.status})`);
           }
           savedOk = true;
 
