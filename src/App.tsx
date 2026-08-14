@@ -23,6 +23,7 @@ import { CreditsPanel } from './components/CreditsPanel';
 import { AskButton } from './components/AskButton';
 
 import { processDocument, hashFile } from './lib/documentProcessor';
+import { formatUserFriendlyError } from './lib/utils';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -763,18 +764,14 @@ export default function App() {
 
           if (savedOk) {
             console.warn('[upload] Post-save step failed; the document IS saved.');
-          } else if (err.message?.includes('dynamically imported module')) {
-            setUploadError('App version updated. Please refresh the page to continue.');
-          } else if (err.message?.includes('504') || err.message?.includes('TIMEOUT')) {
-            setUploadError('Saving took too long and timed out. Please try again.');
           } else {
-            setUploadError(`Failed to save document: ${err.message}`);
+            setUploadError(formatUserFriendlyError(err, 'Unable to save document right now. Please try again or contact support.'));
           }
         }
       }
     } catch (err: any) {
       console.error('[upload] outer failed:', err);
-      setUploadError(`Failed to process document: ${err.message}`);
+      setUploadError(formatUserFriendlyError(err, 'Unable to process document. Please try again or contact support.'));
     } finally {
       setIsUploading(false);
       setUploadProgress('');

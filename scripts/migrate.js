@@ -66,8 +66,12 @@ await sql`
   )
 `;
 
-await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id TEXT`;
-await sql`ALTER TABLE chapters ALTER COLUMN parent_id TYPE TEXT USING parent_id::text`;
+try {
+  await sql`ALTER TABLE chapters DROP CONSTRAINT IF EXISTS chapters_parent_id_fkey`;
+  await sql`ALTER TABLE chapters ALTER COLUMN parent_id TYPE TEXT USING parent_id::text`;
+} catch (e) {
+  console.warn('[migrate] chapters parent_id alter warning:', e?.message);
+}
 await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
 await sql`ALTER TABLE chapters DROP CONSTRAINT IF EXISTS chapters_type_check`;
 await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'`;

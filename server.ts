@@ -1322,7 +1322,6 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
     }
     res.json({ success: true, document_id: id });
   } catch (err: any) {
-    // Log the FULL error so we can see exactly what column/constraint is failing
     console.error('DOCUMENT UPLOAD FAILED', {
       message: err.message,
       code: err.code,
@@ -1331,15 +1330,14 @@ app.post('/api/documents', authenticate, async (req: any, res) => {
       stack: err.stack
     });
 
-    let errorMessage = 'Database sync failed. Please try again.';
-    
-    // If it's a missing column, tell us exactly which one
-    if (err.code === '42703') {
-      errorMessage = `Database column missing: ${err.message}`;
-      console.error('MISSING COLUMN:', err.message);
+    if (err.name === 'SubscriptionLimitError' || err.message?.includes('Personal limit reached') || err.message?.includes('limit reached')) {
+      return res.status(429).json({
+        error: 'Your monthly upload limit has been reached. Please upgrade your plan or try again next month.',
+        limitReached: true
+      });
     }
-    
-    res.status(500).json({ error: errorMessage });
+
+    res.status(500).json({ error: 'Unable to save document right now. Please try again or contact support if the issue persists.' });
   }
 });
 

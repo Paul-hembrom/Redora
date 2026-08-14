@@ -89,3 +89,75 @@ export function safeParseJSON(val: any): any[] {
 
   return result.filter((item) => item !== null && typeof item === 'object');
 }
+
+export function formatUserFriendlyError(err: any, fallbackMessage = "Something went wrong. Please try again."): string {
+  if (!err) return fallbackMessage;
+
+  let rawMsg = typeof err === 'string' ? err : err.message || '';
+
+  // If the message is a raw JSON string e.g. {"error":"..."}
+  if (rawMsg.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(rawMsg);
+      if (parsed.error && typeof parsed.error === 'string') {
+        rawMsg = parsed.error;
+      }
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  const lowerMsg = rawMsg.toLowerCase();
+
+  // Check for limit / quota / subscription errors
+  if (
+    lowerMsg.includes('limit reached') ||
+    lowerMsg.includes('subscriptionlimit') ||
+    lowerMsg.includes('monthly limit') ||
+    lowerMsg.includes('quota exceeded') ||
+    lowerMsg.includes('upgrade your plan') ||
+    lowerMsg.includes('personal limit')
+  ) {
+    return "Your monthly upload limit has been reached. Please upgrade your plan or try again next month.";
+  }
+
+  // Detect internal database / server pipeline leakage
+  if (
+    lowerMsg.includes('database') ||
+    lowerMsg.includes('column') ||
+    lowerMsg.includes('relation') ||
+    lowerMsg.includes('sql') ||
+    lowerMsg.includes('postgres') ||
+    lowerMsg.includes('syntax error') ||
+    lowerMsg.includes('500') ||
+    lowerMsg.includes('save failed (') ||
+    lowerMsg.includes('internal server error') ||
+    lowerMsg.includes('pipeline') ||
+    lowerMsg.includes('econnrefused') ||
+    lowerMsg.includes('fkey')
+  ) {
+    return "We couldn't process your document right now. Please try again or contact support if the issue persists.";
+  }
+
+  if (lowerMsg.includes('504') || lowerMsg.includes('timeout')) {
+    return "Saving took too long and timed out. Please try again.";
+  }
+
+  if (lowerMsg.includes('dynamically imported module')) {
+    return "App version updated. Please refresh the page to continue.";
+  }
+
+  // Stripping internal technical prefixes
+  let clean = rawMsg
+    .replace(/^failed to save document:\s*/i, '')
+    .replace(/^failed to process document:\s*/i, '')
+    .replace(/^save failed \(\d+\):\s*/i, '')
+    .replace(/^error:\s*/i, '')
+    .trim();
+
+  if (!clean || clean.length > 200 || clean.startsWith('{')) {
+    return fallbackMessage;
+  }
+
+  return clean;
+}

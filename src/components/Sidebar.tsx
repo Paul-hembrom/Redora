@@ -8,7 +8,7 @@ import { twMerge } from 'tailwind-merge';
 import { Markdown, markdownComponents } from './MarkdownComponents';
 import { ReadAloudButton } from './ReadAloudButton';
 import { useAuth } from '../contexts/AuthContext';
-import { smartNormalizeText } from '../lib/utils';
+import { smartNormalizeText, formatUserFriendlyError } from '../lib/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -818,16 +818,21 @@ export default function Sidebar({ documents, selectedDocId, selectedChapterId, o
           </div>
         )}
         
-        {(uploadError || localError) && (
-          <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 font-medium whitespace-pre-wrap flex flex-col gap-2">
-            <div>{uploadError || localError}</div>
-            {((uploadError && uploadError.includes('Upgrade')) || (localError && localError.includes('Upgrade'))) && (
-               <button onClick={() => window.location.href = '/pricing'} className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-white rounded w-full border border-red-500/30 transition-colors">
-                 Upgrade Plan
-               </button>
-            )}
-          </div>
-        )}
+        {(uploadError || localError) && (() => {
+          const rawErr = uploadError || localError;
+          const friendlyErr = formatUserFriendlyError(rawErr, "Unable to process document right now. Please try again or contact support.");
+          const showUpgrade = rawErr?.toLowerCase().includes('upgrade') || friendlyErr.toLowerCase().includes('limit');
+          return (
+            <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 font-medium whitespace-pre-wrap flex flex-col gap-2">
+              <div>{friendlyErr}</div>
+              {showUpgrade && (
+                 <button onClick={() => window.location.href = '/pricing'} className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-white rounded w-full border border-red-500/30 transition-colors font-semibold">
+                   Upgrade Plan
+                 </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {sidebarTab === 'library' ? (

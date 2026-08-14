@@ -88,6 +88,42 @@ const sql = postgres(finalDbUrl, {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+async function ensureColumnMigrations() {
+  try {
+    await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'`;
+    await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`;
+    await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS organization_id TEXT`;
+  } catch (e) {}
+
+  try {
+    await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id TEXT`;
+    await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'`;
+  } catch (e) {}
+
+  try {
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
+  } catch (e: any) {
+    console.error('[db] user_usage columns migration error:', e?.message);
+  }
+
+  try {
+    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
+  } catch (e: any) {
+    console.error('[db] school_usage columns migration error:', e?.message);
+  }
+}
+
 // Initialize schema
 export async function initDb() {
   let retries = 3;
@@ -123,13 +159,16 @@ export async function initDb() {
     return;
   }
 
+  // Ensure lightweight column additions run on startup
+  await ensureColumnMigrations();
+
   // Avoid running heavy DDL / locks on every serverless cold start if table already exists
   try {
     const existingTable = await sql`
       SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users' LIMIT 1
     `;
     if (existingTable.length > 0) {
-      console.log('Database schema already initialized. Skipping DDL execution on cold start.');
+      console.log('Database schema already initialized. Skipping heavy DDL execution on cold start.');
       return;
     }
   } catch (e) {
