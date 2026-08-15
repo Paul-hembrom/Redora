@@ -776,16 +776,14 @@ export function AskButton() {
                 >
                   <p className="leading-relaxed">
                     {answerWords.map((w, i) => {
-                      const HIGHLIGHT = '#22D3EE'; // cyan-400
+                      // Match ReadAloudButton.tsx exactly (lines 770-794) so the two features feel
+                      // like one product. Amber on the dark slate-900 popup is the same treatment
+                      // the document reader already uses.
+                      const HIGHLIGHT = '#FBBF24'; // amber-400, identical to ReadAloudButton
                       const REST = '#CBD5E1'; // slate-300, the normal answer text colour
 
                       const activeStyle = isLowEnd
-                        ? {
-                            // Subtle tinted pill instead of solid fill; text stays readable.
-                            backgroundColor: 'rgba(34, 211, 238, 0.20)',
-                            color: '#F1F5F9',
-                            borderRadius: '3px',
-                          }
+                        ? { backgroundColor: '#FBBF24', color: '#111827' }
                         : {
                             background: `linear-gradient(to right, ${HIGHLIGHT} ${wordProgress}%, ${REST} ${wordProgress}%)`,
                             WebkitBackgroundClip: 'text',
