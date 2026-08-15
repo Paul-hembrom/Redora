@@ -47,6 +47,69 @@ function normalizeUnicodeMath(input: string): string {
     t = t.replace(/\bdet\s*\(/gi, ' the determinant of (');
     t = t.replace(/\blog\s*_\s*([0-9a-zA-Z]+)/g, ' log base $1 of ');
 
+    // ---------------------------------------------------------------------
+    // BINARY OPERATORS WRITTEN WITHOUT SPACES
+    //
+    // Every operator rule in the original normalizer required whitespace on
+    // BOTH sides (/\s+\+\s+/ etc). Textbooks almost never write "2 + 3" --
+    // they write "2+3", "u+at", "x²+2xy+y²". The operator therefore never
+    // became a word and was stripped by the downstream sanitiser, so
+    // "A'(2+3, 3+2)" was voiced as "A prime 2 and 3".
+    //
+    // These run BEFORE the ordered-pair rule so "(2+3, 3+2)" has already
+    // become "(2 plus 3, 3 plus 2)" and is no longer a bare numeric pair.
+    // ---------------------------------------------------------------------
+    t = t.replace(/([A-Za-z0-9)\]\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089])\s*\+\s*([A-Za-z0-9(\[])/g, '$1 plus $2');
+    // A preceding rule may already have inserted a space (e.g. "x squared +2xy"),
+    // leaving the "+" with whitespace before it and no alnum to anchor on.
+    t = t.replace(/\s\+\s*(?=[A-Za-z0-9(\[])/g, ' plus ');
+    t = t.replace(/([A-Za-z0-9)\]\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089])\s*[*×]\s*([A-Za-z0-9(\[])/g, '$1 times $2');
+    t = t.replace(/([A-Za-z0-9)\]\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089])\s*÷\s*([A-Za-z0-9(\[])/g, '$1 divided by $2');
+
+    // Minus without spaces. Digit-digit is always subtraction; letter-letter
+    // is only subtraction for SINGLE-letter variables, so "well-defined",
+    // "counter-clockwise" and "co-ordinate" are left alone. Four-digit pairs
+    // are treated as year ranges, not subtraction.
+    t = t.replace(/\b(\d{1,3})\s*-\s*(\d{1,3})\b/g, '$1 minus $2');
+    t = t.replace(/\b([a-zA-Z])\s*-\s*([a-zA-Z])\b(?![a-zA-Z-])/g, '$1 minus $2');
+    // A minus directly after a super/subscript is subtraction ("a³-b³"),
+    // never a sign -- otherwise the unary rule later voices it "negative".
+    t = t.replace(/([\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089])\s*-\s*(?=[A-Za-z0-9(])/g, '$1 minus ');
+
+    // ---------------------------------------------------------------------
+    // UNITS: "/" means "per", not "over"
+    // ---------------------------------------------------------------------
+    const UNIT = '(?:m|km|cm|mm|kg|g|mg|s|h|min|N|J|W|V|A|C|K|L|mL|mol|Pa|Hz|rad|cd)';
+    t = t.replace(
+        new RegExp(`\\b(${UNIT})\\s*/\\s*(${UNIT})\\b`, 'g'),
+        '$1 per $2'
+    );
+
+    // ---------------------------------------------------------------------
+    // INVERSE TRIG. Must run BEFORE the generic superscript rule, which would
+    // otherwise give "tan to the power of negative 1".
+    // ---------------------------------------------------------------------
+    t = t.replace(/\b(sin|cos|tan|sec|csc|cosec|cot)\s*(?:⁻¹|\^\{?-1\}?)/gi,
+                  (_m, fn) => ` inverse ${({
+                      sin: 'sine', cos: 'cosine', tan: 'tangent',
+                      sec: 'secant', csc: 'cosecant', cosec: 'cosecant', cot: 'cotangent',
+                  } as Record<string, string>)[String(fn).toLowerCase()] || fn} of `);
+
+    // Transpose: Aᵀ / A^T
+    t = t.replace(/([A-Za-z])\s*(?:ᵀ|\^\{?T\}?)(?![a-zA-Z])/g, '$1 transpose ');
+
+    // ---------------------------------------------------------------------
+    // LIMITS AND HIGHER DERIVATIVES written without LaTeX
+    // ---------------------------------------------------------------------
+    // "→" has already become " gives " in the earlier Unicode pass, so match
+    // that spelling too.
+    t = t.replace(/\blim\s*\(?\s*([a-zA-Z])\s*(?:→|->|gives|\\to)\s*([\dA-Za-z∞]+)\s*\)?/g,
+                  ' the limit as $1 approaches $2 of ');
+    t = t.replace(/\bd\s*[²2]\s*([a-zA-Z])\s*\/\s*d\s*([a-zA-Z])\s*[²2]/g,
+                  ' the second derivative of $1 with respect to $2 ');
+    t = t.replace(/\bd\s*[³3]\s*([a-zA-Z])\s*\/\s*d\s*([a-zA-Z])\s*[³3]/g,
+                  ' the third derivative of $1 with respect to $2 ');
+
     // --- ORDERED PAIRS / COORDINATES ---
     //
     // "(5,6)" reaches the model intact (the sanitiser whitelists commas and
@@ -185,6 +248,12 @@ function normalizeUnicodeMath(input: string): string {
     // Derivatives first, so dy/dx does not become "d y over d x".
     t = t.replace(/\bd([a-zA-Z])\s*\/\s*d([a-zA-Z])\b/g, ' the derivative of $1 with respect to $2 ');
     t = t.replace(/([A-Za-z0-9)\]])\s*\/\s*([A-Za-z0-9(\[])/g, '$1 over $2');
+
+    // Final "+" sweep. By this point every symbol (Greek, radicals, fractions,
+    // superscripts) has become a word, so any "+" still present is arithmetic.
+    // The earlier operand-class rules cannot catch "sin²θ+cos²θ" or "√25+∛27"
+    // because the character before the "+" was still a symbol when they ran.
+    t = t.replace(/([^\s+])\s*\+\s*(?=\S)/g, '$1 plus ');
 
     // --- Unicode comparison wording, matched to the ASCII forms above ---
     t = t.replace(/\s*≥\s*/g, ' is greater than or equal to ');
