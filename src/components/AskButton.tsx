@@ -776,15 +776,23 @@ export function AskButton() {
                 >
                   <p className="leading-relaxed">
                     {answerWords.map((w, i) => {
+                      const HIGHLIGHT = '#22D3EE'; // cyan-400
+                      const REST = '#CBD5E1'; // slate-300, the normal answer text colour
+
                       const activeStyle = isLowEnd
-                        ? { backgroundColor: '#FBBF24', color: '#111827' }
+                        ? {
+                            // Subtle tinted pill instead of solid fill; text stays readable.
+                            backgroundColor: 'rgba(34, 211, 238, 0.20)',
+                            color: '#F1F5F9',
+                            borderRadius: '3px',
+                          }
                         : {
-                            background: `linear-gradient(to right, #FBBF24 ${wordProgress}%, transparent ${wordProgress}%)`,
+                            background: `linear-gradient(to right, ${HIGHLIGHT} ${wordProgress}%, ${REST} ${wordProgress}%)`,
                             WebkitBackgroundClip: 'text',
                             backgroundClip: 'text',
                             color: 'transparent',
                           };
-                      const spokenStyle = { opacity: 0.35, transition: 'opacity 300ms ease' };
+                      const spokenStyle = { opacity: 0.55, transition: 'opacity 300ms ease' };
 
                       return (
                         <span

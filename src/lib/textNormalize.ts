@@ -47,6 +47,26 @@ function normalizeUnicodeMath(input: string): string {
     t = t.replace(/\bdet\s*\(/gi, ' the determinant of (');
     t = t.replace(/\blog\s*_\s*([0-9a-zA-Z]+)/g, ' log base $1 of ');
 
+    // --- ORDERED PAIRS / COORDINATES ---
+    //
+    // "(5,6)" reaches the model intact (the sanitiser whitelists commas and
+    // brackets), and an English phonemiser treats a comma between digits as a
+    // THOUSANDS SEPARATOR -- so "(5,6)" is voiced "fifty-six" and "(2,3)"
+    // becomes "twenty-three". Making the separator explicit is the only
+    // reliable fix, and "five comma six" is how the pair is read aloud in
+    // class anyway.
+    //
+    // Restricted to bracketed pairs/triples so ordinary list punctuation
+    // ("apples, pears, plums") is untouched.
+    t = t.replace(
+        /([(\[])\s*(-?[\dA-Za-z.]+)\s*,\s*(-?[\dA-Za-z.]+)\s*,\s*(-?[\dA-Za-z.]+)\s*([)\]])/g,
+        ' $1 $2 comma $3 comma $4 $5 '
+    );
+    t = t.replace(
+        /([(\[])\s*(-?[\dA-Za-z.]+)\s*,\s*(-?[\dA-Za-z.]+)\s*([)\]])/g,
+        ' $1 $2 comma $3 $4 '
+    );
+
     // --- Percent. Kokoro voices a bare "%" inconsistently. ---
     t = t.replace(/(\d)\s*%/g, '$1 percent ');
 
