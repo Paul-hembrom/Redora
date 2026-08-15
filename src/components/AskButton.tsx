@@ -45,16 +45,21 @@ export function AskButton() {
   const searchPosRef = useRef(0);
   const wordOffsetRef = useRef(0);
 
-  // Tokenize answer into words
-  const answerWords = useMemo(() => {
-    if (!answerText) return [] as { text: string; start: number }[];
+  // Tokenize helper & ref for playAnswerAudio
+  const playWordsRef = useRef<{ text: string; start: number }[]>([]);
+
+  const tokenizeAnswer = (s: string) => {
     const out: { text: string; start: number }[] = [];
     const re = /\S+/g;
     let m;
-    while ((m = re.exec(answerText))) {
-      out.push({ text: m[0], start: m.index });
-    }
+    while ((m = re.exec(s))) out.push({ text: m[0], start: m.index });
     return out;
+  };
+
+  // Tokenize answer into words
+  const answerWords = useMemo(() => {
+    if (!answerText) return [] as { text: string; start: number }[];
+    return tokenizeAnswer(answerText);
   }, [answerText]);
 
   // background-clip:text is the most expensive paint in the app; a 4GB
@@ -196,10 +201,11 @@ export function AskButton() {
 
   // Map chunk timestamps to global word indices
   const computeWordOffset = (chunkText: string, fullAnswer: string): number => {
+    const words = playWordsRef.current;
     let idx = fullAnswer.indexOf(chunkText, searchPosRef.current);
     if (idx === -1) idx = fullAnswer.indexOf(chunkText);
     if (idx === -1) return wordOffsetRef.current;
-    const offset = answerWords.findIndex(w => w.start >= idx);
+    const offset = words.findIndex(w => w.start >= idx);
     searchPosRef.current = idx + chunkText.length;
     if (offset !== -1) wordOffsetRef.current = offset;
     return wordOffsetRef.current;
@@ -269,6 +275,10 @@ export function AskButton() {
 
     searchPosRef.current = 0;
     wordOffsetRef.current = 0;
+    // Tokenize from the argument. answerWords (a useMemo on answerText state) is
+    // still stale here because playAnswerAudio is called in the same handler as
+    // setAnswerText, before React re-renders.
+    playWordsRef.current = tokenizeAnswer(textToPlay);
     setActiveWord(-1);
     setWordProgress(0);
 
@@ -779,11 +789,17 @@ export function AskButton() {
                       const HIGHLIGHT = '#FBBF24'; // amber-400, same as ReadAloudButton
 
                       const activeStyle = isLowEnd
-                        ? { backgroundColor: '#FBBF24', color: '#111827' }
+                        ? { backgroundColor: '#FBBF24', color: '#111827', WebkitTextFillColor: '#111827' }
                         : {
-                            background: `linear-gradient(to right, ${HIGHLIGHT} ${wordProgress}%, transparent ${wordProgress}%)`,
+                            // backgroundImage, NOT the `background` shorthand: the shorthand resets
+                            // background-clip to border-box, which silently disables the text clip.
+                            backgroundImage: `linear-gradient(to right, ${HIGHLIGHT} ${wordProgress}%, transparent ${wordProgress}%)`,
                             WebkitBackgroundClip: 'text',
                             backgroundClip: 'text',
+                            // -webkit-text-fill-color is required in WebKit; `color: transparent`
+                            // alone leaves the unfilled part rendering in the inherited slate-200,
+                            // which is what appeared as white.
+                            WebkitTextFillColor: 'transparent',
                             color: 'transparent',
                           };
                       const spokenStyle = { opacity: 0.55, transition: 'opacity 300ms ease' };
