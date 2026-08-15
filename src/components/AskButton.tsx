@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { HelpCircle, Mic, MicOff, Send, X, Loader2, Volume2, Square, Sparkles, GripHorizontal } from 'lucide-react';
 import { subscribeReadAloud } from '../lib/readAloudBus';
 import { cn } from '../lib/utils';
@@ -36,11 +36,41 @@ export function AskButton() {
   const recordTimerRef = useRef<any>(null);
   const speechRecognitionRef = useRef<any>(null);
 
-  // Smooth scroll container ref for reading answer
+  // Word-synced highlighting & autoscroll refs/state
   const answerContainerRef = useRef<HTMLDivElement | null>(null);
+  const wordRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const [activeWord, setActiveWord] = useState(-1);
+  const [wordProgress, setWordProgress] = useState(0);
+  const rafRef = useRef<number | null>(null);
+  const searchPosRef = useRef(0);
+  const wordOffsetRef = useRef(0);
+
+  // Tokenize answer into words
+  const answerWords = useMemo(() => {
+    if (!answerText) return [] as { text: string; start: number }[];
+    const out: { text: string; start: number }[] = [];
+    const re = /\S+/g;
+    let m;
+    while ((m = re.exec(answerText))) {
+      out.push({ text: m[0], start: m.index });
+    }
+    return out;
+  }, [answerText]);
+
+  // background-clip:text is the most expensive paint in the app; a 4GB
+  // smartboard must not repaint it per frame.
+  const isLowEnd = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    try {
+      const nav = navigator as any;
+      return (typeof nav.deviceMemory === 'number' && nav.deviceMemory <= 4)
+          || (typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency <= 4);
+    } catch (e) {
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
-    // Mic is enabled for all users by default
     setMicAllowed(true);
   }, []);
 
@@ -51,8 +81,8 @@ export function AskButton() {
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
-      x: Math.max(16, (window.innerWidth || 800) - 220),
-      y: Math.max(16, (window.innerHeight || 600) - 120),
+      x: Math.max(16, (typeof window !== 'undefined' ? window.innerWidth : 800) - 220),
+      y: Math.max(16, (typeof window !== 'undefined' ? window.innerHeight : 600) - 120),
     };
   });
 
@@ -101,9 +131,13 @@ export function AskButton() {
       utterance.rate = 0.95;
       utterance.onend = () => {
         setIsPlayingAnswerAudio(false);
+        setActiveWord(-1);
+        setWordProgress(0);
       };
       utterance.onerror = () => {
         setIsPlayingAnswerAudio(false);
+        setActiveWord(-1);
+        setWordProgress(0);
       };
       setIsPlayingAnswerAudio(true);
       window.speechSynthesis.speak(utterance);
@@ -116,11 +150,18 @@ export function AskButton() {
   const stopAnswerAudio = () => {
     activeSessionRef.current = false;
     setIsPlayingAnswerAudio(false);
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setActiveWord(-1);
+    setWordProgress(0);
     if (answerAudioRef.current) {
       try {
         answerAudioRef.current.pause();
         answerAudioRef.current.onended = null;
         answerAudioRef.current.onerror = null;
+        answerAudioRef.current.onplay = null;
         answerAudioRef.current.removeAttribute('src');
       } catch (e) {}
     }
@@ -153,10 +194,83 @@ export function AskButton() {
     }
   };
 
+  // Map chunk timestamps to global word indices
+  const computeWordOffset = (chunkText: string, fullAnswer: string): number => {
+    let idx = fullAnswer.indexOf(chunkText, searchPosRef.current);
+    if (idx === -1) idx = fullAnswer.indexOf(chunkText);
+    if (idx === -1) return wordOffsetRef.current;
+    const offset = answerWords.findIndex(w => w.start >= idx);
+    searchPosRef.current = idx + chunkText.length;
+    if (offset !== -1) wordOffsetRef.current = offset;
+    return wordOffsetRef.current;
+  };
+
+  // Real autoscroll inside answer container (no scrollIntoView)
+  const scrollWordIntoView = (idx: number) => {
+    const c = answerContainerRef.current;
+    const el = wordRefs.current[idx];
+    if (!c || !el) return;
+    const cr = c.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const margin = 28;
+    if (r.bottom > cr.bottom - margin || r.top < cr.top + margin) {
+      const target = c.scrollTop + (r.top - cr.top) - c.clientHeight / 2 + r.height / 2;
+      c.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    }
+  };
+
+  // RAF loop for word-synced highlights
+  const PROGRESS_STEPS = 20;
+
+  const runHighlightLoop = (audio: HTMLAudioElement, timestamps: any[], wordOffset: number) => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    if (!timestamps?.length) return;
+
+    let cursor = 0, lastActive = -1, lastBucket = -1;
+    const tsStart = (t: any) => (t.start_time !== undefined ? t.start_time : t.start);
+    const tsEnd   = (t: any) => (t.end_time   !== undefined ? t.end_time   : t.end);
+
+    const loop = () => {
+      if (!activeSessionRef.current || audio.paused || audio.ended) return;
+      const now = audio.currentTime;
+
+      if (cursor > 0 && now < tsStart(timestamps[cursor])) cursor = 0;
+      while (cursor < timestamps.length - 1 && now >= tsEnd(timestamps[cursor])) cursor++;
+
+      const ts = timestamps[cursor];
+      const s = tsStart(ts), e = tsEnd(ts);
+      const globalIdx = (now >= s && now < e) ? wordOffset + cursor : -1;
+
+      if (globalIdx !== lastActive) {
+        lastActive = globalIdx;
+        lastBucket = -1;
+        setActiveWord(globalIdx);
+        if (globalIdx >= 0) scrollWordIntoView(globalIdx);
+      }
+
+      if (globalIdx >= 0 && !isLowEnd) {
+        const dur = e - s;
+        const p = dur > 0 ? Math.max(0, Math.min(1, (now - s) / dur)) : 1;
+        const bucket = Math.round(p * PROGRESS_STEPS);
+        if (bucket !== lastBucket) {
+          lastBucket = bucket;
+          setWordProgress((bucket / PROGRESS_STEPS) * 100);
+        }
+      }
+      rafRef.current = requestAnimationFrame(loop);
+    };
+    rafRef.current = requestAnimationFrame(loop);
+  };
+
   // Play answer using Cartesia TTS or Web Speech fallback
   const playAnswerAudio = async (textToPlay: string) => {
     stopAnswerAudio();
     if (!textToPlay) return;
+
+    searchPosRef.current = 0;
+    wordOffsetRef.current = 0;
+    setActiveWord(-1);
+    setWordProgress(0);
 
     activeSessionRef.current = true;
     setIsPlayingAnswerAudio(true);
@@ -175,7 +289,7 @@ export function AskButton() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      const queue: string[] = [];
+      const queue: { url: string; timestamps: any[]; chunkText: string }[] = [];
       let isPlayingQueue = false;
       let hasQueuedAudio = false;
 
@@ -184,12 +298,18 @@ export function AskButton() {
         if (queue.length === 0) {
           isPlayingQueue = false;
           setIsPlayingAnswerAudio(false);
+          if (rafRef.current !== null) {
+            cancelAnimationFrame(rafRef.current);
+            rafRef.current = null;
+          }
+          setActiveWord(-1);
+          setWordProgress(0);
           return;
         }
 
         isPlayingQueue = true;
         setIsPlayingAnswerAudio(true);
-        const nextUrl = queue.shift()!;
+        const next = queue.shift()!;
 
         if (!answerAudioRef.current) {
           answerAudioRef.current = new Audio();
@@ -197,8 +317,14 @@ export function AskButton() {
         const audio = answerAudioRef.current;
         audio.onended = null;
         audio.onerror = null;
+        audio.onplay = null;
         audio.pause();
-        audio.src = nextUrl;
+        audio.src = next.url;
+
+        audio.onplay = () => {
+          const offset = computeWordOffset(next.chunkText, textToPlay);
+          runHighlightLoop(audio, next.timestamps, offset);
+        };
 
         audio.onended = () => {
           playNextChunk();
@@ -243,7 +369,11 @@ export function AskButton() {
                 }
 
                 hasQueuedAudio = true;
-                queue.push(blobUrl);
+                queue.push({
+                  url: blobUrl,
+                  timestamps: data.timestamps || [],
+                  chunkText: data.text || '',
+                });
 
                 if (!isPlayingQueue) {
                   playNextChunk();
@@ -285,8 +415,8 @@ export function AskButton() {
       dragStartRef.current.moved = true;
       const cardW = state === 'pill' ? 140 : 380;
       const cardH = state === 'pill' ? 44 : 280;
-      const newX = Math.min(Math.max(12, dragStartRef.current.posX + dx), window.innerWidth - cardW - 12);
-      const newY = Math.min(Math.max(12, dragStartRef.current.posY + dy), window.innerHeight - cardH - 12);
+      const newX = Math.min(Math.max(12, dragStartRef.current.posX + dx), (typeof window !== 'undefined' ? window.innerWidth : 800) - cardW - 12);
+      const newY = Math.min(Math.max(12, dragStartRef.current.posY + dy), (typeof window !== 'undefined' ? window.innerHeight : 600) - cardH - 12);
       setPos({ x: newX, y: newY });
     }
   };
@@ -297,31 +427,6 @@ export function AskButton() {
       sessionStorage.setItem('readora.ask.pos', JSON.stringify(pos));
     } catch (e) {}
   };
-
-  // Smooth scrolling loop during read aloud
-  useEffect(() => {
-    if (!isPlayingAnswerAudio || !answerContainerRef.current) return;
-    const container = answerContainerRef.current;
-    let animId: number;
-    let startTime = Date.now();
-
-    const scrollLoop = () => {
-      if (!container || !activeSessionRef.current) return;
-      const maxScroll = container.scrollHeight - container.clientHeight;
-      if (maxScroll > 0) {
-        const elapsed = (Date.now() - startTime) / 1000;
-        // Smoothly scroll down at ~20px/s to keep up with spoken audio
-        const targetScroll = Math.min(maxScroll, elapsed * 22);
-        container.scrollTo({ top: targetScroll, behavior: 'smooth' });
-      }
-      animId = requestAnimationFrame(scrollLoop);
-    };
-
-    animId = requestAnimationFrame(scrollLoop);
-    return () => {
-      cancelAnimationFrame(animId);
-    };
-  }, [isPlayingAnswerAudio, answerText]);
 
   // Mic handlers with live Web Speech recognition + backend Whisper fallback
   const startRecording = async () => {
@@ -475,7 +580,7 @@ export function AskButton() {
           question: q,
           sentence: contextRef.current.sentence,
           paragraph: contextRef.current.paragraph,
-          chapterTitle: document.title || 'Lesson Chapter',
+          chapterTitle: typeof document !== 'undefined' ? document.title || 'Lesson Chapter' : 'Lesson Chapter',
         }),
       });
 
@@ -509,7 +614,9 @@ export function AskButton() {
     return null;
   }
 
-  // Position calculations for expanding input bar card directly at pos
+  const isSpeaking = state === 'answering';
+
+  // Adaptive positioning and sizing
   const cardWidth = Math.min(typeof window !== 'undefined' ? window.innerWidth - 32 : 380, 420);
   const leftPos = typeof window !== 'undefined'
     ? Math.min(Math.max(12, pos.x), Math.max(12, window.innerWidth - cardWidth - 12))
@@ -518,15 +625,47 @@ export function AskButton() {
     ? Math.min(Math.max(12, pos.y), Math.max(12, window.innerHeight - 340))
     : pos.y;
 
+  const cardStyle: React.CSSProperties = isSpeaking
+    ? {
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 'min(92vw, 620px)',
+        transition: 'width 220ms ease, max-height 220ms ease',
+      }
+    : {
+        left: `${leftPos}px`,
+        top: `${topPos}px`,
+        width: `${cardWidth}px`,
+        transition: isDraggingRef.current ? undefined : 'width 220ms ease, max-height 220ms ease',
+      };
+
+  // Longer answers get more room, up to a ceiling. Viewport units protect Focus Mode / 3XL font.
+  const answerLen = answerText.length;
+  const bodyMaxHeight =
+    answerLen < 250  ? 'min(30vh, 200px)' :
+    answerLen < 700  ? 'min(45vh, 320px)' :
+                       'min(60vh, 440px)';
+
   return (
     <>
       {/* 1. Small Floating Pill State */}
       {state === 'pill' && (
         <div
-          style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
-          onPointerDown={handlePointerDown}
+          style={{
+            left: `${pos.x}px`,
+            top: `${pos.y}px`,
+            willChange: isDraggingRef.current ? 'transform' : undefined,
+          }}
+          onPointerDown={(e) => {
+            (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+            handlePointerDown(e);
+          }}
           onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
+          onPointerUp={(e) => {
+            (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+            handlePointerUp();
+          }}
           className="fixed z-[990] select-none touch-none cursor-grab active:cursor-grabbing flex items-center gap-1 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white pl-3 pr-1.5 py-2 rounded-full shadow-xl shadow-cyan-950/50 border border-cyan-400/40 transition-transform active:scale-95 animate-in fade-in zoom-in duration-150"
         >
           <button
@@ -556,26 +695,42 @@ export function AskButton() {
         </div>
       )}
 
-      {/* 2. Expanded Floating Input Bar / Answer Card State (In-place on button!) */}
+      {/* 2. Expanded Floating Input Bar / Answer Card State (In-place on button, centered when answering) */}
       {(state === 'asking' || state === 'answering') && (
         <div
-          style={{ left: `${leftPos}px`, top: `${topPos}px`, width: `${cardWidth}px` }}
+          style={cardStyle}
           className="fixed z-[995] flex flex-col rounded-2xl bg-slate-900/95 text-slate-100 border border-cyan-500/40 shadow-2xl backdrop-blur-md overflow-hidden p-4 animate-in fade-in zoom-in duration-150"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header & Drag Grip */}
+          {/* Header & Drag Grip (Drag only when not speaking) */}
           <div
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 cursor-grab active:cursor-grabbing select-none"
+            onPointerDown={(e) => {
+              if (isSpeaking) return;
+              (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+              handlePointerDown(e);
+            }}
+            onPointerMove={(e) => {
+              if (isSpeaking) return;
+              handlePointerMove(e);
+            }}
+            onPointerUp={(e) => {
+              if (isSpeaking) return;
+              (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+              handlePointerUp();
+            }}
+            className={cn(
+              "flex items-center justify-between pb-2 mb-2 border-b border-slate-800 select-none",
+              !isSpeaking && "cursor-grab active:cursor-grabbing"
+            )}
           >
             <div className="flex items-center gap-2">
-              <GripHorizontal className="w-4 h-4 text-slate-500 hover:text-slate-300" />
+              {!isSpeaking && <GripHorizontal className="w-4 h-4 text-slate-500 hover:text-slate-300" />}
               <div className="p-1 rounded bg-cyan-500/20 text-cyan-400">
                 <Sparkles className="w-3.5 h-3.5" />
               </div>
-              <h3 className="font-semibold text-xs text-slate-200">Ask about sentence</h3>
+              <h3 className="font-semibold text-xs text-slate-200">
+                {isSpeaking ? 'Readora Explanation' : 'Ask about sentence'}
+              </h3>
             </div>
             <button
               type="button"
@@ -616,9 +771,41 @@ export function AskButton() {
               <div className="flex flex-col justify-between space-y-3">
                 <div
                   ref={answerContainerRef}
-                  className="max-h-[220px] overflow-y-auto pr-1 text-slate-200 text-xs md:text-sm leading-relaxed scroll-smooth"
+                  className="overflow-y-auto pr-1 text-slate-200 text-sm md:text-base leading-relaxed"
+                  style={{ maxHeight: bodyMaxHeight, transition: 'max-height 220ms ease' }}
                 >
-                  <p>{answerText}</p>
+                  <p className="leading-relaxed">
+                    {answerWords.map((w, i) => {
+                      const activeStyle = isLowEnd
+                        ? { backgroundColor: '#FBBF24', color: '#111827' }
+                        : {
+                            background: `linear-gradient(to right, #FBBF24 ${wordProgress}%, transparent ${wordProgress}%)`,
+                            WebkitBackgroundClip: 'text',
+                            backgroundClip: 'text',
+                            color: 'transparent',
+                          };
+                      const spokenStyle = { opacity: 0.35, transition: 'opacity 300ms ease' };
+
+                      return (
+                        <span
+                          key={i}
+                          ref={(el) => {
+                            wordRefs.current[i] = el;
+                          }}
+                          className="rounded inline"
+                          style={
+                            i === activeWord
+                              ? activeStyle
+                              : activeWord >= 0 && i < activeWord
+                              ? spokenStyle
+                              : undefined
+                          }
+                        >
+                          {w.text}{' '}
+                        </span>
+                      );
+                    })}
+                  </p>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
