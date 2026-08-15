@@ -776,16 +776,12 @@ export function AskButton() {
                 >
                   <p className="leading-relaxed">
                     {answerWords.map((w, i) => {
-                      // Match ReadAloudButton.tsx exactly (lines 770-794) so the two features feel
-                      // like one product. Amber on the dark slate-900 popup is the same treatment
-                      // the document reader already uses.
-                      const HIGHLIGHT = '#FBBF24'; // amber-400, identical to ReadAloudButton
-                      const REST = '#CBD5E1'; // slate-300, the normal answer text colour
+                      const HIGHLIGHT = '#FBBF24'; // amber-400, same as ReadAloudButton
 
                       const activeStyle = isLowEnd
                         ? { backgroundColor: '#FBBF24', color: '#111827' }
                         : {
-                            background: `linear-gradient(to right, ${HIGHLIGHT} ${wordProgress}%, ${REST} ${wordProgress}%)`,
+                            background: `linear-gradient(to right, ${HIGHLIGHT} ${wordProgress}%, transparent ${wordProgress}%)`,
                             WebkitBackgroundClip: 'text',
                             backgroundClip: 'text',
                             color: 'transparent',
