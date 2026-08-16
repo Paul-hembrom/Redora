@@ -1709,7 +1709,11 @@ app.post('/api/lessons/generate-pro', authenticate, generateLessonLimiter, async
     
     // Verify usage limit WITHOUT incrementing (increment occurs in worker on job completion)
     try {
-      await verifyAndIncrementUsage(req.userId, 'video', validOrgId || undefined, true);
+      // Generate Pro is the Manim-based interactive lesson pipeline (~$0.02/lesson).
+      // The 'video' quota is a Veo-era leftover, hard-zeroed in every plan, which
+      // blocked all users including paying accounts. 'interactive' is the correct
+      // meter for this feature.
+      await verifyAndIncrementUsage(req.userId, 'interactive', validOrgId || undefined, true);
     } catch (e: any) {
       if (e.name === 'SubscriptionLimitError') return res.status(403).json({ error: e.message });
       throw e;
@@ -4239,7 +4243,7 @@ async function drainOneJob(): Promise<{ drained: number; job_type?: string; stat
         await processInteractiveProJob(p.jobId, p.chapterId, p.org_id, p.document_id);
         if (p.userId) {
           try {
-            await incrementUsage(p.userId, 'video', p.org_id);
+            await incrementUsage(p.userId, 'interactive', p.org_id);
           } catch (e: any) {
             console.error('[jobs] Usage increment error:', e.message);
           }
