@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Document, PreprocessOptions, ChatMessage, ReadingPersona } from './types';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
@@ -127,6 +127,32 @@ export default function App() {
   const [librarySelection, setLibrarySelection] = useState<Set<string>>(new Set());
   const [isLibraryChatActive, setIsLibraryChatActive] = useState(false);
   
+  const [authChecked, setAuthChecked] = useState(false);
+  const curriculumFetchKey = useRef<string | null>(null);
+  const contentCache = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!loading) {
+      setAuthChecked(true);
+    }
+  }, [loading]);
+
+  const ensureSubtopicContent = async (node: any) => {
+    if (!node?.subtopic_id || (node.content && node.content.length > 0)) return node.content || '';
+    const cached = contentCache.current.get(node.subtopic_id);
+    if (cached) return cached;
+    try {
+      const res = await fetch(`/api/curriculum/subtopic/${node.subtopic_id}`);
+      if (!res.ok) return '';
+      const data = await res.json();
+      const content = data.content || '';
+      contentCache.current.set(node.subtopic_id, content);
+      return content;
+    } catch (e) {
+      console.error('Failed to fetch subtopic content:', e);
+      return '';
+    }
+  };
   const [persona, setPersona] = useState<ReadingPersona>(() => {
     return (localStorage.getItem('readora_persona') as ReadingPersona) || 'general';
   });
@@ -152,7 +178,8 @@ export default function App() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setDocuments(data);
-          import('./lib/offline').then(m => m.cacheDocuments(data));
+          const cacheable = data.filter((d: any) => !d.isCurriculum && !(typeof d.id === 'string' && d.id.startsWith('curr_')));
+          import('./lib/offline').then(m => m.cacheDocuments(cacheable));
         }
       }
     } catch (err) {
@@ -292,20 +319,20 @@ export default function App() {
     const subject = urlParams.get('subject');
     
     if (source === 'curriculum' && grade && subject) {
+      if (!authChecked) return;
       if (user) return; // Handled in the main fetch below
       
+      const key = `${grade}|${subject}|anon`;
+      if (curriculumFetchKey.current === key) return;
+      curriculumFetchKey.current = key;
+
       setIsCurriculumLoading(true);
-      fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`)
+      fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`)
         .then(res => {
           if (res.ok) {
-            return res.text().then(text => {
-              console.log('Curriculum raw response:', text.substring(0, 500));
-              try {
-                return JSON.parse(text);
-              } catch (e) {
-                console.error("JSON parsing error:", e, "Full text:", text);
-                throw new Error('MalformedJSON');
-              }
+            return res.json().catch(e => {
+              console.error("JSON parsing error:", e);
+              throw new Error('MalformedJSON');
             });
           }
           throw new Error('FetchFailed');
@@ -409,79 +436,76 @@ export default function App() {
             const subject = urlParams.get('subject');
             
             if (source === 'curriculum' && grade && subject) {
-              setIsCurriculumLoading(true);
-              try {
-                const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`);
-                if (currRes.ok) {
-                  const rawText = await currRes.text();
-                  console.log('Curriculum raw response:', rawText.substring(0, 500));
-                  let currDoc;
-                  try {
-                    currDoc = JSON.parse(rawText);
-                  } catch (e) {
-                    console.error("JSON parsing error:", e, "Full text:", rawText);
-                    setCurriculumError("Curriculum data is malformed. Please contact support.");
-                    setIsCurriculumLoading(false);
-                    return;
-                  }
-                  if (currDoc) {
-                    const curriculumDoc = { ...currDoc, category: 'curriculum', isCurriculum: true };
-                    const isCurriculumMode = source === 'curriculum';
-                    
-                    if (isCurriculumMode) {
-                      // In curriculum (V2) workspace mode, show ONLY preloaded curriculum content
-                      docs = [curriculumDoc];
-                    } else {
-                      // In standard V1 mode, prepend curriculum content if present alongside user uploaded docs
-                      docs = [curriculumDoc, ...docs.filter(d => d.id !== curriculumDoc.id)];
+              const key = `${grade}|${subject}|${user?.id ?? 'anon'}`;
+              if (curriculumFetchKey.current !== key) {
+                curriculumFetchKey.current = key;
+                setIsCurriculumLoading(true);
+                try {
+                  const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`);
+                  if (currRes.ok) {
+                    let currDoc;
+                    try {
+                      currDoc = await currRes.json();
+                    } catch (e) {
+                      console.error("JSON parsing error:", e);
+                      setCurriculumError("Curriculum data is malformed. Please contact support.");
+                      setIsCurriculumLoading(false);
+                      return;
                     }
-
-                    setSelectedDocId(curriculumDoc.id);
-                    if (currDoc.chapters && currDoc.chapters.length > 0) {
-                      const subtopicTitle = urlParams.get('subtopic');
-                      let targetChapterId = null;
+                    if (currDoc) {
+                      const curriculumDoc = { ...currDoc, category: 'curriculum', isCurriculum: true };
+                      const isCurriculumMode = source === 'curriculum';
                       
-                      if (subtopicTitle) {
-                         const allNodes: any[] = [];
-                         const traverse = (nodes: any[]) => {
-                            for (const node of nodes) {
-                               allNodes.push(node);
-                               if (node.children) traverse(node.children);
-                            }
-                         };
-                         traverse(currDoc.chapters);
-                         const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
-                                         || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
-                                         || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
-                                         || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
-                         if (target) {
-                            targetChapterId = target.id;
-                         }
-                      }
-                      
-                      if (targetChapterId) {
-                         setSelectedChapterId('read_all');
-                         setInitialScrollChapterId(targetChapterId);
+                      if (isCurriculumMode) {
+                        // In curriculum (V2) workspace mode, show ONLY preloaded curriculum content
+                        docs = [curriculumDoc];
                       } else {
-                         setSelectedChapterId('read_all');
+                        // In standard V1 mode, prepend curriculum content if present alongside user uploaded docs
+                        docs = [curriculumDoc, ...docs.filter(d => d.id !== curriculumDoc.id)];
                       }
+
+                      setSelectedDocId(curriculumDoc.id);
+                      if (currDoc.chapters && currDoc.chapters.length > 0) {
+                        const subtopicTitle = urlParams.get('subtopic');
+                        let targetChapterId = null;
+                        
+                        if (subtopicTitle) {
+                           const allNodes: any[] = [];
+                           const traverse = (nodes: any[]) => {
+                              for (const node of nodes) {
+                                 allNodes.push(node);
+                                 if (node.children) traverse(node.children);
+                              }
+                           };
+                           traverse(currDoc.chapters);
+                           const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
+                                           || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
+                                           || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
+                                           || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
+                           if (target) {
+                              targetChapterId = target.id;
+                           }
+                        }
+                        
+                        if (targetChapterId) {
+                           setSelectedChapterId('read_all');
+                           setInitialScrollChapterId(targetChapterId);
+                        } else {
+                           setSelectedChapterId('read_all');
+                        }
+                      }
+                    } else {
+                      setCurriculumError("Failed to fetch curriculum content.");
                     }
                   } else {
-                    setCurriculumError("Failed to fetch curriculum content.");
+                     setCurriculumError("Failed to fetch curriculum content.");
                   }
-                } else {
-                   try {
-                     const errData = await currRes.json();
-                     setCurriculumError("Failed to fetch curriculum content.");
-                   } catch(e) {
-                     setCurriculumError("Failed to fetch curriculum content.");
-                   }
+                } catch (err) {
+                   console.error("Failed to fetch curriculum:", err);
+                   setCurriculumError("Failed to fetch curriculum content.");
+                } finally {
+                   setIsCurriculumLoading(false);
                 }
-              } catch (err) {
-                 console.error("Failed to fetch curriculum:", err);
-                 setCurriculumError("Failed to fetch curriculum content.");
-              } finally {
-                 setIsCurriculumLoading(false);
               }
             }
             
@@ -526,7 +550,7 @@ export default function App() {
     } else {
       setIsDocsLoading(false);
     }
-  }, [user, logout, currentSearch]);
+  }, [user, logout, currentSearch, authChecked]);
 
   useEffect(() => {
     if (selectedDocId) {
@@ -735,7 +759,8 @@ export default function App() {
               const data = await listRes.json();
               if (Array.isArray(data)) {
                 setDocuments(data);
-                import('./lib/offline').then(m => m.cacheDocuments(data));
+                const cacheable = data.filter((d: any) => !d.isCurriculum && !(typeof d.id === 'string' && d.id.startsWith('curr_')));
+                import('./lib/offline').then(m => m.cacheDocuments(cacheable));
 
                 const newDocInList = data.find((d: any) => d.id === finalDoc.id);
                 if (newDocInList) {
@@ -833,7 +858,8 @@ export default function App() {
       const data = await listRes.json();
       if (Array.isArray(data)) {
         setDocuments(data);
-        import('./lib/offline').then(m => m.cacheDocuments(data));
+        const cacheable = data.filter((d: any) => !d.isCurriculum && !(typeof d.id === 'string' && d.id.startsWith('curr_')));
+        import('./lib/offline').then(m => m.cacheDocuments(cacheable));
       }
     }
 
@@ -933,6 +959,29 @@ export default function App() {
   const safeDocuments = Array.isArray(documents) ? documents : [];
   const selectedDoc = safeDocuments.find(d => d.id === selectedDocId);
   const selectedChapter = selectedDoc && Array.isArray(selectedDoc.chapters) ? flattenChapters(selectedDoc.chapters).find(c => c.id === selectedChapterId) : undefined;
+
+  useEffect(() => {
+    if (selectedChapter && selectedChapter.subtopic_id && (!selectedChapter.content || selectedChapter.content.length === 0)) {
+      ensureSubtopicContent(selectedChapter).then(content => {
+        if (content) {
+          setDocuments(prev => prev.map(d => {
+            if (d.id !== selectedDocId) return d;
+            return {
+              ...d,
+              chapters: updateChapterInTree(d.chapters, selectedChapter.id, ch => ({ ...ch, content }))
+            };
+          }));
+          setSharedPublicDoc(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              chapters: updateChapterInTree(prev.chapters, selectedChapter.id, ch => ({ ...ch, content }))
+            };
+          });
+        }
+      });
+    }
+  }, [selectedChapter?.id, selectedChapter?.subtopic_id, selectedChapter?.content, selectedDocId]);
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#050505] text-white font-sans overflow-hidden">

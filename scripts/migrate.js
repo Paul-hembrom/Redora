@@ -101,6 +101,7 @@ await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALS
 await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb`;
 await sql`ALTER TABLE chats ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`;
 await sql`ALTER TABLE curriculum_library ADD COLUMN IF NOT EXISTS order_index INTEGER DEFAULT 0`;
+await sql`CREATE INDEX IF NOT EXISTS idx_curriculum_grade_subject ON curriculum_library (grade, subject, order_index)`;
 
 await sql`
   CREATE TABLE IF NOT EXISTS storyboards (

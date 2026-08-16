@@ -4020,47 +4020,81 @@ Generate 3 multiple-choice questions for ${grade} ${subject}. Return JSON exactl
 
 console.log('=== END ROUTES ===');
 
+function buildSubtopicContent(row: any): string {
+  const videos = safeParseJSON(row.videos);
+  const questions = safeParseJSON(row.questions);
+
+  let fullContent = row.content || '';
+
+  if (videos.length > 0) {
+    fullContent += '\n\n### Related Videos\n\n';
+    videos.forEach((vid: any) => {
+      fullContent += `- [${(vid.title || 'Video').replace(/\[|\]/g, '')}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
+    });
+  }
+
+  if (questions.length > 0) {
+    fullContent += '\n\n### Practice Questions\n\n';
+    questions.forEach((q: any, i: number) => {
+      fullContent += `**Q${i+1}: ${q.question}**\n`;
+      if (q.options) {
+        q.options.forEach((opt: string) => { fullContent += `- ${opt}\n`; });
+      }
+      fullContent += `*Answer: ${q.answer}*\n\n`;
+    });
+  } else {
+    fullContent += '\n\n### Practice Questions\n\n';
+    const firstSentence = (row.content || '').split(/[.?!]/)[0].trim();
+    if (firstSentence) {
+      fullContent += `**Q1: True or False: ${firstSentence}?**\n*Answer: True*\n\n`;
+    } else {
+      fullContent += `**Q1: What is the main idea of this section?**\n*Answer: Review the content above to formulate your own answer.*\n\n`;
+    }
+  }
+
+  return fullContent;
+}
+
 app.get('/api/curriculum-test', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
-  app.get("/api/curriculum", async (req: any, res) => {
-  console.log('>>> /api/curriculum HIT – query:', req.query);
+
+app.get("/api/curriculum", async (req: any, res) => {
   try {
     let { grade, subject } = req.query;
-    console.log(`[Curriculum API] Received request - raw grade: "${grade}", raw subject: "${subject}"`);
+    const treeOnly = req.query.tree === '1';
     
     if (!grade || !subject) {
       return res.status(400).json({ error: 'grade and subject are required' });
     }
+
     let rows;
     try {
-      rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY order_index ASC`;
+      rows = treeOnly
+        ? await sql`
+            SELECT id, title, subtopic, order_index
+            FROM curriculum_library
+            WHERE grade = ${grade} AND subject = ${subject}
+            ORDER BY order_index ASC`
+        : await sql`
+            SELECT id, title, subtopic, content, images, videos, questions, order_index
+            FROM curriculum_library
+            WHERE grade = ${grade} AND subject = ${subject}
+            ORDER BY order_index ASC`;
     } catch (e) {
-      console.log(`[Curriculum API] order_index might be missing, falling back to title, subtopic sort. Error: ${e}`);
-      rows = await sql`SELECT * FROM curriculum_library WHERE grade = ${grade} AND subject = ${subject} ORDER BY title ASC, subtopic ASC`;
-    }
-    
-    console.log(`[Curriculum API] Query complete. Found ${rows.length} rows for grade: "${grade}", subject: "${subject}".`);
-    if (rows.length > 0) {
-       console.log(`[Curriculum API] First row subtopic: "${rows[0].subtopic}", images type: "${typeof rows[0].images}"`);
+      rows = treeOnly
+        ? await sql`
+            SELECT id, title, subtopic
+            FROM curriculum_library
+            WHERE grade = ${grade} AND subject = ${subject}
+            ORDER BY title ASC, subtopic ASC`
+        : await sql`
+            SELECT id, title, subtopic, content, images, videos, questions
+            FROM curriculum_library
+            WHERE grade = ${grade} AND subject = ${subject}
+            ORDER BY title ASC, subtopic ASC`;
     }
 
-    if (rows.length === 0) {
-      const docId = `curr_${grade}_${subject}`.replace(/\s+/g, '_');
-      const doc = {
-          id: docId,
-          name: `${grade} - ${subject} Curriculum`,
-          uploadDate: new Date().toISOString(),
-          chapters: [] as any[],
-          isPublic: true
-      };
-      console.log('>>> /api/curriculum sending doc – chapters:', doc.chapters?.length, 'first title:', doc.chapters?.[0]?.title);
-      return res.json(doc);
-    }
-    
-
-
-    // Group by title
     const docId = `curr_${grade}_${subject}`.replace(/\s+/g, '_');
     const doc = { 
        id: docId, 
@@ -4069,7 +4103,12 @@ app.get('/api/curriculum-test', (req, res) => {
        chapters: [] as any[], 
        isPublic: true
     };
-    
+
+    if (rows.length === 0) {
+      console.log(`[curriculum] ${grade}/${subject}: 0 rows, 0 chapters, tree=${treeOnly}`);
+      return res.json(doc);
+    }
+
     let chapterNumber = 1;
     let topicNumber = 1;
     const chaptersMap = new Map<string, any>();
@@ -4091,41 +4130,7 @@ app.get('/api/curriculum-test', (req, res) => {
        }
        
        const chap = chaptersMap.get(row.title);
-       
-       const images = safeParseJSON(row.images);
-       const videos = safeParseJSON(row.videos);
-       const questions = safeParseJSON(row.questions);
-       console.log(`Topic: ${row.subtopic}, images count: ${images.length}`);
-
-       let fullContent = row.content || '';
-
-       if (videos.length > 0) {
-         fullContent += '\n\n### Related Videos\n\n';
-         videos.forEach((vid: any) => {
-           fullContent += `- [${(vid.title || 'Video').replace(/\[|\]/g, '')}](https://www.youtube.com/watch?v=${vid.video_id}) (Channel: ${vid.channel})\n`;
-         });
-       }
-
-       if (questions.length > 0) {
-         fullContent += '\n\n### Practice Questions\n\n';
-         questions.forEach((q: any, i: number) => {
-           fullContent += `**Q${i+1}: ${q.question}**\n`;
-           if (q.options) {
-             q.options.forEach((opt: string) => { fullContent += `- ${opt}\n`; });
-           }
-           fullContent += `*Answer: ${q.answer}*\n\n`;
-         });
-       } else {
-         fullContent += '\n\n### Practice Questions\n\n';
-         const firstSentence = (row.content || '').split(/[.?!]/)[0].trim();
-         if (firstSentence) {
-           fullContent += `**Q1: True or False: ${firstSentence}?**\n*Answer: True*\n\n`;
-         } else {
-           fullContent += `**Q1: What is the main idea of this section?**\n*Answer: Review the content above to formulate your own answer.*\n\n`;
-         }
-       }
-
-       console.log('>>> [Curriculum API] fullContent snippet:', fullContent.substring(0, 300));
+       const fullContent = treeOnly ? '' : buildSubtopicContent(row);
 
        const topic = {
           id: `topic_${docId}_${chap.id}_${topicNumber}`,
@@ -4144,16 +4149,25 @@ app.get('/api/curriculum-test', (req, res) => {
     }
     
     doc.chapters = Array.from(chaptersMap.values());
-    
-    // Sort all by sortOrder
     doc.chapters.sort((a, b) => a.sortOrder - b.sortOrder);
     
-    const jsonStr = JSON.stringify(doc);
-    console.log(`[Curriculum API] Response JSON (truncated): ${jsonStr.substring(0, 500)}...`);
-    console.log('>>> /api/curriculum sending doc – chapters:', doc.chapters?.length, 'first title:', doc.chapters?.[0]?.title);
+    console.log(`[curriculum] ${grade}/${subject}: ${rows.length} rows, ${doc.chapters.length} chapters, tree=${treeOnly}`);
     res.json(doc);
   } catch(err: any) {
     console.error('[Curriculum API] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/curriculum/subtopic/:id', async (req: any, res) => {
+  try {
+    const rows = await sql`
+      SELECT id, title, subtopic, content, videos, questions
+      FROM curriculum_library WHERE id = ${req.params.id} LIMIT 1`;
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+
+    res.json({ id: rows[0].id, content: buildSubtopicContent(rows[0]) });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
