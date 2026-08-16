@@ -61,6 +61,18 @@ const flattenChapters = (chapters: any[] = [], parentPrefix: string = ''): any[]
   return result;
 };
 
+const updateChapterInTree = (chapters: any[], id: string, updater: (ch: any) => any): any[] => {
+  if (!Array.isArray(chapters)) return [];
+  return chapters.map(ch => {
+    if (ch.id === id) {
+      return updater(ch);
+    } else if (ch.children) {
+      return { ...ch, children: updateChapterInTree(ch.children, id, updater) };
+    }
+    return ch;
+  });
+};
+
 export default function App() {
   useScrollSync();
   const isCurriculum = new URLSearchParams(window.location.search).get('source') === 'curriculum';
@@ -597,6 +609,33 @@ export default function App() {
     }
   }, [selectedDocId, documents, selectedChapterId]);
 
+  const safeDocuments = Array.isArray(documents) ? documents : [];
+  const selectedDoc = safeDocuments.find(d => d.id === selectedDocId);
+  const selectedChapter = selectedDoc && Array.isArray(selectedDoc.chapters) ? flattenChapters(selectedDoc.chapters).find(c => c.id === selectedChapterId) : undefined;
+
+  // Move this ABOVE the `const isPricingPage = ...` line, alongside the
+  // other hooks. Hooks must run on EVERY render path -- placing this after an
+  // early return means it is skipped on some renders and called on others,
+  // which is React error #310.
+  useEffect(() => {
+    if (!selectedChapter?.subtopic_id) return;
+    if (selectedChapter.content && selectedChapter.content.length > 0) return;
+
+    ensureSubtopicContent(selectedChapter).then(content => {
+      if (!content) return;
+      setDocuments(prev => prev.map(d =>
+        d.id !== selectedDocId ? d : {
+          ...d,
+          chapters: updateChapterInTree(d.chapters, selectedChapter.id, ch => ({ ...ch, content }))
+        }
+      ));
+      setSharedPublicDoc(prev => prev ? {
+        ...prev,
+        chapters: updateChapterInTree(prev.chapters, selectedChapter.id, ch => ({ ...ch, content }))
+      } : prev);
+    });
+  }, [selectedChapter?.id, selectedChapter?.subtopic_id, selectedDocId]);
+
   const isPricingPage = window.location.pathname === '/pricing';
   if (isPricingPage) {
     return <Pricing />;
@@ -947,17 +986,6 @@ export default function App() {
     }
   };
 
-  const updateChapterInTree = (chapters: any[], id: string, updater: (ch: any) => any): any[] => {
-    return chapters.map(ch => {
-      if (ch.id === id) {
-        return updater(ch);
-      } else if (ch.children) {
-        return { ...ch, children: updateChapterInTree(ch.children, id, updater) };
-      }
-      return ch;
-    });
-  };
-
   const handleUpdateSummary = async (chapterId: string, summary: string) => {
     // ... remain the same from 345 down to 363 ...
     try {
@@ -988,33 +1016,6 @@ export default function App() {
       setIsDarkMode(true);
     }
   };
-
-  const safeDocuments = Array.isArray(documents) ? documents : [];
-  const selectedDoc = safeDocuments.find(d => d.id === selectedDocId);
-  const selectedChapter = selectedDoc && Array.isArray(selectedDoc.chapters) ? flattenChapters(selectedDoc.chapters).find(c => c.id === selectedChapterId) : undefined;
-
-  useEffect(() => {
-    if (selectedChapter && selectedChapter.subtopic_id && (!selectedChapter.content || selectedChapter.content.length === 0)) {
-      ensureSubtopicContent(selectedChapter).then(content => {
-        if (content) {
-          setDocuments(prev => prev.map(d => {
-            if (d.id !== selectedDocId) return d;
-            return {
-              ...d,
-              chapters: updateChapterInTree(d.chapters, selectedChapter.id, ch => ({ ...ch, content }))
-            };
-          }));
-          setSharedPublicDoc(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              chapters: updateChapterInTree(prev.chapters, selectedChapter.id, ch => ({ ...ch, content }))
-            };
-          });
-        }
-      });
-    }
-  }, [selectedChapter?.id, selectedChapter?.subtopic_id, selectedChapter?.content, selectedDocId]);
 
   return (
     <div className="flex flex-col h-[100dvh] bg-[#050505] text-white font-sans overflow-hidden">
