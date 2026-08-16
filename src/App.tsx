@@ -141,6 +141,7 @@ export default function App() {
   
   const [authChecked, setAuthChecked] = useState(false);
   const curriculumFetchKey = useRef<string | null>(null);
+  const curriculumDocRef = useRef<any>(null);
   const contentCache = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -341,9 +342,38 @@ export default function App() {
       if (user) return; // Handled in the main fetch below
       
       const key = `${grade}|${subject}|anon`;
-      if (curriculumFetchKey.current === key) return;
-      curriculumFetchKey.current = key;
+      if (curriculumFetchKey.current !== key) {
+        curriculumDocRef.current = null;
+      }
 
+      const applyCurriculumDoc = (data: any) => {
+        setSharedPublicDoc(data);
+        const subtopicTitle = urlParams.get('subtopic');
+        if (subtopicTitle && data.chapters) {
+          const allNodes: any[] = [];
+          const traverse = (nodes: any[]) => {
+            for (const node of nodes) {
+              allNodes.push(node);
+              if (node.children) traverse(node.children);
+            }
+          };
+          traverse(data.chapters);
+          const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
+                          || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
+                          || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
+                          || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
+          if (target) {
+            setInitialScrollChapterId(target.id);
+          }
+        }
+      };
+
+      if (curriculumFetchKey.current === key && curriculumDocRef.current) {
+        applyCurriculumDoc(curriculumDocRef.current);
+        return;
+      }
+
+      curriculumFetchKey.current = key;
       setIsCurriculumLoading(true);
       fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`, { credentials: 'include' })
         .then(async res => {
@@ -369,38 +399,21 @@ export default function App() {
         })
         .then(data => {
           if (data) {
-             setSharedPublicDoc(data);
-             const subtopicTitle = urlParams.get('subtopic');
-             if (subtopicTitle && data.chapters) {
-                 const allNodes: any[] = [];
-                 const traverse = (nodes: any[]) => {
-                    for (const node of nodes) {
-                       allNodes.push(node);
-                       if (node.children) traverse(node.children);
-                    }
-                 };
-                 traverse(data.chapters);
-                 const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
-                                 || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
-                                 || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
-                                 || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
-                 if (target) {
-                    setInitialScrollChapterId(target.id);
-                 }
-             }
+            curriculumDocRef.current = data;
+            applyCurriculumDoc(data);
           } else {
-             setCurriculumError("Failed to fetch curriculum content.");
+            setCurriculumError("Failed to fetch curriculum content.");
           }
         })
         .catch(err => {
-           console.error(err);
-           if (err.status === 403 || err.status === 401) {
-             setCurriculumError(err.message || 'Pre-loaded curriculum is available to teachers only.');
-           } else if (err.message === 'MalformedJSON') {
-             setCurriculumError("Curriculum data is malformed. Please contact support.");
-           } else {
-             setCurriculumError("Failed to fetch curriculum content.");
-           }
+          console.error(err);
+          if (err.status === 403 || err.status === 401) {
+            setCurriculumError(err.message || 'Pre-loaded curriculum is available to teachers only.');
+          } else if (err.message === 'MalformedJSON') {
+            setCurriculumError("Curriculum data is malformed. Please contact support.");
+          } else {
+            setCurriculumError("Failed to fetch curriculum content.");
+          }
         })
         .finally(() => setIsCurriculumLoading(false));
       return;
@@ -470,10 +483,21 @@ export default function App() {
             if (source === 'curriculum' && grade && subject) {
               const key = `${grade}|${subject}|${user?.id ?? 'anon'}`;
               if (curriculumFetchKey.current !== key) {
+                curriculumDocRef.current = null;
+              }
+
+              let curriculumDoc = null;
+
+              if (curriculumFetchKey.current === key && curriculumDocRef.current) {
+                curriculumDoc = curriculumDocRef.current;
+              } else {
                 curriculumFetchKey.current = key;
                 setIsCurriculumLoading(true);
                 try {
-                  const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`, { credentials: 'include' });
+                  const currRes = await fetch(
+                    `/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`,
+                    { credentials: 'include' }
+                  );
                   if (currRes.status === 403) {
                     const body = await currRes.json().catch(() => ({}));
                     setCurriculumError(body.error || 'Pre-loaded curriculum is available to teachers only.');
@@ -497,59 +521,60 @@ export default function App() {
                       return;
                     }
                     if (currDoc) {
-                      const curriculumDoc = { ...currDoc, category: 'curriculum', isCurriculum: true };
-                      const isCurriculumMode = source === 'curriculum';
-                      
-                      if (isCurriculumMode) {
-                        // In curriculum (V2) workspace mode, show ONLY preloaded curriculum content
-                        docs = [curriculumDoc];
-                      } else {
-                        // In standard V1 mode, prepend curriculum content if present alongside user uploaded docs
-                        docs = [curriculumDoc, ...docs.filter(d => d.id !== curriculumDoc.id)];
-                      }
-
-                      setSelectedDocId(curriculumDoc.id);
-                      if (currDoc.chapters && currDoc.chapters.length > 0) {
-                        const subtopicTitle = urlParams.get('subtopic');
-                        let targetChapterId = null;
-                        
-                        if (subtopicTitle) {
-                           const allNodes: any[] = [];
-                           const traverse = (nodes: any[]) => {
-                              for (const node of nodes) {
-                                 allNodes.push(node);
-                                 if (node.children) traverse(node.children);
-                              }
-                           };
-                           traverse(currDoc.chapters);
-                           const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
-                                           || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
-                                           || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
-                                           || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
-                           if (target) {
-                              targetChapterId = target.id;
-                           }
-                        }
-                        
-                        if (targetChapterId) {
-                           setSelectedChapterId('read_all');
-                           setInitialScrollChapterId(targetChapterId);
-                        } else {
-                           setSelectedChapterId('read_all');
-                        }
-                      }
+                      curriculumDoc = { ...currDoc, category: 'curriculum', isCurriculum: true };
+                      curriculumDocRef.current = curriculumDoc;
                     } else {
                       setCurriculumError("Failed to fetch curriculum content.");
                     }
                   } else {
-                     const body = await currRes.json().catch(() => ({}));
-                     setCurriculumError(body.error || "Failed to fetch curriculum content.");
+                    const body = await currRes.json().catch(() => ({}));
+                    setCurriculumError(body.error || "Failed to fetch curriculum content.");
                   }
                 } catch (err) {
-                   console.error("Failed to fetch curriculum:", err);
-                   setCurriculumError("Failed to fetch curriculum content.");
+                  console.error("Failed to fetch curriculum:", err);
+                  setCurriculumError("Failed to load curriculum. Please try again.");
                 } finally {
-                   setIsCurriculumLoading(false);
+                  setIsCurriculumLoading(false);
+                }
+              }
+
+              if (curriculumDoc) {
+                const isCurriculumMode = source === 'curriculum';
+                if (isCurriculumMode) {
+                  docs = [curriculumDoc];
+                } else {
+                  docs = [curriculumDoc, ...docs.filter(d => d.id !== curriculumDoc.id)];
+                }
+
+                setSelectedDocId(curriculumDoc.id);
+                if (curriculumDoc.chapters && curriculumDoc.chapters.length > 0) {
+                  const subtopicTitle = urlParams.get('subtopic');
+                  let targetChapterId = null;
+                  
+                  if (subtopicTitle) {
+                    const allNodes: any[] = [];
+                    const traverse = (nodes: any[]) => {
+                      for (const node of nodes) {
+                        allNodes.push(node);
+                        if (node.children) traverse(node.children);
+                      }
+                    };
+                    traverse(curriculumDoc.chapters);
+                    const target = allNodes.find(n => n.subtopic_id === subtopicTitle || n.id === subtopicTitle)
+                                    || allNodes.find(n => n.title.trim() === subtopicTitle.trim()) 
+                                    || allNodes.find(n => n.title.toLowerCase().includes(subtopicTitle.toLowerCase()))
+                                    || allNodes.find(n => subtopicTitle && (n.id.includes(subtopicTitle) || (n.subtopic_id && n.subtopic_id.includes(subtopicTitle))));
+                    if (target) {
+                      targetChapterId = target.id;
+                    }
+                  }
+                  
+                  if (targetChapterId) {
+                    setSelectedChapterId('read_all');
+                    setInitialScrollChapterId(targetChapterId);
+                  } else {
+                    setSelectedChapterId('read_all');
+                  }
                 }
               }
             }
