@@ -142,8 +142,14 @@ export default function App() {
     const cached = contentCache.current.get(node.subtopic_id);
     if (cached) return cached;
     try {
-      const res = await fetch(`/api/curriculum/subtopic/${node.subtopic_id}`);
-      if (!res.ok) return '';
+      const res = await fetch(`/api/curriculum/subtopic/${node.subtopic_id}`, { credentials: 'include' });
+      if (!res.ok) {
+        if (res.status === 403 || res.status === 401) {
+          const body = await res.json().catch(() => ({}));
+          setCurriculumError(body.error || 'Pre-loaded curriculum is available to teachers only.');
+        }
+        return '';
+      }
       const data = await res.json();
       const content = data.content || '';
       contentCache.current.set(node.subtopic_id, content);
@@ -327,13 +333,25 @@ export default function App() {
       curriculumFetchKey.current = key;
 
       setIsCurriculumLoading(true);
-      fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`)
-        .then(res => {
+      fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`, { credentials: 'include' })
+        .then(async res => {
           if (res.ok) {
             return res.json().catch(e => {
               console.error("JSON parsing error:", e);
               throw new Error('MalformedJSON');
             });
+          }
+          if (res.status === 403) {
+            const body = await res.json().catch(() => ({}));
+            const err: any = new Error(body.error || 'Pre-loaded curriculum is available to teachers only.');
+            err.status = 403;
+            throw err;
+          }
+          if (res.status === 401) {
+            const body = await res.json().catch(() => ({}));
+            const err: any = new Error(body.error || 'Please sign in to access the curriculum.');
+            err.status = 401;
+            throw err;
           }
           throw new Error('FetchFailed');
         })
@@ -364,7 +382,9 @@ export default function App() {
         })
         .catch(err => {
            console.error(err);
-           if (err.message === 'MalformedJSON') {
+           if (err.status === 403 || err.status === 401) {
+             setCurriculumError(err.message || 'Pre-loaded curriculum is available to teachers only.');
+           } else if (err.message === 'MalformedJSON') {
              setCurriculumError("Curriculum data is malformed. Please contact support.");
            } else {
              setCurriculumError("Failed to fetch curriculum content.");
@@ -441,7 +461,19 @@ export default function App() {
                 curriculumFetchKey.current = key;
                 setIsCurriculumLoading(true);
                 try {
-                  const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`);
+                  const currRes = await fetch(`/api/curriculum?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}&tree=1`, { credentials: 'include' });
+                  if (currRes.status === 403) {
+                    const body = await currRes.json().catch(() => ({}));
+                    setCurriculumError(body.error || 'Pre-loaded curriculum is available to teachers only.');
+                    setIsCurriculumLoading(false);
+                    return;
+                  }
+                  if (currRes.status === 401) {
+                    const body = await currRes.json().catch(() => ({}));
+                    setCurriculumError(body.error || 'Please sign in to access the curriculum.');
+                    setIsCurriculumLoading(false);
+                    return;
+                  }
                   if (currRes.ok) {
                     let currDoc;
                     try {
@@ -498,7 +530,8 @@ export default function App() {
                       setCurriculumError("Failed to fetch curriculum content.");
                     }
                   } else {
-                     setCurriculumError("Failed to fetch curriculum content.");
+                     const body = await currRes.json().catch(() => ({}));
+                     setCurriculumError(body.error || "Failed to fetch curriculum content.");
                   }
                 } catch (err) {
                    console.error("Failed to fetch curriculum:", err);

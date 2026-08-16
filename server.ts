@@ -4059,8 +4059,29 @@ app.get('/api/curriculum-test', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
-app.get("/api/curriculum", async (req: any, res) => {
+app.get("/api/curriculum", authenticate, async (req: any, res) => {
   try {
+    // V2 pre-loaded curriculum is ADMIN/TEACHER only. Students have an
+    // organization_members row from the V1 class-gate, so membership alone
+    // must not grant access. getUserRoleInOrg is deliberately fail-closed and
+    // returns 'student' when membership cannot be resolved.
+    if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
+      const role = await getUserRoleInOrg(req.userId, req.orgId);
+      if (role !== 'teacher' && role !== 'admin') {
+        return res.status(403).json({
+          error: 'Pre-loaded curriculum is available to teachers only.',
+          teacherOnly: true,
+        });
+      }
+    } else {
+      // No organisation context: a personal user has no school subscription
+      // and therefore no claim on school curriculum.
+      return res.status(403).json({
+        error: 'Pre-loaded curriculum is available to school accounts only.',
+        teacherOnly: true,
+      });
+    }
+
     let { grade, subject } = req.query;
     const treeOnly = req.query.tree === '1';
     
@@ -4159,8 +4180,23 @@ app.get("/api/curriculum", async (req: any, res) => {
   }
 });
 
-app.get('/api/curriculum/subtopic/:id', async (req: any, res) => {
+app.get('/api/curriculum/subtopic/:id', authenticate, async (req: any, res) => {
   try {
+    if (req.orgId && req.orgId !== 'demo' && req.orgId !== 'default_org') {
+      const role = await getUserRoleInOrg(req.userId, req.orgId);
+      if (role !== 'teacher' && role !== 'admin') {
+        return res.status(403).json({
+          error: 'Pre-loaded curriculum is available to teachers only.',
+          teacherOnly: true,
+        });
+      }
+    } else {
+      return res.status(403).json({
+        error: 'Pre-loaded curriculum is available to school accounts only.',
+        teacherOnly: true,
+      });
+    }
+
     const rows = await sql`
       SELECT id, title, subtopic, content, videos, questions
       FROM curriculum_library WHERE id = ${req.params.id} LIMIT 1`;
