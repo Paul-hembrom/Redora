@@ -189,10 +189,6 @@ export function SmartReadAloudButton({ text, className, iconSizeClasses = "w-4 h
   }, []);
 
   useEffect(() => {
-    fetch('/api/tts/stream/prewarm', { method: 'POST' }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
     const handleInteraction = () => {
       if ('speechSynthesis' in window && window.speechSynthesis.paused) {
         window.speechSynthesis.resume();

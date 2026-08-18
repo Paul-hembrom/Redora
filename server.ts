@@ -2139,19 +2139,8 @@ app.post('/api/topics/:id/images', authenticate, async (req: any, res) => {
 
 
 app.post('/api/tts/stream/prewarm', async (req, res) => {
-  try {
-    const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
-    if (!apiKey) return res.status(200).json({ status: 'skip' });
-    const voiceId = 'JwEIvMzFlLwrArLvqeM5';
-    fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'xi-api-key': apiKey },
-      body: JSON.stringify({ text: ".", model_id: 'eleven_flash_v2_5' })
-    }).catch(() => {});
-    res.json({ status: 'ok' });
-  } catch(e) {
-    res.json({ status: 'error' });
-  }
+  // Prewarm is a no-op to prevent burning ElevenLabs API credits on component mount
+  res.json({ status: 'ok' });
 });
 
 
@@ -2664,7 +2653,7 @@ async function synthesizeElevenLabsChunk(spokenText: string, voiceId: string, mo
   const decoder = new TextDecoder();
   const reader = (response.body as any).getReader();
   let buffer = '';
-  let finalAudioBase64 = '';
+  const audioBuffers: Buffer[] = [];
   const chars: string[] = [];
   const startTimes: number[] = [];
   const endTimes: number[] = [];
@@ -2672,7 +2661,9 @@ async function synthesizeElevenLabsChunk(spokenText: string, voiceId: string, mo
   const absorb = (line: string) => {
     try {
       const data = JSON.parse(line);
-      if (data.audio_base64) finalAudioBase64 += data.audio_base64;
+      if (data.audio_base64) {
+        audioBuffers.push(Buffer.from(data.audio_base64, 'base64'));
+      }
       const align = data.alignment;
       if (align) {
         if (Array.isArray(align.characters)) chars.push(...align.characters);
@@ -2711,7 +2702,9 @@ async function synthesizeElevenLabsChunk(spokenText: string, voiceId: string, mo
   }
   if (buffer.trim()) absorb(buffer.trim());
 
-  if (!finalAudioBase64) return null;
+  const combinedBuffer = Buffer.concat(audioBuffers);
+  if (combinedBuffer.length === 0) return null;
+  const finalAudioBase64 = combinedBuffer.toString('base64');
 
   const duration = endTimes.length > 0 ? endTimes[endTimes.length - 1] : 0;
   const wordTimestamps = elevenLabsAlignmentToWords({
@@ -2740,24 +2733,34 @@ function detectDominantScript(text: string): 'latin' | 'devanagari' | 'other' {
     else if (/[A-Za-z]/.test(ch)) latin++;
   }
   if (!total) return 'latin';
-  if (deva / total >= 0.30) return 'devanagari';
-  if (latin / total >= 0.30) return 'latin';
+  // Devanagari uses several code points per syllable (consonant + matra +
+  // virama), so a short Nepali gloss inside an English sentence easily clears a
+  // 30% threshold. Compare the two scripts directly instead.
+  if (deva === 0 && latin === 0) return 'other';
+  if (deva > latin) return 'devanagari';
+  if (latin > 0) return 'latin';
   return 'other';
 }
 
 const memoryTtsCache = new Map<string, { audio_base64: string; timestamps: any[]; duration?: number; mime?: string }>();
 
 let _ttsStorageClient: any = null;
+let _ttsStorageDisabled = false;
 async function getTtsStorageClient() {
+  if (_ttsStorageDisabled) return null;
   if (_ttsStorageClient) return _ttsStorageClient;
   try {
     const { createClient } = await import('@supabase/supabase-js');
     const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
-    if (!url || !key) return null;
+    if (!url || !key) {
+      _ttsStorageDisabled = true;
+      return null;
+    }
     _ttsStorageClient = createClient(url, key);
     return _ttsStorageClient;
   } catch (e: any) {
+    _ttsStorageDisabled = true;
     return null;
   }
 }
@@ -2766,10 +2769,19 @@ async function getCachedTts(cacheKey: string): Promise<{ audio_base64: string; t
   if (memoryTtsCache.has(cacheKey)) {
     return memoryTtsCache.get(cacheKey)!;
   }
+  if (_ttsStorageDisabled) return null;
+
   try {
     const storageClient = await getTtsStorageClient();
     if (!storageClient) return null;
-    const { data, error } = await storageClient.storage.from('tts-cache').download(`${cacheKey}.json`);
+
+    // Timeout storage read after 800ms so storage latency never hangs the TTS playback
+    const downloadPromise = storageClient.storage.from('tts-cache').download(`${cacheKey}.json`);
+    const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: new Error('timeout') }), 800)
+    );
+
+    const { data, error } = await Promise.race([downloadPromise, timeoutPromise]);
     if (error || !data) return null;
     const text = await data.text();
     const parsed = JSON.parse(text);
@@ -2793,6 +2805,8 @@ async function setCachedTts(cacheKey: string, payload: { audio_base64: string; t
   }
   memoryTtsCache.set(cacheKey, payload);
 
+  if (_ttsStorageDisabled) return;
+
   try {
     const storageClient = await getTtsStorageClient();
     if (!storageClient) return;
@@ -2813,7 +2827,7 @@ async function setCachedTts(cacheKey: string, payload: { audio_base64: string; t
       }
     }
   } catch (e: any) {
-    console.warn('[tts-cache] failed to write cache:', e?.message);
+    console.warn('[tts-cache] write cache warning:', e?.message);
   }
 }
 
@@ -2897,7 +2911,8 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
     const orgId = req.body?.org_id || req.query?.org_id || req.cookies?.['sb-org-id'];
     if (engine === 'elevenlabs') {
       try {
-        await verifyAndIncrementUsage(req.userId, 'tts_premium', orgId, false, text.length);
+        // Pre-check only — do not charge yet.
+        await verifyAndIncrementUsage(req.userId, 'tts_premium', orgId, true, text.length);
       } catch (e: any) {
         if (e.name === 'SubscriptionLimitError') {
           return res.status(429).json({ error: e.message, limitReached: true });
@@ -2941,6 +2956,7 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
     res.write(JSON.stringify({ totalChunks: chunks.length }) + '\n');
 
     let wasCached = true;
+    let uncachedChars = 0;
 
     if (engine === 'elevenlabs') {
       const voiceId = 'dtqbhKQTKfVe9T23mwwa';
@@ -2978,14 +2994,16 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
               emit(audioUrl, cached.timestamps, cached.duration || 0);
             } else {
               wasCached = false;
+              uncachedChars += spokenText.length;
               const result = await synthesizeElevenLabsChunk(spokenText, voiceId, modelId, apiKey as string);
               if (result && result.audio_base64) {
-                await setCachedTts(cacheKey, {
+                // Background cache storage write so client stream response is never delayed
+                setCachedTts(cacheKey, {
                   audio_base64: result.audio_base64,
                   timestamps: result.timestamps,
                   duration: result.duration,
                   mime: result.mime || 'audio/mpeg'
-                });
+                }).catch(() => {});
                 emit(result.audioUrl, result.timestamps, result.duration);
               }
             }
@@ -3006,7 +3024,15 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
         }
       }
 
-      console.log(`[tts-premium] user=${req.userId} org=${orgId} chars=${text.length} cached=${wasCached}`);
+      // After stream completes, only bill for characters actually synthesized (cache misses)
+      if (uncachedChars > 0) {
+        try {
+          await incrementUsage(req.userId, 'tts_premium', orgId, undefined, uncachedChars);
+        } catch (incErr: any) {
+          console.error('[tts-premium] incrementUsage error:', incErr?.message);
+        }
+      }
+      console.log(`[tts-premium] user=${req.userId} org=${orgId} chars=${text.length} billed=${uncachedChars} cached=${wasCached}`);
       res.end();
       return;
     }
