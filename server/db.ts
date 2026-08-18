@@ -77,83 +77,103 @@ const isServerless = Boolean(process.env.VERCEL);
 // Configure postgres client
 const sql = postgres(finalDbUrl, {
   ssl: isLocal ? false : { rejectUnauthorized: false }, // Avoid SSL certificate validation hangs/failures on remote connection
-  max: isServerless ? 1 : 5, // 1 for Vercel serverless, 5 for persistent Railway worker/server
-  idle_timeout: isServerless ? 20 : 0, // Release idle connections quickly on Vercel
+  max: isServerless ? 3 : 10, // 3 for Vercel serverless, 10 for persistent Railway worker/server
+  idle_timeout: isServerless ? 15 : 0, // Release idle connections quickly on Vercel
   max_lifetime: 60 * 10, // recycle connections every 10 minutes
-  connect_timeout: 10, // Fail fast instead of blocking a request for 15s
+  connect_timeout: 8, // Fail fast instead of blocking a request
   prepare: false, // REQUIRED for Supavisor transaction mode (prepared statements disabled)
-  connection: { application_name: isServerless ? 'readora-vercel' : 'readora-worker' },
+  connection: {
+    application_name: isServerless ? 'readora-vercel' : 'readora-worker',
+    statement_timeout: 15000 // 15s max query execution time - prevents hanging forever on Vercel
+  },
   onnotice: () => {},
 });
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 let _columnMigrationsPromise: Promise<void> | null = null;
+let _migrationsDone = false;
 
 export async function ensureColumnMigrations() {
+  if (_migrationsDone) return;
   if (_columnMigrationsPromise) return _columnMigrationsPromise;
   _columnMigrationsPromise = (async () => {
     try {
-      await sql`CREATE TABLE IF NOT EXISTS school_usage (
-        school_id TEXT PRIMARY KEY,
-        books_uploaded_this_month INTEGER DEFAULT 0,
-        video_generations_this_month INTEGER DEFAULT 0,
-        videos_generated_this_month INTEGER DEFAULT 0,
-        image_searches_this_month INTEGER DEFAULT 0,
-        interactive_lessons_this_month INTEGER DEFAULT 0,
-        youtube_searches_today INTEGER DEFAULT 0,
-        chat_messages_this_month INTEGER DEFAULT 0,
-        tts_requests_this_month INTEGER DEFAULT 0,
-        tts_premium_chars_this_month INTEGER DEFAULT 0,
-        ask_questions_this_month INTEGER DEFAULT 0,
-        billing_period_start DATE DEFAULT CURRENT_DATE
-      )`;
+      await sql`
+        CREATE TABLE IF NOT EXISTS school_usage (
+          school_id TEXT PRIMARY KEY,
+          books_uploaded_this_month INTEGER DEFAULT 0,
+          video_generations_this_month INTEGER DEFAULT 0,
+          videos_generated_this_month INTEGER DEFAULT 0,
+          image_searches_this_month INTEGER DEFAULT 0,
+          interactive_lessons_this_month INTEGER DEFAULT 0,
+          youtube_searches_today INTEGER DEFAULT 0,
+          chat_messages_this_month INTEGER DEFAULT 0,
+          tts_requests_this_month INTEGER DEFAULT 0,
+          tts_premium_chars_this_month INTEGER DEFAULT 0,
+          ask_questions_this_month INTEGER DEFAULT 0,
+          billing_period_start DATE DEFAULT CURRENT_DATE
+        )
+      `;
     } catch (e: any) {
-      console.warn('[db] create school_usage table error:', e?.message);
+      console.warn('[db] create school_usage table warning:', e?.message);
     }
 
     try {
-      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'`;
-      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`;
-      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS organization_id TEXT`;
+      await sql`
+        ALTER TABLE documents 
+          ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]',
+          ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE,
+          ADD COLUMN IF NOT EXISTS organization_id TEXT
+      `;
     } catch (e) {}
 
     try {
-      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id TEXT`;
-      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'`;
+      await sql`
+        ALTER TABLE chapters 
+          ADD COLUMN IF NOT EXISTS parent_id TEXT,
+          ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'
+      `;
     } catch (e) {}
 
     try {
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
+      await sql`
+        ALTER TABLE user_usage 
+          ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0
+      `;
     } catch (e: any) {
-      console.error('[db] user_usage columns migration error:', e?.message);
+      console.warn('[db] user_usage columns migration warning:', e?.message);
     }
 
     try {
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS videos_generated_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
-      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS billing_period_start DATE DEFAULT CURRENT_DATE`;
+      await sql`
+        ALTER TABLE school_usage 
+          ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS videos_generated_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS billing_period_start DATE DEFAULT CURRENT_DATE
+      `;
     } catch (e: any) {
-      console.error('[db] school_usage columns migration error:', e?.message);
+      console.warn('[db] school_usage columns migration warning:', e?.message);
     }
+    _migrationsDone = true;
   })();
   return _columnMigrationsPromise;
 }
@@ -467,17 +487,13 @@ export async function initDb() {
   }
 }
 
-// Run initialization safely
+// Run initialization safely (skipped on Vercel to guarantee sub-second cold starts)
 if (!process.env.VERCEL) {
   initDb().catch((err) => {
     console.error('initDb unhandled error:', err);
     dbReady = false;
   });
 } else {
-  console.log('[db] Running lightweight column migrations on Vercel...');
-  ensureColumnMigrations().catch((err) => {
-    console.warn('[db] Vercel column migrations warning:', err?.message);
-  });
   dbReady = true;
 }
 
