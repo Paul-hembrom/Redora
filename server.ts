@@ -10,7 +10,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import sql, { dbReady } from './server/db.js';
+import sql, { dbReady, ensureColumnMigrations } from './server/db.js';
 import { generateStoryboardJob, regenerateScene } from './server/storyboardEngine.js';
 import { processVideoLessonJob, processSceneAssets, processInteractiveProJob } from './server/videoPipeline.js';
 import { synthesizeSpeech } from './server/synthesizeSpeech.js';
@@ -382,24 +382,52 @@ async function verifyUsageLimit(userId: string, type: string, orgId?: string) {
   if (!orgs.length || !orgs[0].school_id) return;
   const schoolId = orgs[0].school_id;
   
-  if (type === 'document') {
-    await q`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'video') {
-    await q`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'image') {
-    await q`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'interactive') {
-    await q`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'youtube') {
-    await q`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'chat') {
-    await q`UPDATE school_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'tts') {
-    await q`UPDATE school_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'tts_premium') {
-    await q`UPDATE school_usage SET tts_premium_chars_this_month = COALESCE(tts_premium_chars_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
-  } else if (type === 'ask') {
-    await q`UPDATE school_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+  try {
+    if (type === 'document') {
+      await q`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'video') {
+      await q`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + ${amount}, videos_generated_this_month = COALESCE(videos_generated_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'image') {
+      await q`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'interactive') {
+      await q`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'youtube') {
+      await q`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'chat') {
+      await q`UPDATE school_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'tts') {
+      await q`UPDATE school_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'tts_premium') {
+      await q`UPDATE school_usage SET tts_premium_chars_this_month = COALESCE(tts_premium_chars_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    } else if (type === 'ask') {
+      await q`UPDATE school_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+    }
+  } catch (err: any) {
+    console.warn('[incrementUsage] school usage update warning, ensuring migrations:', err?.message);
+    await ensureColumnMigrations().catch(() => {});
+    try {
+      if (type === 'document') {
+        await q`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'video') {
+        await q`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'image') {
+        await q`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'interactive') {
+        await q`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'youtube') {
+        await q`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'chat') {
+        await q`UPDATE school_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'tts') {
+        await q`UPDATE school_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'tts_premium') {
+        await q`UPDATE school_usage SET tts_premium_chars_this_month = COALESCE(tts_premium_chars_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      } else if (type === 'ask') {
+        await q`UPDATE school_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+      }
+    } catch (retryErr: any) {
+      console.error('[incrementUsage] retry failed:', retryErr?.message);
+    }
   }
 }
 
@@ -496,25 +524,59 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
 
   if (status === 'locked') throw new SubscriptionLimitError('School account suspended.');
 
-  const usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
-  const usage = usageRows[0] || {};
+  let usageRows: any[] = [];
+  try {
+    usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+  } catch (e: any) {
+    await ensureColumnMigrations().catch(() => {});
+    usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`.catch(() => []);
+  }
+
+  if (!usageRows || usageRows.length === 0) {
+    try {
+      await sql`INSERT INTO school_usage (school_id, billing_period_start) VALUES (${schoolId}, CURRENT_DATE) ON CONFLICT (school_id) DO NOTHING`;
+      usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
+    } catch (e) {}
+  }
+  const usage = (usageRows && usageRows[0]) || {};
 
   // Monthly reset for school usage
   const todayDate = new Date();
   const bpStart = usage.billing_period_start ? new Date(usage.billing_period_start) : new Date(0);
   if (todayDate.getMonth() !== bpStart.getMonth() || todayDate.getFullYear() !== bpStart.getFullYear()) {
-    await sql`UPDATE school_usage 
-              SET video_generations_this_month = 0, 
-                  image_searches_this_month = 0, 
-                  interactive_lessons_this_month = 0, 
-                  books_uploaded_this_month = 0,
-                  chat_messages_this_month = 0,
-                  tts_requests_this_month = 0,
-                  tts_premium_chars_this_month = 0,
-                  ask_questions_this_month = 0,
-                  billing_period_start = CURRENT_DATE 
-              WHERE school_id = ${schoolId}`;
+    try {
+      await sql`UPDATE school_usage 
+                SET video_generations_this_month = 0, 
+                    videos_generated_this_month = 0,
+                    image_searches_this_month = 0, 
+                    interactive_lessons_this_month = 0, 
+                    books_uploaded_this_month = 0,
+                    chat_messages_this_month = 0,
+                    tts_requests_this_month = 0,
+                    tts_premium_chars_this_month = 0,
+                    ask_questions_this_month = 0,
+                    billing_period_start = CURRENT_DATE 
+                WHERE school_id = ${schoolId}`;
+    } catch (resetErr: any) {
+      console.warn('[school_usage] reset error, ensuring migrations:', resetErr?.message);
+      await ensureColumnMigrations().catch(() => {});
+      try {
+        await sql`UPDATE school_usage 
+                  SET video_generations_this_month = 0, 
+                      videos_generated_this_month = 0,
+                      image_searches_this_month = 0, 
+                      interactive_lessons_this_month = 0, 
+                      books_uploaded_this_month = 0,
+                      chat_messages_this_month = 0,
+                      tts_requests_this_month = 0,
+                      tts_premium_chars_this_month = 0,
+                      ask_questions_this_month = 0,
+                      billing_period_start = CURRENT_DATE 
+                  WHERE school_id = ${schoolId}`;
+      } catch (err) {}
+    }
     usage.video_generations_this_month = 0;
+    usage.videos_generated_this_month = 0;
     usage.image_searches_this_month = 0;
     usage.interactive_lessons_this_month = 0;
     usage.books_uploaded_this_month = 0;

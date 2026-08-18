@@ -88,42 +88,74 @@ const sql = postgres(finalDbUrl, {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function ensureColumnMigrations() {
-  try {
-    await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'`;
-    await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`;
-    await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS organization_id TEXT`;
-  } catch (e) {}
+let _columnMigrationsPromise: Promise<void> | null = null;
 
-  try {
-    await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id TEXT`;
-    await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'`;
-  } catch (e) {}
+export async function ensureColumnMigrations() {
+  if (_columnMigrationsPromise) return _columnMigrationsPromise;
+  _columnMigrationsPromise = (async () => {
+    try {
+      await sql`CREATE TABLE IF NOT EXISTS school_usage (
+        school_id TEXT PRIMARY KEY,
+        books_uploaded_this_month INTEGER DEFAULT 0,
+        video_generations_this_month INTEGER DEFAULT 0,
+        videos_generated_this_month INTEGER DEFAULT 0,
+        image_searches_this_month INTEGER DEFAULT 0,
+        interactive_lessons_this_month INTEGER DEFAULT 0,
+        youtube_searches_today INTEGER DEFAULT 0,
+        chat_messages_this_month INTEGER DEFAULT 0,
+        tts_requests_this_month INTEGER DEFAULT 0,
+        tts_premium_chars_this_month INTEGER DEFAULT 0,
+        ask_questions_this_month INTEGER DEFAULT 0,
+        billing_period_start DATE DEFAULT CURRENT_DATE
+      )`;
+    } catch (e: any) {
+      console.warn('[db] create school_usage table error:', e?.message);
+    }
 
-  try {
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
-  } catch (e: any) {
-    console.error('[db] user_usage columns migration error:', e?.message);
-  }
+    try {
+      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'`;
+      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`;
+      await sql`ALTER TABLE documents ADD COLUMN IF NOT EXISTS organization_id TEXT`;
+    } catch (e) {}
 
-  try {
-    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
-    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
-  } catch (e: any) {
-    console.error('[db] school_usage columns migration error:', e?.message);
-  }
+    try {
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS parent_id TEXT`;
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE chapters ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'chapter'`;
+    } catch (e) {}
+
+    try {
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
+    } catch (e: any) {
+      console.error('[db] user_usage columns migration error:', e?.message);
+    }
+
+    try {
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS books_uploaded_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS video_generations_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS videos_generated_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS image_searches_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS interactive_lessons_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS youtube_searches_today INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS billing_period_start DATE DEFAULT CURRENT_DATE`;
+    } catch (e: any) {
+      console.error('[db] school_usage columns migration error:', e?.message);
+    }
+  })();
+  return _columnMigrationsPromise;
 }
 
 // Initialize schema
@@ -435,14 +467,17 @@ export async function initDb() {
   }
 }
 
-// Run initialization safely (skipped on Vercel)
+// Run initialization safely
 if (!process.env.VERCEL) {
   initDb().catch((err) => {
     console.error('initDb unhandled error:', err);
     dbReady = false;
   });
 } else {
-  console.log('[db] Skipping initDb on Vercel — schema managed by worker/migration.');
+  console.log('[db] Running lightweight column migrations on Vercel...');
+  ensureColumnMigrations().catch((err) => {
+    console.warn('[db] Vercel column migrations warning:', err?.message);
+  });
   dbReady = true;
 }
 
