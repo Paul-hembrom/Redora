@@ -110,6 +110,7 @@ async function ensureColumnMigrations() {
     await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS last_daily_reset_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP`;
     await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
     await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
     await sql`ALTER TABLE user_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
   } catch (e: any) {
     console.error('[db] user_usage columns migration error:', e?.message);
@@ -118,6 +119,7 @@ async function ensureColumnMigrations() {
   try {
     await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS chat_messages_this_month INTEGER DEFAULT 0`;
     await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_requests_this_month INTEGER DEFAULT 0`;
+    await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS tts_premium_chars_this_month INTEGER DEFAULT 0`;
     await sql`ALTER TABLE school_usage ADD COLUMN IF NOT EXISTS ask_questions_this_month INTEGER DEFAULT 0`;
   } catch (e: any) {
     console.error('[db] school_usage columns migration error:', e?.message);

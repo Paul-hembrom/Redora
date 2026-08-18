@@ -1,5 +1,6 @@
 import { normalizeTextForCartesia } from './src/lib/textNormalize.js';
 import express from 'express';
+import crypto from 'crypto';
 import { Cartesia } from '@cartesia/cartesia-js';
 import multer from 'multer';
 import path from 'path';
@@ -347,7 +348,7 @@ export class SubscriptionLimitError extends Error {
 
 async function verifyUsageLimit(userId: string, type: string, orgId?: string) {
   return verifyAndIncrementUsage(userId, type, orgId, true);
-}async function incrementUsage(userId: string, type: string, orgId?: string, tx?: any) {
+}async function incrementUsage(userId: string, type: string, orgId?: string, tx?: any, amount: number = 1) {
   const q = tx || sql;
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let useSchool = false;
@@ -356,21 +357,23 @@ async function verifyUsageLimit(userId: string, type: string, orgId?: string) {
   }
   if (!useSchool) {
     if (type === 'document') {
-      await q`UPDATE user_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
     } else if (type === 'video') {
-      await q`UPDATE user_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
     } else if (type === 'image') {
-      await q`UPDATE user_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
     } else if (type === 'interactive') {
-      await q`UPDATE user_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
     } else if (type === 'youtube') {
-      await q`UPDATE user_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + ${amount} WHERE user_id = ${userId}`;
     } else if (type === 'chat') {
-      await q`UPDATE user_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
     } else if (type === 'tts') {
-      await q`UPDATE user_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
+    } else if (type === 'tts_premium') {
+      await q`UPDATE user_usage SET tts_premium_chars_this_month = COALESCE(tts_premium_chars_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
     } else if (type === 'ask') {
-      await q`UPDATE user_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + 1 WHERE user_id = ${userId}`;
+      await q`UPDATE user_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + ${amount} WHERE user_id = ${userId}`;
     }
     return;
   }
@@ -380,25 +383,27 @@ async function verifyUsageLimit(userId: string, type: string, orgId?: string) {
   const schoolId = orgs[0].school_id;
   
   if (type === 'document') {
-    await q`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET books_uploaded_this_month = COALESCE(books_uploaded_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
   } else if (type === 'video') {
-    await q`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET video_generations_this_month = COALESCE(video_generations_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
   } else if (type === 'image') {
-    await q`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET image_searches_this_month = COALESCE(image_searches_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
   } else if (type === 'interactive') {
-    await q`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET interactive_lessons_this_month = COALESCE(interactive_lessons_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
   } else if (type === 'youtube') {
-    await q`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET youtube_searches_today = COALESCE(youtube_searches_today, 0) + ${amount} WHERE school_id = ${schoolId}`;
   } else if (type === 'chat') {
-    await q`UPDATE school_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET chat_messages_this_month = COALESCE(chat_messages_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
   } else if (type === 'tts') {
-    await q`UPDATE school_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET tts_requests_this_month = COALESCE(tts_requests_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
+  } else if (type === 'tts_premium') {
+    await q`UPDATE school_usage SET tts_premium_chars_this_month = COALESCE(tts_premium_chars_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
   } else if (type === 'ask') {
-    await q`UPDATE school_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + 1 WHERE school_id = ${schoolId}`;
+    await q`UPDATE school_usage SET ask_questions_this_month = COALESCE(ask_questions_this_month, 0) + ${amount} WHERE school_id = ${schoolId}`;
   }
 }
 
-async function verifyAndIncrementUsage(userId: string, type: string, orgId?: string, verifyOnly?: boolean) {
+async function verifyAndIncrementUsage(userId: string, type: string, orgId?: string, verifyOnly?: boolean, amount: number = 1) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let useSchool = false;
   if (orgId && orgId !== 'demo' && orgId !== 'default_org' && uuidRegex.test(orgId)) {
@@ -409,7 +414,7 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     // Personal Usage
     let usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
     if (usageRows.length === 0) {
-      await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, chat_messages_this_month, tts_requests_this_month, ask_questions_this_month, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
+      await sql`INSERT INTO user_usage (user_id, books_uploaded_this_month, video_generations_this_month, image_searches_this_month, interactive_lessons_this_month, youtube_searches_today, chat_messages_this_month, tts_requests_this_month, tts_premium_chars_this_month, ask_questions_this_month, last_reset_date, last_daily_reset_date) VALUES (${userId}, 0, 0, 0, 0, 0, 0, 0, 0, 0, CURRENT_DATE, CURRENT_DATE)`;
       usageRows = await sql`SELECT * FROM user_usage WHERE user_id = ${userId}`;
     }
     const subs = await sql`SELECT * FROM subscriptions WHERE user_id = ${userId}`;
@@ -424,13 +429,14 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     const dailyResetDate = usage.last_daily_reset_date ? new Date(usage.last_daily_reset_date) : new Date(0);
     
     if (todayDate.getMonth() !== resetDate.getMonth() || todayDate.getFullYear() !== resetDate.getFullYear()) {
-      await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, chat_messages_this_month = 0, tts_requests_this_month = 0, ask_questions_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
+      await sql`UPDATE user_usage SET video_generations_this_month = 0, image_searches_this_month = 0, interactive_lessons_this_month = 0, books_uploaded_this_month = 0, chat_messages_this_month = 0, tts_requests_this_month = 0, tts_premium_chars_this_month = 0, ask_questions_this_month = 0, last_reset_date = CURRENT_DATE WHERE user_id = ${userId}`;
       usage.video_generations_this_month = 0;
       usage.image_searches_this_month = 0;
       usage.interactive_lessons_this_month = 0;
       usage.books_uploaded_this_month = 0;
       usage.chat_messages_this_month = 0;
       usage.tts_requests_this_month = 0;
+      usage.tts_premium_chars_this_month = 0;
       usage.ask_questions_this_month = 0;
     }
   
@@ -440,11 +446,12 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     }
 
     let limits: any = plan === 'unlimited' ? {
-       document: 'unlimited', chat: 'unlimited', tts: 'unlimited', ask: 'unlimited', interactive: 'unlimited', image: 'unlimited', youtube: 'unlimited', video: 0
+       document: 'unlimited', chat: 'unlimited', tts: 'unlimited', tts_premium: 0, ask: 'unlimited', interactive: 'unlimited', image: 'unlimited', youtube: 'unlimited', video: 0
     } : {
        document: isPro ? 'unlimited' : 5,
        chat: isPro ? 'unlimited' : 200,
        tts: isPro ? 'unlimited' : 30,
+       tts_premium: 0,
        ask: isPro ? 'unlimited' : 100,
        interactive: isPro ? 50 : 2,
        image: isPro ? 500 : 20,
@@ -462,14 +469,18 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     if (type === 'youtube') count = usage.youtube_searches_today || 0;
     if (type === 'chat') count = usage.chat_messages_this_month || 0;
     if (type === 'tts') count = usage.tts_requests_this_month || 0;
+    if (type === 'tts_premium') count = usage.tts_premium_chars_this_month || 0;
     if (type === 'ask') count = usage.ask_questions_this_month || 0;
 
-    if (limit === 0 || (limit !== 'unlimited' && count >= limit)) {
+    if (limit === 0 || (limit !== 'unlimited' && (count + (type === 'tts_premium' ? amount : 0)) > limit)) {
+      if (type === 'tts_premium') {
+        throw new SubscriptionLimitError('Read-aloud for Nepali is currently available for school accounts only.');
+      }
       throw new SubscriptionLimitError(`Personal limit reached for ${type}. Upgrade your plan.`);
     }
 
     if (verifyOnly) return;
-    await incrementUsage(userId, type, orgId);
+    await incrementUsage(userId, type, orgId, undefined, amount);
     return;
   }
 
@@ -488,9 +499,37 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
   const usageRows = await sql`SELECT * FROM school_usage WHERE school_id = ${schoolId}`;
   const usage = usageRows[0] || {};
 
+  // Monthly reset for school usage
+  const todayDate = new Date();
+  const bpStart = usage.billing_period_start ? new Date(usage.billing_period_start) : new Date(0);
+  if (todayDate.getMonth() !== bpStart.getMonth() || todayDate.getFullYear() !== bpStart.getFullYear()) {
+    await sql`UPDATE school_usage 
+              SET video_generations_this_month = 0, 
+                  image_searches_this_month = 0, 
+                  interactive_lessons_this_month = 0, 
+                  books_uploaded_this_month = 0,
+                  chat_messages_this_month = 0,
+                  tts_requests_this_month = 0,
+                  tts_premium_chars_this_month = 0,
+                  ask_questions_this_month = 0,
+                  billing_period_start = CURRENT_DATE 
+              WHERE school_id = ${schoolId}`;
+    usage.video_generations_this_month = 0;
+    usage.image_searches_this_month = 0;
+    usage.interactive_lessons_this_month = 0;
+    usage.books_uploaded_this_month = 0;
+    usage.chat_messages_this_month = 0;
+    usage.tts_requests_this_month = 0;
+    usage.tts_premium_chars_this_month = 0;
+    usage.ask_questions_this_month = 0;
+  }
+
   if (status === 'trialing' || status === 'trial') {
     if (type === 'video' || type === 'image') {
       throw new SubscriptionLimitError(`${type} features are not available during trial. Please upgrade.`);
+    }
+    if (type === 'tts_premium') {
+      throw new SubscriptionLimitError('Nepali read-aloud is not available during school trial. Please upgrade.');
     }
     if (type === 'interactive') {
       if ((usage.interactive_lessons_this_month || 0) >= 2) throw new SubscriptionLimitError('Trial limit reached for interactive lessons (2 max).');
@@ -509,9 +548,9 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     // Active usage checks
     const planName = sub.plan_type || 'Starter';
     const planLimits: any = {
-      'Starter': { document: 1000, video: 0, image: 500, interactive: 50, youtube: 200, chat: 'unlimited', tts: 'unlimited', ask: 'unlimited' },
-      'Growth': { document: 5000, video: 0, image: 1000, interactive: 100, youtube: 500, chat: 'unlimited', tts: 'unlimited', ask: 'unlimited' },
-      'Enterprise': { document: 10000, video: 0, image: 2000, interactive: 500, youtube: 1000, chat: 'unlimited', tts: 'unlimited', ask: 'unlimited' }
+      'Starter': { document: 1000, video: 0, image: 500, interactive: 50, youtube: 200, chat: 'unlimited', tts: 'unlimited', tts_premium: 50000, ask: 'unlimited' },
+      'Growth': { document: 5000, video: 0, image: 1000, interactive: 100, youtube: 500, chat: 'unlimited', tts: 'unlimited', tts_premium: 150000, ask: 'unlimited' },
+      'Enterprise': { document: 10000, video: 0, image: 2000, interactive: 500, youtube: 1000, chat: 'unlimited', tts: 'unlimited', tts_premium: 500000, ask: 'unlimited' }
     };
     const currentLimits = planLimits[planName] || planLimits['Starter'];
     let count = 0;
@@ -522,16 +561,20 @@ async function verifyAndIncrementUsage(userId: string, type: string, orgId?: str
     if (type === 'youtube') count = usage.youtube_searches_today || 0;
     if (type === 'chat') count = usage.chat_messages_this_month || 0;
     if (type === 'tts') count = usage.tts_requests_this_month || 0;
+    if (type === 'tts_premium') count = usage.tts_premium_chars_this_month || 0;
     if (type === 'ask') count = usage.ask_questions_this_month || 0;
 
     const limitVal = currentLimits[type];
-    if (limitVal === 0 || (limitVal !== 'unlimited' && count >= limitVal)) {
+    if (limitVal === 0 || (limitVal !== 'unlimited' && (count + (type === 'tts_premium' ? amount : 0)) > limitVal)) {
+      if (type === 'tts_premium') {
+        throw new SubscriptionLimitError(`Monthly character limit for Nepali read-aloud reached (${typeof limitVal === 'number' ? limitVal.toLocaleString() : limitVal} chars) on ${planName} plan.`);
+      }
       throw new SubscriptionLimitError(`Plan limit reached for ${planName} plan.`);
     }
   }
 
   if (verifyOnly) return;
-  await incrementUsage(userId, type, orgId);
+  await incrementUsage(userId, type, orgId, undefined, amount);
   return;
 }
 
@@ -1119,7 +1162,7 @@ app.get('/api/documents', authenticate, async (req: any, res) => {
 });
 
 
-import crypto from 'crypto';app.post('/api/documents/process-ticket', authenticate, async (req: any, res) => {
+app.post('/api/documents/process-ticket', authenticate, async (req: any, res) => {
   try {
     const SUPABASE_URL_ENV = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const SUPABASE_KEY_ENV =
@@ -2082,7 +2125,7 @@ function splitIntoSentences(block: string): string[] {
 
     for (let i = 0; i < block.length; i++) {
         const ch = block[i];
-        if (ch !== '.' && ch !== '!' && ch !== '?') continue;
+        if (ch !== '.' && ch !== '!' && ch !== '?' && ch !== '।' && ch !== '॥') continue;
 
         // Decimal point between digits (0.5, 3.14, 0.142857) is not a boundary.
         if (
@@ -2091,9 +2134,9 @@ function splitIntoSentences(block: string): string[] {
             i + 1 < block.length && /[0-9]/.test(block[i + 1])
         ) continue;
 
-        // Absorb runs like "?!" or "..."
+        // Absorb runs like "?!", "...", "।।"
         let j = i;
-        while (j + 1 < block.length && '.!?'.includes(block[j + 1])) j++;
+        while (j + 1 < block.length && '.!?।॥'.includes(block[j + 1])) j++;
 
         // A real boundary is followed by whitespace or end of block. This also
         // protects "0.\overline{3}" (period followed by a backslash).
@@ -2184,7 +2227,7 @@ function chunkDocumentText(text: string, maxChunkSize = 300) {
 // ---------------------------------------------------------------------------
 
 function normalizeTokenForMatch(t: string): string {
-    return (t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return (t || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 // Strip markdown emphasis/code markers present in raw markdown but not in the
@@ -2492,26 +2535,50 @@ async function synthesizeKokoroSpeech(text: string, voice = "af_sarah") {
   }
   return {
     audioUrl,
+    audio_base64: data.audio_base64,
+    mime: audioMime,
     timestamps: mappedTimestamps,
     rawDuration,
     playbackDuration
   };
 }
 
-// ---------------------------------------------------------------------------
-// ElevenLabs single-chunk helper (used as the Kokoro fallback below).
-// Extracted so the fallback path can RETURN a result instead of writing to the
-// response inline -- the old inline version had `continue` / silent-skip exits
-// that dropped the chunk entirely (see the emit-always contract below).
-// ---------------------------------------------------------------------------
-async function synthesizeElevenLabsChunk(spokenText: string, hq: boolean, apiKey: string) {
-  if (!apiKey) return null;
+function elevenLabsAlignmentToWords(alignment: any): Array<{word: string; start_time: number; end_time: number; start: number; end: number}> {
+  const chars: string[] = alignment?.characters || alignment?.chars || [];
+  const starts: number[] = alignment?.character_start_times_seconds || (alignment?.charStartTimesMs ? alignment.charStartTimesMs.map((t: number) => t / 1000) : []);
+  const ends: number[] = alignment?.character_end_times_seconds || (alignment?.charDurationsMs ? alignment.charDurationsMs.map((d: number, idx: number) => (starts[idx] || 0) + d / 1000) : []);
+  if (!chars.length || chars.length !== starts.length) return [];
 
-  const voiceId = 'JwEIvMzFlLwrArLvqeM5'; // Katrina R
-  const modelId = hq ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
-  console.log(`[TTS] ElevenLabs fallback model: ${modelId} (${hq ? 'HQ' : 'Standard'})`);
+  const out: Array<{word: string; start_time: number; end_time: number; start: number; end: number}> = [];
+  let buf = '', wStart: number | null = null, wEnd = 0;
 
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream?optimize_streaming_latency=3&with_timestamps=true&output_format=mp3_44100_128`;
+  const flush = () => {
+    if (buf.trim() && wStart !== null) {
+      const s = round4(wStart);
+      const e = round4(wEnd);
+      out.push({ word: buf, start_time: s, end_time: e, start: s, end: e });
+    }
+    buf = ''; wStart = null; wEnd = 0;
+  };
+
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    if (/\s/.test(c)) { flush(); continue; }
+    if (wStart === null) wStart = starts[i];
+    buf += c;
+    wEnd = ends[i] ?? starts[i];
+  }
+  flush();
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// ElevenLabs single-chunk helper with character-accurate word alignment.
+// ---------------------------------------------------------------------------
+async function synthesizeElevenLabsChunk(spokenText: string, voiceId: string, modelId: string, apiKey: string) {
+  if (!apiKey || !spokenText.trim()) return null;
+
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream/with-timestamps?output_format=mp3_44100_128`;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -2538,16 +2605,32 @@ async function synthesizeElevenLabsChunk(spokenText: string, hq: boolean, apiKey
   let finalAudioBase64 = '';
   const chars: string[] = [];
   const startTimes: number[] = [];
-  const durations: number[] = [];
+  const endTimes: number[] = [];
 
   const absorb = (line: string) => {
     try {
       const data = JSON.parse(line);
       if (data.audio_base64) finalAudioBase64 += data.audio_base64;
-      if (data.alignment) {
-        if (data.alignment.chars) chars.push(...data.alignment.chars);
-        if (data.alignment.charStartTimesMs) startTimes.push(...data.alignment.charStartTimesMs);
-        if (data.alignment.charDurationsMs) durations.push(...data.alignment.charDurationsMs);
+      const align = data.alignment;
+      if (align) {
+        if (Array.isArray(align.characters)) chars.push(...align.characters);
+        else if (Array.isArray(align.chars)) chars.push(...align.chars);
+
+        if (Array.isArray(align.character_start_times_seconds)) {
+          startTimes.push(...align.character_start_times_seconds);
+        } else if (Array.isArray(align.charStartTimesMs)) {
+          startTimes.push(...align.charStartTimesMs.map((t: number) => t / 1000));
+        }
+
+        if (Array.isArray(align.character_end_times_seconds)) {
+          endTimes.push(...align.character_end_times_seconds);
+        } else if (Array.isArray(align.charDurationsMs)) {
+          const baseIdx = startTimes.length - align.charDurationsMs.length;
+          align.charDurationsMs.forEach((d: number, idx: number) => {
+            const st = startTimes[baseIdx + idx] || 0;
+            endTimes.push(st + d / 1000);
+          });
+        }
       }
     } catch (e) {}
   };
@@ -2568,39 +2651,108 @@ async function synthesizeElevenLabsChunk(spokenText: string, hq: boolean, apiKey
 
   if (!finalAudioBase64) return null;
 
-  const timestamps: any[] = [];
-  let currentWord = '';
-  let wordStart: number | null = null;
-  let wordEnd = 0;
-
-  for (let j = 0; j < chars.length; j++) {
-    const char = chars[j];
-    const start = startTimes[j];
-    const duration = durations[j];
-
-    if (char.trim() === '') {
-      if (currentWord.length > 0) {
-        timestamps.push({ word: currentWord, start: (wordStart as number) / 1000, end: wordEnd / 1000 });
-        currentWord = '';
-        wordStart = null;
-      }
-    } else {
-      if (currentWord.length === 0) wordStart = start;
-      currentWord += char;
-      wordEnd = start + duration;
-    }
-  }
-  if (currentWord.length > 0) {
-    timestamps.push({ word: currentWord, start: (wordStart as number) / 1000, end: wordEnd / 1000 });
-  }
-
-  const duration = timestamps.length > 0 ? timestamps[timestamps.length - 1].end : 0;
+  const duration = endTimes.length > 0 ? endTimes[endTimes.length - 1] : 0;
+  const wordTimestamps = elevenLabsAlignmentToWords({
+    characters: chars,
+    character_start_times_seconds: startTimes,
+    character_end_times_seconds: endTimes
+  });
 
   return {
     audioUrl: `data:audio/mpeg;base64,${finalAudioBase64}`,
-    timestamps,
-    duration
+    audio_base64: finalAudioBase64,
+    timestamps: wordTimestamps,
+    duration,
+    mime: 'audio/mpeg'
   };
+}
+
+function detectDominantScript(text: string): 'latin' | 'devanagari' | 'other' {
+  if (!text) return 'latin';
+  let latin = 0, deva = 0, total = 0;
+  for (const ch of text) {
+    if (!/\p{L}/u.test(ch)) continue;
+    total++;
+    const cp = ch.codePointAt(0)!;
+    if (cp >= 0x0900 && cp <= 0x097F) deva++;
+    else if (/[A-Za-z]/.test(ch)) latin++;
+  }
+  if (!total) return 'latin';
+  if (deva / total >= 0.30) return 'devanagari';
+  if (latin / total >= 0.30) return 'latin';
+  return 'other';
+}
+
+const memoryTtsCache = new Map<string, { audio_base64: string; timestamps: any[]; duration?: number; mime?: string }>();
+
+let _ttsStorageClient: any = null;
+async function getTtsStorageClient() {
+  if (_ttsStorageClient) return _ttsStorageClient;
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
+    if (!url || !key) return null;
+    _ttsStorageClient = createClient(url, key);
+    return _ttsStorageClient;
+  } catch (e: any) {
+    return null;
+  }
+}
+
+async function getCachedTts(cacheKey: string): Promise<{ audio_base64: string; timestamps: any[]; duration?: number; mime?: string } | null> {
+  if (memoryTtsCache.has(cacheKey)) {
+    return memoryTtsCache.get(cacheKey)!;
+  }
+  try {
+    const storageClient = await getTtsStorageClient();
+    if (!storageClient) return null;
+    const { data, error } = await storageClient.storage.from('tts-cache').download(`${cacheKey}.json`);
+    if (error || !data) return null;
+    const text = await data.text();
+    const parsed = JSON.parse(text);
+    if (parsed && parsed.audio_base64) {
+      if (memoryTtsCache.size > 2000) {
+        const firstKey = memoryTtsCache.keys().next().value;
+        if (firstKey) memoryTtsCache.delete(firstKey);
+      }
+      memoryTtsCache.set(cacheKey, parsed);
+      return parsed;
+    }
+  } catch (e: any) {}
+  return null;
+}
+
+async function setCachedTts(cacheKey: string, payload: { audio_base64: string; timestamps: any[]; duration?: number; mime?: string }): Promise<void> {
+  if (!payload || !payload.audio_base64) return;
+  if (memoryTtsCache.size > 2000) {
+    const firstKey = memoryTtsCache.keys().next().value;
+    if (firstKey) memoryTtsCache.delete(firstKey);
+  }
+  memoryTtsCache.set(cacheKey, payload);
+
+  try {
+    const storageClient = await getTtsStorageClient();
+    if (!storageClient) return;
+    const buffer = Buffer.from(JSON.stringify(payload));
+    const { error } = await storageClient.storage.from('tts-cache').upload(`${cacheKey}.json`, buffer, {
+      contentType: 'application/json',
+      upsert: true
+    });
+    if (error) {
+      if ((error as any)?.statusCode === '404' || error.message?.includes('not found') || error.message?.includes('Bucket')) {
+        try {
+          await storageClient.storage.createBucket('tts-cache', { public: false });
+          await storageClient.storage.from('tts-cache').upload(`${cacheKey}.json`, buffer, {
+            contentType: 'application/json',
+            upsert: true
+          });
+        } catch (bucketErr) {}
+      }
+    }
+  } catch (e: any) {
+    console.warn('[tts-cache] failed to write cache:', e?.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2673,35 +2825,51 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
     const { text, hq } = req.body;
     if (!text) return res.status(400).json({ error: 'Missing text' });
 
-    try {
-      const orgId = req.body?.org_id || req.query?.org_id || req.cookies?.['sb-org-id'];
-      await verifyAndIncrementUsage(req.userId, 'tts', orgId);
-    } catch (e: any) {
-      if (e.name === 'SubscriptionLimitError') {
-        return res.status(429).json({ error: e.message, limitReached: true });
+    const script = detectDominantScript(text);
+    if (script === 'other') {
+      return res.status(400).json({ error: 'This language or script is not supported yet for read-aloud.' });
+    }
+    const engine = script === 'devanagari' ? 'elevenlabs' : 'kokoro';
+    console.log(`[tts] script=${script} engine=${engine} chars=${text.length}`);
+
+    const orgId = req.body?.org_id || req.query?.org_id || req.cookies?.['sb-org-id'];
+    if (engine === 'elevenlabs') {
+      try {
+        await verifyAndIncrementUsage(req.userId, 'tts_premium', orgId, false, text.length);
+      } catch (e: any) {
+        if (e.name === 'SubscriptionLimitError') {
+          return res.status(429).json({ error: e.message, limitReached: true });
+        }
+        throw e;
       }
-      throw e;
+    } else {
+      try {
+        await verifyAndIncrementUsage(req.userId, 'tts', orgId);
+      } catch (e: any) {
+        if (e.name === 'SubscriptionLimitError') {
+          return res.status(429).json({ error: e.message, limitReached: true });
+        }
+        throw e;
+      }
     }
 
-    // NOTE: no longer a hard 500 when the ElevenLabs key is absent. Kokoro is
-    // the primary engine on this route; ElevenLabs is only the fallback, so a
-    // missing key should degrade the fallback, not kill the whole request.
     const apiKey = process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY;
     if (!apiKey) {
-      console.warn('[TTS] ELEVENLABS_API_KEY not set - Kokoro failures will have no fallback.');
+      if (engine === 'elevenlabs') {
+        console.error('[TTS] ELEVENLABS_API_KEY not configured for Nepali read-aloud');
+        return res.status(500).json({ error: 'TTS service configuration error' });
+      } else {
+        console.warn('[TTS] ELEVENLABS_API_KEY not set - Kokoro failures will have no fallback.');
+      }
     }
 
     // Smaller chunks on constrained clients: fewer bytes resident per buffered
-    // chunk, which lowers peak memory on 4GB smartboards. The frontend sets
-    // this from navigator.deviceMemory / hardwareConcurrency.
+    // chunk, which lowers peak memory on 4GB smartboards.
     const lowMemory = req.body?.lowMemory === true;
     const chunks = chunkDocumentText(text, lowMemory ? 180 : 300);
     if (lowMemory) console.log('[TTS] lowMemory client: using 180-char chunks.');
 
-    // Correct content type for newline-delimited JSON (this was previously
-    // labelled text/event-stream even though the body is NDJSON, and some
-    // proxies buffer SSE). X-Accel-Buffering + flushHeaders push chunk 0 out
-    // immediately instead of letting a proxy sit on it.
+    // Correct content type for newline-delimited JSON
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -2710,8 +2878,79 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
 
     res.write(JSON.stringify({ totalChunks: chunks.length }) + '\n');
 
+    let wasCached = true;
+
+    if (engine === 'elevenlabs') {
+      const voiceId = 'dtqbhKQTKfVe9T23mwwa';
+      const modelId = 'eleven_v3';
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        let emitted = false;
+
+        const emit = (audioUrl: string | null, spokenTimestamps: any[], duration: number) => {
+          const aligned = audioUrl
+            ? alignTimestampsToOriginalText(chunk.text, spokenTimestamps, duration)
+            : [];
+          res.write(JSON.stringify({
+            index: i,
+            domIndex: chunk.domIndex,
+            text: chunk.text,
+            audioUrl,
+            timestamps: aligned,
+            playbackDuration: duration
+          }) + '\n');
+          emitted = true;
+        };
+
+        try {
+          const spokenText = chunk.text;
+          if (!spokenText || !spokenText.trim()) {
+            emit(null, [], 0);
+          } else {
+            const cacheKey = crypto.createHash('sha256').update(`${spokenText}|${voiceId}|${modelId}`).digest('hex');
+            const cached = await getCachedTts(cacheKey);
+
+            if (cached) {
+              const audioUrl = `data:${cached.mime || 'audio/mpeg'};base64,${cached.audio_base64}`;
+              emit(audioUrl, cached.timestamps, cached.duration || 0);
+            } else {
+              wasCached = false;
+              const result = await synthesizeElevenLabsChunk(spokenText, voiceId, modelId, apiKey as string);
+              if (result && result.audio_base64) {
+                await setCachedTts(cacheKey, {
+                  audio_base64: result.audio_base64,
+                  timestamps: result.timestamps,
+                  duration: result.duration,
+                  mime: result.mime || 'audio/mpeg'
+                });
+                emit(result.audioUrl, result.timestamps, result.duration);
+              }
+            }
+          }
+        } catch (chunkErr: any) {
+          console.error(`[TTS] Error on Nepali chunk ${i}:`, chunkErr?.message);
+        }
+
+        if (!emitted) {
+          console.error(`[TTS] Chunk ${i} produced no audio; emitting null placeholder.`);
+          res.write(JSON.stringify({
+            index: i,
+            domIndex: chunk.domIndex,
+            text: chunk.text,
+            audioUrl: null,
+            timestamps: []
+          }) + '\n');
+        }
+      }
+
+      console.log(`[tts-premium] user=${req.userId} org=${orgId} chars=${text.length} cached=${wasCached}`);
+      res.end();
+      return;
+    }
+
     // ---------------------------------------------------------------------
-    // Kick off text normalization for EVERY chunk up front, in parallel.
+    // Kokoro engine path (Latin/English)
     // ---------------------------------------------------------------------
     const USE_LLM_NORMALIZER = process.env.USE_LLM_NORMALIZER === '1';
     const normalizeLimiter = createConcurrencyLimit(4);
@@ -2729,16 +2968,6 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
       })
     );
 
-    // -------------------------------------------------------------------
-    // OPT-IN BATCH PATH (KOKORO_BATCH=1).
-    //
-    // Sends every normalized chunk to /v1/speech/batch in a single request and
-    // forwards each result to the browser as it arrives. Falls through to the
-    // per-chunk loop below for anything the batch call did not deliver, so a
-    // partial batch degrades instead of losing audio -- and the emit-always
-    // contract still holds because the loop below runs for every index that
-    // was not already emitted.
-    // -------------------------------------------------------------------
     const emittedIndices = new Set<number>();
 
     if (process.env.KOKORO_BATCH === '1') {
@@ -2780,16 +3009,6 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
       const chunk = chunks[i];
       let emitted = false;
 
-      // EMIT-ALWAYS CONTRACT
-      // ---------------------
-      // The frontend drains its queue with:
-      //     while (chunksMap.has(expectedIndex)) { push; expectedIndex++ }
-      // so a MISSING index permanently stalls expectedIndex and strands every
-      // later chunk in the map, unplayed. The old code had three silent-skip
-      // paths (`continue` on a non-ok ElevenLabs response, no `else` when
-      // finalAudioBase64 was empty, and the loop-aborting normalizer above),
-      // each of which killed all remaining audio. Every index now emits
-      // exactly one line, even on total failure.
       const emit = (audioUrl: string | null, spokenTimestamps: any[], duration: number) => {
         const aligned = audioUrl
           ? alignTimestampsToOriginalText(chunk.text, spokenTimestamps, duration)
@@ -2812,34 +3031,69 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
           console.warn(`[TTS] Chunk ${i} normalized to empty text; emitting silent placeholder.`);
           emit(null, [], 0);
         } else {
-          try {
-            let kokoroResult = await synthesizeKokoroSpeech(spokenText);
-            let ok = !!kokoroResult.audioUrl
-              && kokoroResult.audioUrl.length >= 300
-              && !!kokoroResult.timestamps
-              && kokoroResult.timestamps.length > 0;
+          const cacheKey = crypto.createHash('sha256').update(`${spokenText}|af_sarah|kokoro`).digest('hex');
+          const cached = await getCachedTts(cacheKey);
 
-            if (!ok) {
-              console.warn(`[Kokoro] Chunk ${i} invalid - audio: ${!!kokoroResult.audioUrl}, timestamps: ${kokoroResult.timestamps?.length || 0}, retrying...`);
-              await new Promise((resolve) => setTimeout(resolve, 800));
-              kokoroResult = await synthesizeKokoroSpeech(spokenText);
-              ok = !!kokoroResult.audioUrl
+          if (cached) {
+            const audioUrl = `data:${cached.mime || 'audio/wav'};base64,${cached.audio_base64}`;
+            emit(audioUrl, cached.timestamps, cached.duration || 0);
+          } else {
+            try {
+              let kokoroResult = await synthesizeKokoroSpeech(spokenText);
+              let ok = !!kokoroResult.audioUrl
                 && kokoroResult.audioUrl.length >= 300
                 && !!kokoroResult.timestamps
                 && kokoroResult.timestamps.length > 0;
+
+              if (!ok) {
+                console.warn(`[Kokoro] Chunk ${i} invalid - audio: ${!!kokoroResult.audioUrl}, timestamps: ${kokoroResult.timestamps?.length || 0}, retrying...`);
+                await new Promise((resolve) => setTimeout(resolve, 800));
+                kokoroResult = await synthesizeKokoroSpeech(spokenText);
+                ok = !!kokoroResult.audioUrl
+                  && kokoroResult.audioUrl.length >= 300
+                  && !!kokoroResult.timestamps
+                  && kokoroResult.timestamps.length > 0;
+              }
+
+              if (!ok) throw new Error('Kokoro returned empty audio or timestamps after retry');
+
+              if (kokoroResult.audio_base64) {
+                await setCachedTts(cacheKey, {
+                  audio_base64: kokoroResult.audio_base64,
+                  timestamps: kokoroResult.timestamps,
+                  duration: kokoroResult.playbackDuration,
+                  mime: kokoroResult.mime || 'audio/wav'
+                });
+              }
+
+              emit(kokoroResult.audioUrl, kokoroResult.timestamps, kokoroResult.playbackDuration);
+            } catch (kokoroErr: any) {
+              console.error(`[TTS] Kokoro failed for chunk ${i}, falling back to ElevenLabs:`, kokoroErr?.message);
+              const fbVoiceId = 'JwEIvMzFlLwrArLvqeM5';
+              const fbModelId = hq ? 'eleven_multilingual_v2' : 'eleven_flash_v2_5';
+              const fbCacheKey = crypto.createHash('sha256').update(`${spokenText}|${fbVoiceId}|${fbModelId}`).digest('hex');
+              const fbCached = await getCachedTts(fbCacheKey);
+
+              if (fbCached) {
+                const audioUrl = `data:${fbCached.mime || 'audio/mpeg'};base64,${fbCached.audio_base64}`;
+                emit(audioUrl, fbCached.timestamps, fbCached.duration || 0);
+              } else {
+                const el = await synthesizeElevenLabsChunk(spokenText, fbVoiceId, fbModelId, apiKey as string)
+                  .catch((e: any) => {
+                    console.error(`[TTS] ElevenLabs fallback threw for chunk ${i}:`, e?.message);
+                    return null;
+                  });
+                if (el && el.audio_base64) {
+                  await setCachedTts(fbCacheKey, {
+                    audio_base64: el.audio_base64,
+                    timestamps: el.timestamps,
+                    duration: el.duration,
+                    mime: el.mime || 'audio/mpeg'
+                  });
+                  emit(el.audioUrl, el.timestamps, el.duration);
+                }
+              }
             }
-
-            if (!ok) throw new Error('Kokoro returned empty audio or timestamps after retry');
-
-            emit(kokoroResult.audioUrl, kokoroResult.timestamps, kokoroResult.playbackDuration);
-          } catch (kokoroErr: any) {
-            console.error(`[TTS] Kokoro failed for chunk ${i}, falling back to ElevenLabs:`, kokoroErr?.message);
-            const el = await synthesizeElevenLabsChunk(spokenText, !!hq, apiKey as string)
-              .catch((e: any) => {
-                console.error(`[TTS] ElevenLabs fallback threw for chunk ${i}:`, e?.message);
-                return null;
-              });
-            if (el) emit(el.audioUrl, el.timestamps, el.duration);
           }
         }
       } catch (chunkErr: any) {
