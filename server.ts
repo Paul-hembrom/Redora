@@ -2959,7 +2959,7 @@ app.post('/api/tts/cartesia', authenticate, async (req: any, res) => {
     let uncachedChars = 0;
 
     if (engine === 'elevenlabs') {
-      const voiceId = 'dtqbhKQTKfVe9T23mwwa';
+      const voiceId = process.env.ELEVENLABS_NEPALI_VOICE_ID || 'FzV1qDk1i6MbsuwXpJ46';
       const modelId = 'eleven_v3';
 
       for (let i = 0; i < chunks.length; i++) {
